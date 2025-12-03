@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: skylab
+      POSTGRES_DB: forms_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    container_name: dotnet-api
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=forms_db;Username=admin;Password=skylab"
+      Redis__ConnectionString: "redis:6379"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+    ports:
+      - "5000:8080"   # Host: 5000, Container: 8080
+    restart: unless-stopped
+
+volumes:
+  pgdata:

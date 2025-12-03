@@ -1,0 +1,59 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+logs/
+TestResults/
+[Dd]ebug*/
+[Rr]elease*/
+out/
+
+# .NET tooling
+project.lock.json
+project.fragment.lock.json
+artifacts/
+BenchmarkDotNet.Artifacts/
+*.nupkg
+*.snupkg
+*.symbols.nupkg
+
+# Coverage and analysis
+coverage*/
+*.coverage
+*.coveragexml
+*.dotCover
+*.opencover.xml
+
+# NuGet packages
+packages/
+*.nuget.props
+*.nuget.targets
+.nuget/packages/
+.nuget/NuGet.Config
+
+# EF Core migrations
+[Mm]igrations/
+
+# Secrets & local configs
+appsettings.Development.json
+appsettings.Local.json
+.env
+.env.*
+*.key
+*.pfx
+
+# OS artifacts
+Thumbs.db
+ehthumbs.db
+*.DS_Store
+
+# Misc tooling caches
+_ReSharper*/
+*.resharper
+*.DotSettings.user
+.ionide/
+.idea_modules/
+
+# Docker & container tooling overrides
+docker-compose.override.yml
+.docker/
