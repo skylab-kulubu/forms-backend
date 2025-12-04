@@ -10,6 +10,7 @@ public record FormUpsertContract(
     List<FormSchemaItem> Schema,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
+    Guid? LinkedFormId,
     FormStatus Status
 );
 
@@ -21,6 +22,7 @@ public record FormContract(
     FormStatus Status,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
+    Guid? LinkedFormId,
     DateTime CreatedAt,
     DateTime? UpdatedAt
 );
@@ -30,6 +32,7 @@ public record FormSummaryContract(
     string Title,
     string? Description,
     FormStatus Status,
+    Guid? LinkedFormId,
     DateTime? UpdatedAt,
     int ResponseCount
 );

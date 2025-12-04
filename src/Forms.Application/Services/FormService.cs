@@ -21,7 +21,22 @@ public class FormService : IFormService
 
         var existingForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == formId, cancellationToken);
 
-        if(existingForm == null)
+        if (contract.LinkedFormId.HasValue)
+        {
+            if (contract.LinkedFormId == formId)
+            {
+                throw new InvalidOperationException("Form can't be linked to itself.");
+            }
+
+            var linkedFormExists = await _context.Forms.AsNoTracking().AnyAsync(f => f.Id == contract.LinkedFormId, cancellationToken);
+
+            if (!linkedFormExists)
+            {
+                throw new KeyNotFoundException("The form to be linked was not found.");
+            }
+        }
+
+        if (existingForm == null)
         {
             var newForm = new Form
             {
@@ -32,6 +47,7 @@ public class FormService : IFormService
                 Status = contract.Status,
                 AllowAnonymousResponses = contract.AllowAnonymousResponses,
                 AllowMultipleResponses = contract.AllowMultipleResponses,
+                LinkedFormId = contract.LinkedFormId,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -43,7 +59,7 @@ public class FormService : IFormService
                 UserId = userId,
                 Role = CollaboratorRole.Owner
             });
-            
+
             await _context.SaveChangesAsync(cancellationToken);
             return MapToContract(newForm);
         }
@@ -59,6 +75,7 @@ public class FormService : IFormService
             existingForm.Status = contract.Status;
             existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
             existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
+            existingForm.LinkedFormId = contract.LinkedFormId;
             existingForm.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -85,6 +102,7 @@ public class FormService : IFormService
                 f.Title,
                 f.Description,
                 f.Status,
+                f.LinkedFormId,
                 f.UpdatedAt ?? f.CreatedAt,
                 f.Responses.Count()
             ))
@@ -95,12 +113,12 @@ public class FormService : IFormService
         var form = await _context.Forms.Where(f => f.Id == id)
             .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
             .FirstOrDefaultAsync(cancellationToken);
-            
+
         if (form == null) return false;
 
         form.Status = FormStatus.Deleted;
         form.UpdatedAt = DateTime.UtcNow;
-        
+
         await _context.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -114,6 +132,7 @@ public class FormService : IFormService
             form.Status,
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
+            form.LinkedFormId,
             form.CreatedAt,
             form.UpdatedAt
         );
