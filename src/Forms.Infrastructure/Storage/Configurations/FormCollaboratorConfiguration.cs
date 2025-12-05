@@ -13,7 +13,7 @@ public class FormCollaboratorConfiguration : IEntityTypeConfiguration<FormCollab
 
         builder.HasKey(fc => new {fc.FormId, fc.UserId});
 
-        builder.HasIndex(fc => fc.UserId).IsUnique().HasFilter($"\"Role\" = {(int)CollaboratorRole.Owner}");
+        builder.HasIndex(fc => fc.FormId).IsUnique().HasFilter($"\"Role\" = {(int)CollaboratorRole.Owner}");
 
         builder.HasOne(fc => fc.Form).WithMany(fc => fc.Collaborators).HasForeignKey(fc => fc.FormId).OnDelete(DeleteBehavior.Cascade);
         

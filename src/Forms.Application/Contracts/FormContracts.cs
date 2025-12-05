@@ -11,7 +11,8 @@ public record FormUpsertContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     Guid? LinkedFormId,
-    FormStatus Status
+    FormStatus Status,
+    List<FormCollaboratorUpsertContract>? Collaborators
 );
 
 public record FormContract(
@@ -23,6 +24,7 @@ public record FormContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     Guid? LinkedFormId,
+    List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
     DateTime? UpdatedAt
 );
@@ -35,4 +37,12 @@ public record FormSummaryContract(
     Guid? LinkedFormId,
     DateTime? UpdatedAt,
     int ResponseCount
+);
+public record FormCollaboratorContract(
+    Guid UserId,
+    CollaboratorRole Role
+);
+public record FormCollaboratorUpsertContract(
+    Guid UserId, 
+    CollaboratorRole Role
 );

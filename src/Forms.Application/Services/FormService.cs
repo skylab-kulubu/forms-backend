@@ -51,14 +51,22 @@ public class FormService : IFormService
                 CreatedAt = DateTime.UtcNow
             };
 
-            _context.Forms.Add(newForm);
+            var collaborators = new List<FormCollaborator> { new FormCollaborator { FormId = formId, UserId = userId, Role = CollaboratorRole.Owner } };
 
-            _context.Collaborators.Add(new FormCollaborator
+            if (contract.Collaborators != null)
             {
-                FormId = newForm.Id,
-                UserId = userId,
-                Role = CollaboratorRole.Owner
-            });
+                foreach (var incoming in contract.Collaborators)
+                {
+                    if (incoming.UserId == userId) continue;
+
+                    var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
+
+                    collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole});
+                }
+            };
+
+            newForm.Collaborators = collaborators;
+            _context.Forms.Add(newForm);
 
             await _context.SaveChangesAsync(cancellationToken);
             return MapToContract(newForm);
@@ -77,6 +85,37 @@ public class FormService : IFormService
             existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
             existingForm.LinkedFormId = contract.LinkedFormId;
             existingForm.UpdatedAt = DateTime.UtcNow;
+
+            if (contract.Collaborators != null)
+            {
+                var dbCollaborators = existingForm.Collaborators.ToList();
+                var incomingCollaborators = contract.Collaborators;
+
+                var toDelete = dbCollaborators
+                    .Where(db => db.Role != CollaboratorRole.Owner)
+                    .Where(db => !incomingCollaborators.Any(inc => inc.UserId == db.UserId))
+                    .ToList();
+
+                foreach (var item in toDelete)
+                {
+                    _context.Collaborators.Remove(item);
+                }
+
+                foreach (var incoming in incomingCollaborators)
+                {
+                    if (incoming.UserId == userId) continue;
+
+                    var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
+
+                    var existingCollab = dbCollaborators.FirstOrDefault(c => c.UserId == incoming.UserId);
+
+                    if (existingCollab == null) existingForm.Collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole});
+                    else
+                    {
+                        if (existingCollab.Role != CollaboratorRole.Owner) existingCollab.Role = safeRole;
+                    }
+                }
+            }
 
             await _context.SaveChangesAsync(cancellationToken);
             return MapToContract(existingForm);
@@ -133,6 +172,7 @@ public class FormService : IFormService
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
             form.LinkedFormId,
+            form.Collaborators?.Select(c => new FormCollaboratorContract(c.UserId, c.Role)).ToList() ?? new List<FormCollaboratorContract>(),
             form.CreatedAt,
             form.UpdatedAt
         );
