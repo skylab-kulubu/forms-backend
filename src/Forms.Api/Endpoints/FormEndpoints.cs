@@ -1,7 +1,6 @@
 using Forms.Application.Contracts;
 using Forms.Application.Services;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace Forms.API.Endpoints;
 
@@ -20,14 +19,21 @@ public static class FormEndpoints
 
         forms.MapGet("/{id:guid}", async (Guid id, IFormService service, CancellationToken ct) =>
         {
-            var form = await service.GetByIdAsync(id, ct);
-            return form is not null ? Results.Ok(form) : Results.NotFound("Form not found with given id.");
+            try
+            {
+                var form = await service.GetByIdAsync(id, FixedUserId, ct);
+                return form is not null ? Results.Ok(form) : Results.NotFound("Form not found.");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.StatusCode(403);
+            }
         });
 
         forms.MapPost("/", async ([FromBody] FormUpsertContract request, IFormService service, CancellationToken ct) =>
         {
             var result = await service.UpsertAsync(request, FixedUserId, ct);
-            
+
             if (request.Id.HasValue) return Results.Ok(result);
 
             return Results.Created($"/api/forms/{result.Id}", result);

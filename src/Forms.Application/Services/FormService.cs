@@ -61,7 +61,7 @@ public class FormService : IFormService
 
                     var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
 
-                    collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole});
+                    collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                 }
             };
 
@@ -109,7 +109,7 @@ public class FormService : IFormService
 
                     var existingCollab = dbCollaborators.FirstOrDefault(c => c.UserId == incoming.UserId);
 
-                    if (existingCollab == null) existingForm.Collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole});
+                    if (existingCollab == null) existingForm.Collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                     else
                     {
                         if (existingCollab.Role != CollaboratorRole.Owner) existingCollab.Role = safeRole;
@@ -121,11 +121,15 @@ public class FormService : IFormService
             return MapToContract(existingForm);
         }
     }
-    public async Task<FormContract?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<FormContract?> GetByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var form = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+        var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
         if (form == null) return null;
+
+        var isAuthorized = form.Collaborators.Any(c => c.UserId == userId);
+
+        if (!isAuthorized) throw new UnauthorizedAccessException("Unauthorized access to the form.");
 
         return MapToContract(form);
     }
