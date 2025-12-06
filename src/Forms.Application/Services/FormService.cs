@@ -15,7 +15,7 @@ public class FormService : IFormService
         _context = context;
     }
 
-    public async Task<FormContract> UpsertFormAsync(FormUpsertContract contract, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormContract>> UpsertFormAsync(FormUpsertContract contract, Guid userId, CancellationToken cancellationToken = default)
     {
         var formId = contract.Id ?? Guid.NewGuid();
 
@@ -25,14 +25,14 @@ public class FormService : IFormService
         {
             if (contract.LinkedFormId == formId)
             {
-                throw new InvalidOperationException("Form can't be linked to itself.");
+                return new ServiceResult<FormContract>(FormAccessStatus.NotAvailable, Message: "Bir form kendisi ile ilişkilendirilemez.");
             }
 
             var linkedFormExists = await _context.Forms.AsNoTracking().AnyAsync(f => f.Id == contract.LinkedFormId, cancellationToken);
 
             if (!linkedFormExists)
             {
-                throw new KeyNotFoundException("The form to be linked was not found.");
+                return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "The form to be linked was not found.");
             }
         }
 
@@ -70,13 +70,13 @@ public class FormService : IFormService
             _context.Forms.Add(newForm);
 
             await _context.SaveChangesAsync(cancellationToken);
-            return MapToContract(newForm);
+            return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm));
         }
         else
         {
             var isAuthorized = existingForm.Collaborators.Any(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
 
-            if (!isAuthorized) throw new UnauthorizedAccessException("Bu formu düzenleme yetkiniz yok.");
+            if (!isAuthorized) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
 
             existingForm.Title = contract.Title;
             existingForm.Description = contract.Description;
@@ -119,27 +119,26 @@ public class FormService : IFormService
             }
 
             await _context.SaveChangesAsync(cancellationToken);
-            return MapToContract(existingForm);
+            return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm));
         }
     }
-    public async Task<FormContract?> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
-        if (form == null) return null;
+        if (form == null) return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = form.Collaborators.Any(c => c.UserId == userId);
 
-        if (!isAuthorized) throw new UnauthorizedAccessException("Unauthorized access to the form.");
+        if (!isAuthorized) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
-        return MapToContract(form);
+        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form));
     }
-    public async Task<FormDisplayResult> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormDisplayContract>> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
-        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new FormDisplayResult { Status = FormDisplayStatus.NotFound };
-
+        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayContract>(FormAccessStatus.NotFound);
         var parentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.LinkedFormId == id, cancellationToken);
 
         if (parentForm != null)
@@ -147,11 +146,12 @@ public class FormService : IFormService
             var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
             if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
             {
-                return new FormDisplayResult
-                {
-                    Status = FormDisplayStatus.RequiresParentApproval,
-                    Message = "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
-                };
+                return new ServiceResult<FormDisplayContract>
+                (
+                    FormAccessStatus.RequiresParentApproval,
+                    default,
+                    "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
+                );
             }
         }
 
@@ -161,45 +161,44 @@ public class FormService : IFormService
         {
             if (latestResponse.Status == FormResponseStatus.Pending)
             {
-                return new FormDisplayResult
-                {
-                    Status = FormDisplayStatus.PendingApproval,
-                    Message = "Form cevabınız inceleniyor, lütfen bekleyiniz."
-                };
+                return new ServiceResult<FormDisplayContract>(
+                    FormAccessStatus.PendingApproval,
+                    default,
+                    "Form cevabınız inceleniyor, lütfen bekleyiniz."
+                );
             }
             if (latestResponse.Status == FormResponseStatus.Approved)
             {
                 if (form.LinkedFormId.HasValue) return await GetDisplayFormByIdAsync(form.LinkedFormId.Value, userId, cancellationToken);
                 if (!form.AllowMultipleResponses)
                 {
-                    return new FormDisplayResult
-                    {
-                        Status = FormDisplayStatus.Completed,
-                        Message = "Bu formu daha önce doldurdunuz."
-                    };
+                    return new ServiceResult<FormDisplayContract>(
+                        FormAccessStatus.Completed,
+                        default,
+                        "Bu formu daha önce doldurdunuz."
+                    );
                 }
             }
             if (latestResponse.Status == FormResponseStatus.Declined)
             {
                 if (!form.AllowMultipleResponses)
                 {
-                    return new FormDisplayResult
-                    {
-                        Status = FormDisplayStatus.Completed,
-                        Message = "Başvurunuz reddedilmiştir ve yeni giriş hakkınız yoktur."
-                    };
+                    return new ServiceResult<FormDisplayContract>(
+                        FormAccessStatus.Completed,
+                        default,
+                        "Başvurunuz reddedilmiştir ve yeni giriş hakkınız yoktur."
+                    );
                 }
             }
         }
-        return new FormDisplayResult
-        {
-            Status = FormDisplayStatus.Available,
-            Form = MapToDisplayContract(form)
-        };
+        return new ServiceResult<FormDisplayContract>(
+            FormAccessStatus.Available,
+            MapToDisplayContract(form)
+        );
     }
-    public async Task<List<FormSummaryContract>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<List<FormSummaryContract>>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        return await _context.Forms
+        var forms = await _context.Forms
             .AsNoTracking()
             .Where(f => f.Collaborators.Any(c => c.UserId == userId))
             .Where(f => f.Status != FormStatus.Deleted)
@@ -214,20 +213,25 @@ public class FormService : IFormService
                 f.Responses.Count()
             ))
             .ToListAsync(cancellationToken);
+
+        return new ServiceResult<List<FormSummaryContract>>(
+            FormAccessStatus.Available, 
+            Data: forms
+        );
     }
-    public async Task<bool> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<bool>> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.Where(f => f.Id == id)
             .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (form == null) return false;
+        if (form == null) return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "Form bulunamadı veya yetkiniz yok.");
 
         form.Status = FormStatus.Deleted;
         form.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
-        return true;
+        return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form silindi.");
     }
     private static FormContract MapToContract(Form form)
     {

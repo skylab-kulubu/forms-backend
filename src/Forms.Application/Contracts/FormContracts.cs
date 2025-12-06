@@ -56,9 +56,9 @@ public record FormCollaboratorUpsertContract(
     Guid UserId, 
     CollaboratorRole Role
 );
-public record FormDisplayResult
+public record FormAccessResult
 {
-    public FormDisplayStatus Status { get; init; }
+    public FormAccessStatus Status { get; init; }
     public FormDisplayContract? Form { get; init; }
     public string? Message { get; init; }
 }

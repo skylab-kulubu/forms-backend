@@ -1,5 +1,5 @@
 using Forms.Application.Services;
-using Microsoft.AspNetCore.Mvc;
+using Forms.API.Extensions;
 
 namespace Forms.API.Endpoints;
 
@@ -14,15 +14,7 @@ public static class FormEndpoints
         {
             var result = await service.GetDisplayFormByIdAsync(id, FixedUserId, ct);
 
-            return result.Status switch
-            {
-                FormDisplayStatus.Available => Results.Ok(result),
-
-                FormDisplayStatus.NotFound => Results.NotFound(new { message = "Form bulunamadı." }),
-                FormDisplayStatus.NotAvailable => Results.NotFound(new { message = "Form artık yayında değil." }),
-
-                _ => Results.Ok(result)
-            };
+            return result.ToApiResult();
         });
     }
 }
