@@ -25,7 +25,7 @@ public class FormService : IFormService
         {
             if (contract.LinkedFormId == formId)
             {
-                return new ServiceResult<FormContract>(FormAccessStatus.NotAvailable, Message: "Bir form kendisi ile ilişkilendirilemez.");
+                return new ServiceResult<FormContract>(FormAccessStatus.NotAcceptable, Message: "Bir form kendisi ile ilişkilendirilemez.");
             }
 
             var linkedFormExists = await _context.Forms.AsNoTracking().AnyAsync(f => f.Id == contract.LinkedFormId, cancellationToken);
@@ -33,6 +33,19 @@ public class FormService : IFormService
             if (!linkedFormExists)
             {
                 return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "The form to be linked was not found.");
+            }
+        }
+
+        if (contract.AllowAnonymousResponses)
+        {
+            if (contract.LinkedFormId.HasValue)
+            {
+                return new ServiceResult<FormContract>(FormAccessStatus.NotAcceptable, Message: "Anonim formlar başka bir forma bağlanamaz.");
+            }
+
+            if (!contract.AllowMultipleResponses)
+            {
+                return new ServiceResult<FormContract>(FormAccessStatus.NotAcceptable, Message: "Anonim formlarda çoklu yanıt özelliği açık olmalıdır.");
             }
         }
 
@@ -215,7 +228,7 @@ public class FormService : IFormService
             .ToListAsync(cancellationToken);
 
         return new ServiceResult<List<FormSummaryContract>>(
-            FormAccessStatus.Available, 
+            FormAccessStatus.Available,
             Data: forms
         );
     }

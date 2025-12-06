@@ -1,6 +1,3 @@
-using Forms.Application.Contracts;
-using Microsoft.AspNetCore.Http; // IResult ve Results için gerekli
-
 namespace Forms.API.Extensions;
 
 public static class ResultExtensions
@@ -31,10 +28,16 @@ public static class ResultExtensions
                 message = result.Message ?? "Yetkiniz yok." 
             }, statusCode: 403),
 
+            FormAccessStatus.NotAcceptable => Results.Json(new 
+            { 
+                status = result.Status, 
+                message = result.Message ?? "Veriler yanlış veya eksik." 
+            }, statusCode: 406),
+
             FormAccessStatus.RequiresParentApproval => Results.Json(new 
             { 
                 status = result.Status, 
-                message = result.Message ?? "Önceki onay gereklidir." 
+                message = result.Message ?? "Önceki formun onayı gereklidir." 
             }, statusCode: 428),
 
             _ => Results.BadRequest(new 
