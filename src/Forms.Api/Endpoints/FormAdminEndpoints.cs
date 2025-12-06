@@ -20,7 +20,7 @@ public static class FormAdminEndpoints
 
         group.MapGet("/{id:guid}", async (Guid id, IFormService service, CancellationToken ct) =>
         {
-            var result = await service.GetDisplayFormByIdAsync(id, FixedUserId, ct);
+            var result = await service.GetFormByIdAsync(id, FixedUserId, ct);
             return result.ToApiResult();
         });
 
