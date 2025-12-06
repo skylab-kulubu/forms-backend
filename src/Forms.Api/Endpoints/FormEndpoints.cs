@@ -1,4 +1,3 @@
-using Forms.Application.Contracts;
 using Forms.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,42 +8,21 @@ public static class FormEndpoints
     private static readonly Guid FixedUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     public static void MapFormEndpoints(this IEndpointRouteBuilder routes)
     {
-        var forms = routes.MapGroup("api/forms").WithTags("Forms");
+        var group = routes.MapGroup("api/forms").WithTags("Forms");
 
-        forms.MapGet("/", async (IFormService service, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, IFormService service, CancellationToken ct) =>
         {
-            var forms = await service.GetUserFormsAsync(FixedUserId, ct);
-            return Results.Ok(forms);
-        });
+            var result = await service.GetDisplayFormByIdAsync(id, FixedUserId, ct);
 
-        forms.MapGet("/{id:guid}", async (Guid id, IFormService service, CancellationToken ct) =>
-        {
-            try
+            return result.Status switch
             {
-                var form = await service.GetByIdAsync(id, FixedUserId, ct);
-                return form is not null ? Results.Ok(form) : Results.NotFound("Form not found.");
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return Results.StatusCode(403);
-            }
-        });
+                FormDisplayStatus.Available => Results.Ok(result),
 
-        forms.MapPost("/", async ([FromBody] FormUpsertContract request, IFormService service, CancellationToken ct) =>
-        {
-            var result = await service.UpsertAsync(request, FixedUserId, ct);
+                FormDisplayStatus.NotFound => Results.NotFound(new { message = "Form bulunamadı." }),
+                FormDisplayStatus.NotAvailable => Results.NotFound(new { message = "Form artık yayında değil." }),
 
-            if (request.Id.HasValue) return Results.Ok(result);
-
-            return Results.Created($"/api/forms/{result.Id}", result);
-
-        });
-
-        forms.MapDelete("/{id:guid}", async (Guid id, IFormService service, CancellationToken ct) =>
-        {
-            var success = await service.DeleteAsync(id, FixedUserId, ct);
-
-            return success ? Results.NoContent() : Results.NotFound("Form not found.");
+                _ => Results.Ok(result)
+            };
         });
     }
 }

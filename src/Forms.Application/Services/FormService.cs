@@ -15,7 +15,7 @@ public class FormService : IFormService
         _context = context;
     }
 
-    public async Task<FormContract> UpsertAsync(FormUpsertContract contract, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<FormContract> UpsertFormAsync(FormUpsertContract contract, Guid userId, CancellationToken cancellationToken = default)
     {
         var formId = contract.Id ?? Guid.NewGuid();
 
@@ -63,7 +63,8 @@ public class FormService : IFormService
 
                     collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                 }
-            };
+            }
+            ;
 
             newForm.Collaborators = collaborators;
             _context.Forms.Add(newForm);
@@ -121,7 +122,7 @@ public class FormService : IFormService
             return MapToContract(existingForm);
         }
     }
-    public async Task<FormContract?> GetByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<FormContract?> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
@@ -132,6 +133,69 @@ public class FormService : IFormService
         if (!isAuthorized) throw new UnauthorizedAccessException("Unauthorized access to the form.");
 
         return MapToContract(form);
+    }
+    public async Task<FormDisplayResult> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var form = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+
+        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new FormDisplayResult { Status = FormDisplayStatus.NotFound };
+
+        var parentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.LinkedFormId == id, cancellationToken);
+
+        if (parentForm != null)
+        {
+            var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
+            if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
+            {
+                return new FormDisplayResult
+                {
+                    Status = FormDisplayStatus.RequiresParentApproval,
+                    Message = "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
+                };
+            }
+        }
+
+        var latestResponse = await _context.Responses.Where(r => r.FormId == id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
+
+        if (latestResponse != null)
+        {
+            if (latestResponse.Status == FormResponseStatus.Pending)
+            {
+                return new FormDisplayResult
+                {
+                    Status = FormDisplayStatus.PendingApproval,
+                    Message = "Form cevabınız inceleniyor, lütfen bekleyiniz."
+                };
+            }
+            if (latestResponse.Status == FormResponseStatus.Approved)
+            {
+                if (form.LinkedFormId.HasValue) return await GetDisplayFormByIdAsync(form.LinkedFormId.Value, userId, cancellationToken);
+                if (!form.AllowMultipleResponses)
+                {
+                    return new FormDisplayResult
+                    {
+                        Status = FormDisplayStatus.Completed,
+                        Message = "Bu formu daha önce doldurdunuz."
+                    };
+                }
+            }
+            if (latestResponse.Status == FormResponseStatus.Declined)
+            {
+                if (!form.AllowMultipleResponses)
+                {
+                    return new FormDisplayResult
+                    {
+                        Status = FormDisplayStatus.Completed,
+                        Message = "Başvurunuz reddedilmiştir ve yeni giriş hakkınız yoktur."
+                    };
+                }
+            }
+        }
+        return new FormDisplayResult
+        {
+            Status = FormDisplayStatus.Available,
+            Form = MapToDisplayContract(form)
+        };
     }
     public async Task<List<FormSummaryContract>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
@@ -151,7 +215,7 @@ public class FormService : IFormService
             ))
             .ToListAsync(cancellationToken);
     }
-    public async Task<bool> DeleteAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.Where(f => f.Id == id)
             .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
@@ -179,6 +243,18 @@ public class FormService : IFormService
             form.Collaborators?.Select(c => new FormCollaboratorContract(c.UserId, c.Role)).ToList() ?? new List<FormCollaboratorContract>(),
             form.CreatedAt,
             form.UpdatedAt
+        );
+    }
+    private FormDisplayContract MapToDisplayContract(Form form)
+    {
+        return new FormDisplayContract(
+            form.Id,
+            form.Title,
+            form.Description,
+            form.Schema,
+            form.AllowAnonymousResponses,
+            form.AllowMultipleResponses,
+            form.LinkedFormId.HasValue // HasChildForm
         );
     }
 }

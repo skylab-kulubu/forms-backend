@@ -29,6 +29,16 @@ public record FormContract(
     DateTime? UpdatedAt
 );
 
+public record FormDisplayContract(
+    Guid Id,
+    string Title,
+    string? Description,
+    List<FormSchemaItem> Schema,
+    bool AllowAnonymousResponses,
+    bool AllowMultipleResponses,
+    bool HasChildForm
+);
+
 public record FormSummaryContract(
     Guid Id,
     string Title,
@@ -46,3 +56,9 @@ public record FormCollaboratorUpsertContract(
     Guid UserId, 
     CollaboratorRole Role
 );
+public record FormDisplayResult
+{
+    public FormDisplayStatus Status { get; init; }
+    public FormDisplayContract? Form { get; init; }
+    public string? Message { get; init; }
+}
