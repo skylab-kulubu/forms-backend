@@ -256,6 +256,24 @@ public class FormService : IFormService
             Data: forms
         );
     }
+    public async Task<ServiceResult<List<LinkableFormsContract>>> GetLinkableFormsAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var forms = await _context.Forms
+            .AsNoTracking()
+            .Include(f => f.Collaborators)
+            .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
+            .Where(f => f.Id != id)
+            .Where(f => f.Status != FormStatus.Deleted)
+            .Where(f => f.LinkedFormId == null)
+            .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
+            .Select(f => new LinkableFormsContract(
+                f.Id,
+                f.Title
+            ))
+            .ToListAsync(cancellationToken);
+        
+        return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.Available, Data: forms);
+    }
     public async Task<ServiceResult<bool>> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.Where(f => f.Id == id)

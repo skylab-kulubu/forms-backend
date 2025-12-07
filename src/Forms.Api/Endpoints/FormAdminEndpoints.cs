@@ -24,6 +24,12 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/linkable-forms", async (Guid id, IFormService service, CancellationToken ct) =>
+        {
+            var result = await service.GetLinkableFormsAsync(id, FixedUserId,  ct);
+            return result.ToApiResult();
+        });
+
         group.MapPost("/", async ([FromBody] FormUpsertContract request, IFormService service, CancellationToken ct) =>
         {
             var result = await service.UpsertFormAsync(request, FixedUserId, ct);

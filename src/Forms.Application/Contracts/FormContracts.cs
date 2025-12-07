@@ -58,7 +58,8 @@ public record FormCollaboratorUpsertContract(
     Guid UserId, 
     CollaboratorRole Role
 );
-public record FormLinkRequest(
-    Guid ParentFormId,
-    Guid ChildFormId
+
+public record LinkableFormsContract(
+    Guid Id,
+    string Title
 );
