@@ -132,6 +132,7 @@ public class FormService : IFormService
 
                         if (childForm != null)
                         {
+                            childForm.Status = existingForm.Status;
                             childForm.AllowAnonymousResponses = existingForm.AllowAnonymousResponses;
                             childForm.AllowMultipleResponses = existingForm.AllowMultipleResponses;
 
