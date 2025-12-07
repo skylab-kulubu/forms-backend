@@ -133,7 +133,8 @@ public class FormService : IFormService
 
         if (!isAuthorized) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
-        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form));
+        var isChildForm = await _context.Forms.AnyAsync(f => f.LinkedFormId == id, cancellationToken);
+        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, isChildForm));
     }
     public async Task<ServiceResult<FormDisplayContract>> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
@@ -155,6 +156,10 @@ public class FormService : IFormService
                 );
             }
         }
+
+        var relationshipStatus = FormRelationshipStatus.None;
+        if (form.LinkedFormId.HasValue) relationshipStatus = FormRelationshipStatus.Parent;
+        else if (parentForm != null) relationshipStatus = FormRelationshipStatus.Child;
 
         var latestResponse = await _context.Responses.Where(r => r.FormId == id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
 
@@ -192,9 +197,10 @@ public class FormService : IFormService
                 }
             }
         }
+        
         return new ServiceResult<FormDisplayContract>(
             FormAccessStatus.Available,
-            MapToDisplayContract(form)
+            MapToDisplayContract(form, relationshipStatus)
         );
     }
     public async Task<ServiceResult<List<FormSummaryContract>>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -294,7 +300,7 @@ public class FormService : IFormService
         await _context.SaveChangesAsync(ct);
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form bağlantısı kaldırıldı.");
     }
-    private static FormContract MapToContract(Form form)
+    private static FormContract MapToContract(Form form, bool isChildForm = false)
     {
         return new FormContract(
             form.Id,
@@ -305,12 +311,13 @@ public class FormService : IFormService
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
             form.LinkedFormId,
+            isChildForm,
             form.Collaborators?.Select(c => new FormCollaboratorContract(c.UserId, c.Role)).ToList() ?? new List<FormCollaboratorContract>(),
             form.CreatedAt,
             form.UpdatedAt
         );
     }
-    private FormDisplayContract MapToDisplayContract(Form form)
+    private FormDisplayContract MapToDisplayContract(Form form, FormRelationshipStatus relationshipStatus)
     {
         return new FormDisplayContract(
             form.Id,
@@ -319,7 +326,7 @@ public class FormService : IFormService
             form.Schema,
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
-            form.LinkedFormId.HasValue // HasChildForm
+            relationshipStatus
         );
     }
     private void SyncChildCollaborators(Form childForm, List<FormCollaborator> parentCollaborators)

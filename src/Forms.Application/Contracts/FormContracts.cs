@@ -10,7 +10,6 @@ public record FormUpsertContract(
     List<FormSchemaItem> Schema,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
-    Guid? LinkedFormId,
     FormStatus Status,
     List<FormCollaboratorUpsertContract>? Collaborators
 );
@@ -24,6 +23,7 @@ public record FormContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     Guid? LinkedFormId,
+    bool IsChildForm,
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
     DateTime? UpdatedAt
@@ -36,7 +36,7 @@ public record FormDisplayContract(
     List<FormSchemaItem> Schema,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
-    bool HasChildForm
+    FormRelationshipStatus RelationshipStatus
 );
 
 public record FormSummaryContract(
@@ -48,6 +48,7 @@ public record FormSummaryContract(
     DateTime? UpdatedAt,
     int ResponseCount
 );
+
 public record FormCollaboratorContract(
     Guid UserId,
     CollaboratorRole Role
@@ -56,9 +57,7 @@ public record FormCollaboratorUpsertContract(
     Guid UserId, 
     CollaboratorRole Role
 );
-public record FormAccessResult
-{
-    public FormAccessStatus Status { get; init; }
-    public FormDisplayContract? Form { get; init; }
-    public string? Message { get; init; }
-}
+public record FormLinkRequest(
+    Guid ParentFormId,
+    Guid ChildFormId
+);
