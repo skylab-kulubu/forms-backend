@@ -11,6 +11,7 @@ public record FormUpsertContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     FormStatus Status,
+    Guid? LinkedFormId,
     List<FormCollaboratorUpsertContract>? Collaborators
 );
 

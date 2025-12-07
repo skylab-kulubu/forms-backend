@@ -42,17 +42,5 @@ public static class FormAdminEndpoints
 
             return result.Status == FormAccessStatus.Available ? Results.NoContent() : result.ToApiResult();
         });
-
-        group.MapPost("/link", async ([FromBody] FormLinkRequest request, IFormService service, CancellationToken ct) =>
-        {
-            var result = await service.LinkFormsAsync(request.ParentFormId, request.ChildFormId, FixedUserId, ct);
-            return result.ToApiResult();
-        });
-
-        group.MapPost("/{id:guid}/unlink", async (Guid id, IFormService service, CancellationToken ct) =>
-        {
-            var result = await service.UnlinkFormAsync(id, FixedUserId, ct);
-            return result.ToApiResult();
-        });
     }
 }
