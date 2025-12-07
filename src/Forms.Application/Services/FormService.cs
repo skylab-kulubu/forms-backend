@@ -246,6 +246,76 @@ public class FormService : IFormService
         await _context.SaveChangesAsync(cancellationToken);
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form silindi.");
     }
+    public async Task<ServiceResult<bool>> LinkFormsAsync(Guid parentId, Guid childId, Guid userId, CancellationToken ct = default)
+    {
+        if (parentId == childId) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Bir form kendisine bağlanamaz.");
+
+        var parentForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == parentId, ct);
+        var childForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == childId, ct);
+
+        if (parentForm == null || childForm == null) return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "Formlardan biri bulunamadı.");
+
+        var isParentAdmin = parentForm.Collaborators.Any(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
+        var isChildOwner = childForm.Collaborators.Any(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner));
+
+        if (!isParentAdmin || !isChildOwner) return new ServiceResult<bool>(FormAccessStatus.NotAuthorized, Message: "Her iki formda da yönetici yetkisine sahip olmalısınız.");
+
+        if (parentForm.LinkedFormId.HasValue) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Seçilen ana form, halihazırda başka bir forma bağlı olduğu için alt form eklenemez.");
+
+        var isChildAlreadyLinked = await _context.Forms.AnyAsync(f => f.LinkedFormId == childId && f.Id != parentId, ct);
+        if (isChildAlreadyLinked) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Seçilen alt form, halihazırda başka bir form tarafından kullanılıyor.");
+
+        if (childForm.LinkedFormId.HasValue)  return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Seçilen alt formun halihazırda başka bir alt formu var (Zincirleme bağlantı yapılamaz).");
+
+        parentForm.LinkedFormId = childId;
+
+        childForm.AllowAnonymousResponses = parentForm.AllowAnonymousResponses;
+        childForm.AllowMultipleResponses = parentForm.AllowMultipleResponses;
+
+        var childCollabs = childForm.Collaborators.ToList();
+        var parentCollabs = parentForm.Collaborators.ToList();
+
+        var toDelete = childCollabs.Where(c => !parentCollabs.Any(p => p.UserId == c.UserId)).ToList();
+
+        foreach (var item in toDelete)
+        {
+            childForm.Collaborators.Remove(item);
+        }
+
+        foreach (var parentCollab in parentCollabs)
+        {
+            var existingChildCollab = childCollabs.FirstOrDefault(c => c.UserId == parentCollab.UserId);
+
+            if (existingChildCollab == null)
+            {
+                childForm.Collaborators.Add(new FormCollaborator { FormId = childId, UserId = parentCollab.UserId, Role = parentCollab.Role});
+            }
+            else
+            {
+                if (existingChildCollab.Role != parentCollab.Role) existingChildCollab.Role = parentCollab.Role;
+            }
+        }
+
+        await _context.SaveChangesAsync(ct);
+
+        return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Formlar başarıyla bağlandı.");
+    }
+    public async Task<ServiceResult<bool>> UnlinkFormAsync(Guid parentId, Guid userId, CancellationToken ct = default)
+    {
+        var parentForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == parentId, ct);
+
+        if (parentForm == null) return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
+
+        var isAuthorized = parentForm.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner);
+        if (!isAuthorized) return new ServiceResult<bool>(FormAccessStatus.NotAuthorized);
+
+        if (!parentForm.LinkedFormId.HasValue) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Bu formun zaten bir bağlantısı yok.");
+
+        parentForm.LinkedFormId = null;
+
+        await _context.SaveChangesAsync(ct);
+        return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form bağlantısı kaldırıldı.");
+    }
     private static FormContract MapToContract(Form form)
     {
         return new FormContract(
