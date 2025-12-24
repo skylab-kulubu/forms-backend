@@ -1,4 +1,5 @@
 using Forms.Domain.Enums;
+using Forms.Domain.Models;
 
 namespace Forms.Domain.Entities;
 
@@ -8,7 +9,7 @@ public class FormResponse
     public Guid FormId { get; set; }
     public Form Form { get; set; } = null!;
     public Guid? UserId { get; set; }
-    public Dictionary<string, object> Data { get; set; } = new();
+    public List<FormResponseSchemaItem> Data { get; set; } = new();
     public FormResponseStatus Status { get; set; } = FormResponseStatus.Pending;
     public Guid? ReviewedBy { get; set; }
     public DateTime? ReviewedAt { get; set; }
