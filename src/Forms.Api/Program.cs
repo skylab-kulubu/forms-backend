@@ -29,6 +29,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddScoped<IFormService, FormService>();
+builder.Services.AddScoped<IFormResponseService, FormResponseService>();
 
 var app = builder.Build();
 

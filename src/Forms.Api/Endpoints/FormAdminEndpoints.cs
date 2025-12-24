@@ -26,7 +26,7 @@ public static class FormAdminEndpoints
 
         group.MapGet("/{id:guid}/linkable-forms", async (Guid id, IFormService service, CancellationToken ct) =>
         {
-            var result = await service.GetLinkableFormsAsync(id, FixedUserId,  ct);
+            var result = await service.GetLinkableFormsAsync(id, FixedUserId, ct);
             return result.ToApiResult();
         });
 
@@ -48,5 +48,25 @@ public static class FormAdminEndpoints
 
             return result.Status == FormAccessStatus.Available ? Results.NoContent() : result.ToApiResult();
         });
+
+        group.MapGet("/{formId:guid}/responses", async (Guid formId, IFormResponseService service, CancellationToken ct) =>
+        {
+            var result = await service.GetFormResponsesAsync(formId, FixedUserId, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/responses/{id:guid}", async (Guid id, IFormResponseService service, CancellationToken ct) =>
+        {
+            var result = await service.GetResponseByIdAsync(id, FixedUserId, ct);
+            return result.ToApiResult();
+        });
+        
+        group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] FormResponseStatusUpdateContract request, IFormResponseService service, CancellationToken ct) =>
+        {
+            var serviceContract = new FormResponseStatusUpdateContract(id, request.NewStatus);
+            
+            var result = await service.UpdateResponseStatusAsync(serviceContract, FixedUserId, ct);
+            return result.ToApiResult();
+        }); 
     }
 }
