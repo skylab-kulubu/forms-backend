@@ -37,7 +37,11 @@ public static class ResultExtensions
                 message = result.Message ?? "Veriler yanlış veya eksik." 
             }, statusCode: 406),
 
-            FormAccessStatus.RequiresParentApproval => Results.Json(result, statusCode: 428),
+            FormAccessStatus.RequiresParentApproval => Results.Json(new 
+            { 
+                status = result.Status, 
+                message = result.Message ?? "Önceki formun onayı gereklidir." 
+            }, statusCode: 428),
 
             _ => Results.BadRequest(new 
             { 

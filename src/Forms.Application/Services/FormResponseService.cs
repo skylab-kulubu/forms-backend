@@ -47,7 +47,7 @@ public class FormResponseService : IFormResponseService
             _context.Responses.Add(response);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new ServiceResult<Guid>(FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
+            return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
         }
     public async Task<ServiceResult<List<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
     {
