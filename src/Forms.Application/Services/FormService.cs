@@ -51,13 +51,15 @@ public class FormService : IFormService
                         var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
                         collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                     }
-                };
+                }
+                ;
 
                 if (contract.LinkedFormId.HasValue)
                 {
                     var linkResult = await ApplyLinkInternalAsync(newForm, contract.LinkedFormId.Value, userId, cancellationToken);
-                   if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
-                };
+                    if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
+                }
+                ;
 
                 newForm.Collaborators = collaborators;
                 _context.Forms.Add(newForm);
@@ -166,40 +168,43 @@ public class FormService : IFormService
         var isChildForm = await _context.Forms.AnyAsync(f => f.LinkedFormId == id, cancellationToken);
         return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, isChildForm));
     }
-    public async Task<ServiceResult<FormDisplayContract>> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
-        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayContract>(FormAccessStatus.NotFound);
+        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayPayload>(FormAccessStatus.NotFound);
         var parentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.LinkedFormId == id, cancellationToken);
+
+        bool isParent = form.LinkedFormId.HasValue;
+        bool isChild = parentForm != null;
 
         if (parentForm != null)
         {
             var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
             if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
             {
-                return new ServiceResult<FormDisplayContract>
-                (
+                var lockedStep = ResolveStep(isParent, isChild, isCompleted: false);
+
+                return new ServiceResult<FormDisplayPayload>(
                     FormAccessStatus.RequiresParentApproval,
-                    default,
+                    new FormDisplayPayload(null, lockedStep),
                     "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
                 );
             }
         }
 
-        var relationshipStatus = FormRelationshipStatus.None;
-        if (form.LinkedFormId.HasValue) relationshipStatus = FormRelationshipStatus.Parent;
-        else if (parentForm != null) relationshipStatus = FormRelationshipStatus.Child;
-
         var latestResponse = await _context.Responses.Where(r => r.FormId == id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
+
+        bool isCompleted = latestResponse?.Status == FormResponseStatus.Approved;
+        int step = ResolveStep(isParent, isChild, isCompleted);
 
         if (latestResponse != null)
         {
             if (latestResponse.Status == FormResponseStatus.Pending)
             {
-                return new ServiceResult<FormDisplayContract>(
+                return new ServiceResult<FormDisplayPayload>(
                     FormAccessStatus.PendingApproval,
-                    default,
+                     new FormDisplayPayload(null, step),
                     "Form cevabınız inceleniyor, lütfen bekleyiniz."
                 );
             }
@@ -208,9 +213,9 @@ public class FormService : IFormService
                 if (form.LinkedFormId.HasValue) return await GetDisplayFormByIdAsync(form.LinkedFormId.Value, userId, cancellationToken);
                 if (!form.AllowMultipleResponses)
                 {
-                    return new ServiceResult<FormDisplayContract>(
+                    return new ServiceResult<FormDisplayPayload>(
                         FormAccessStatus.Completed,
-                        default,
+                        new FormDisplayPayload(null, step),
                         "Bu formu daha önce doldurdunuz."
                     );
                 }
@@ -219,18 +224,18 @@ public class FormService : IFormService
             {
                 if (!form.AllowMultipleResponses)
                 {
-                    return new ServiceResult<FormDisplayContract>(
-                        FormAccessStatus.Completed,
-                        default,
+                    return new ServiceResult<FormDisplayPayload>(
+                        FormAccessStatus.Declined,
+                        new FormDisplayPayload(null, step),
                         "Başvurunuz reddedilmiştir ve yeni giriş hakkınız yoktur."
                     );
                 }
             }
         }
 
-        return new ServiceResult<FormDisplayContract>(
+        return new ServiceResult<FormDisplayPayload>(
             FormAccessStatus.Available,
-            MapToDisplayContract(form, relationshipStatus)
+            MapToDisplayPayload(form, step)
         );
     }
     public async Task<ServiceResult<List<FormSummaryContract>>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -271,7 +276,7 @@ public class FormService : IFormService
                 f.Title
             ))
             .ToListAsync(cancellationToken);
-        
+
         return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.Available, Data: forms);
     }
     public async Task<ServiceResult<bool>> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -347,17 +352,30 @@ public class FormService : IFormService
             form.UpdatedAt
         );
     }
-    private FormDisplayContract MapToDisplayContract(Form form, FormRelationshipStatus relationshipStatus)
+    private FormDisplayPayload MapToDisplayPayload(Form form, int step)
     {
-        return new FormDisplayContract(
+        var contract = new FormDisplayContract(
             form.Id,
             form.Title,
             form.Description,
-            form.Schema,
-            form.AllowAnonymousResponses,
-            form.AllowMultipleResponses,
-            relationshipStatus
+            form.Schema
         );
+
+        return new FormDisplayPayload(contract, step);
+    }
+    private static int ResolveStep(bool isParent, bool isChild, bool isCompleted)
+    {
+        switch (isParent, isChild, isCompleted)
+        {
+            case (true, false, false):
+                return 1;
+            case (false, true, false):
+                return 2;
+            case (false, true, true):
+                return 3;
+            default:
+                return 0;
+        }
     }
     private void SyncChildCollaborators(Form childForm, List<FormCollaborator> parentCollaborators)
     {

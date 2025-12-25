@@ -34,10 +34,7 @@ public record FormDisplayContract(
     Guid Id,
     string Title,
     string? Description,
-    List<FormSchemaItem> Schema,
-    bool AllowAnonymousResponses,
-    bool AllowMultipleResponses,
-    FormRelationshipStatus RelationshipStatus
+    List<FormSchemaItem> Schema
 );
 
 public record FormSummaryContract(
