@@ -31,27 +31,30 @@ public class FormResponseService : IFormResponseService
             if (hasExistingResponse) return new ServiceResult<Guid>(FormAccessStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        if (form.LinkedFormId.HasValue && userId.HasValue)
+        var parentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.LinkedFormId == form.Id, cancellationToken);
+
+        if (parentForm != null && userId.HasValue)
         {
-            var parentResponse = await _context.Responses.Where(r => r.FormId == form.LinkedFormId.Value && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
+            var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
 
             if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
-                return new ServiceResult<Guid>(FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
+            {
+                return new ServiceResult<Guid>( FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
+            }
         }
+            var response = MapToEntity(form, contract.Responses, userId);
 
-        var response = MapToEntity(form, contract.Responses, userId);
+            _context.Responses.Add(response);
+            await _context.SaveChangesAsync(cancellationToken);
 
-        _context.Responses.Add(response);
-        await _context.SaveChangesAsync(cancellationToken);
-
-        return new ServiceResult<Guid>(FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
-    }
+            return new ServiceResult<Guid>(FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
+        }
     public async Task<ServiceResult<List<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _context.Collaborators.AnyAsync(c => c.FormId == formId && c.UserId == userId && (c.Role != CollaboratorRole.None), cancellationToken);
 
         if (!isAuthorized) return new ServiceResult<List<FormResponseSummaryContract>>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
-        
+
         var responses = await _context.Responses.AsNoTracking().Where(r => r.FormId == formId).OrderByDescending(r => r.SubmittedAt)
             .Select(r => new FormResponseSummaryContract(
                 r.Id,
@@ -68,13 +71,13 @@ public class FormResponseService : IFormResponseService
     {
         var response = await _context.Responses.AsNoTracking().Include(r => r.Form).ThenInclude(f => f.Collaborators).FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
 
-        if (response == null) 
+        if (response == null)
             return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == userId && (c.Role != CollaboratorRole.None));
         var isResponseOwner = response.UserId == userId;
 
-        if (!isAuthorized && !isResponseOwner) 
+        if (!isAuthorized && !isResponseOwner)
             return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
         Guid? parentResponseId = null;
@@ -87,20 +90,20 @@ public class FormResponseService : IFormResponseService
         }
 
         return new ServiceResult<FormResponseDetailContract>(
-            FormAccessStatus.Available, 
+            FormAccessStatus.Available,
             Data: MapToDetailContract(response, parentResponseId)
         );
-    } 
+    }
     public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(FormResponseStatusUpdateContract contract, Guid reviewerId, CancellationToken cancellationToken = default)
     {
         var response = await _context.Responses.Include(r => r.Form).ThenInclude(f => f.Collaborators).FirstOrDefaultAsync(r => r.Id == contract.ResponseId, cancellationToken);
 
-        if (response == null) 
+        if (response == null)
             return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "İlgili yanıt bulunamadı.");
 
         var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == reviewerId && (c.Role != CollaboratorRole.None));
-        
-        if (!isAuthorized) 
+
+        if (!isAuthorized)
             return new ServiceResult<bool>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı onaylama veya reddetme yetkiniz yok.");
 
         response.Status = contract.NewStatus;
@@ -121,12 +124,12 @@ public class FormResponseService : IFormResponseService
 
             string questionText = "";
             if (schemaItem.Props.TryGetValue("question", out var qVal) && qVal != null) questionText = qVal.ToString() ?? "";
-            
+
             responseData.Add(new FormResponseSchemaItem
             {
                 Id = schemaItem.Id,
                 Question = questionText,
-                Answer = userAnswer 
+                Answer = userAnswer
             });
         }
 
