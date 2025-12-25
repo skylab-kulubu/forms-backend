@@ -263,19 +263,23 @@ public class FormService : IFormService
     }
     public async Task<ServiceResult<List<LinkableFormsContract>>> GetLinkableFormsAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var forms = await _context.Forms
-            .AsNoTracking()
-            .Include(f => f.Collaborators)
-            .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
-            .Where(f => f.Id != id)
-            .Where(f => f.Status != FormStatus.Deleted)
-            .Where(f => f.LinkedFormId == null)
-            .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
-            .Select(f => new LinkableFormsContract(
-                f.Id,
-                f.Title
-            ))
-            .ToListAsync(cancellationToken);
+        var currentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+
+        if (currentForm == null) 
+            return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
+
+        var alreadyLinkedFormIds = await _context.Forms.AsNoTracking().Where(f => f.LinkedFormId != null && f.Status != FormStatus.Deleted).Select(f => f.LinkedFormId).ToListAsync(cancellationToken);
+
+        var forms = await _context.Forms.AsNoTracking()
+        .Include(f => f.Collaborators)
+        .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
+        .Where(f => f.Id != id) 
+        .Where(f => f.Status != FormStatus.Deleted) 
+        .Where(f => f.LinkedFormId == null) 
+        .Where(f => !alreadyLinkedFormIds.Contains(f.Id)) 
+        .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
+        .Select(f => new LinkableFormsContract( f.Id, f.Title))
+        .ToListAsync(cancellationToken);
 
         return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.Available, Data: forms);
     }
