@@ -161,12 +161,13 @@ public class FormService : IFormService
 
         if (form == null) return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
 
-        var isAuthorized = form.Collaborators.Any(c => c.UserId == userId);
+        var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
 
-        if (!isAuthorized) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Yetkiniz yok.");
+        if (collaborator == null) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var isChildForm = await _context.Forms.AnyAsync(f => f.LinkedFormId == id, cancellationToken);
-        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, isChildForm));
+        var userRole = collaborator.Role;
+        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, isChildForm, userRole));
     }
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
@@ -241,20 +242,23 @@ public class FormService : IFormService
     public async Task<ServiceResult<List<FormSummaryContract>>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var forms = await _context.Forms
-            .AsNoTracking()
-            .Where(f => f.Collaborators.Any(c => c.UserId == userId))
-            .Where(f => f.Status != FormStatus.Deleted)
-            .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
-            .Select(f => new FormSummaryContract(
-                f.Id,
-                f.Title,
-                f.Description,
-                f.Status,
-                f.LinkedFormId,
-                f.UpdatedAt ?? f.CreatedAt,
-                f.Responses.Count()
-            ))
-            .ToListAsync(cancellationToken);
+        .AsNoTracking()
+        .Where(f => f.Collaborators.Any(c => c.UserId == userId))
+        .Where(f => f.Status != FormStatus.Deleted)
+        .Where(f => !_context.Forms.Any(parent => parent.LinkedFormId == f.Id && parent.Status != FormStatus.Deleted))
+        .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
+        .Select(f => new FormSummaryContract(
+            f.Id,
+            f.Title,
+            f.Status,
+            f.LinkedFormId,
+            f.Collaborators.FirstOrDefault(c => c.UserId == userId)!.Role,
+            f.AllowAnonymousResponses,
+            f.AllowMultipleResponses,
+            f.UpdatedAt ?? f.CreatedAt,
+            f.Responses.Count()
+        ))
+        .ToListAsync(cancellationToken);
 
         return new ServiceResult<List<FormSummaryContract>>(
             FormAccessStatus.Available,
@@ -265,7 +269,7 @@ public class FormService : IFormService
     {
         var currentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
-        if (currentForm == null) 
+        if (currentForm == null)
             return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
 
         var alreadyLinkedFormIds = await _context.Forms.AsNoTracking().Where(f => f.LinkedFormId != null && f.Status != FormStatus.Deleted).Select(f => f.LinkedFormId).ToListAsync(cancellationToken);
@@ -273,12 +277,12 @@ public class FormService : IFormService
         var forms = await _context.Forms.AsNoTracking()
         .Include(f => f.Collaborators)
         .Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner))
-        .Where(f => f.Id != id) 
-        .Where(f => f.Status != FormStatus.Deleted) 
-        .Where(f => f.LinkedFormId == null) 
-        .Where(f => !alreadyLinkedFormIds.Contains(f.Id)) 
+        .Where(f => f.Id != id)
+        .Where(f => f.Status != FormStatus.Deleted)
+        .Where(f => f.LinkedFormId == null)
+        .Where(f => !alreadyLinkedFormIds.Contains(f.Id))
         .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
-        .Select(f => new LinkableFormsContract( f.Id, f.Title))
+        .Select(f => new LinkableFormsContract(f.Id, f.Title))
         .ToListAsync(cancellationToken);
 
         return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.Available, Data: forms);
@@ -339,7 +343,7 @@ public class FormService : IFormService
 
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form bağlantısı kaldırıldı.");
     }
-    private static FormContract MapToContract(Form form, bool isChildForm = false)
+    private static FormContract MapToContract(Form form, bool isChildForm = false, CollaboratorRole userRole = CollaboratorRole.None)
     {
         return new FormContract(
             form.Id,
@@ -351,6 +355,7 @@ public class FormService : IFormService
             form.AllowMultipleResponses,
             form.LinkedFormId,
             isChildForm,
+            userRole,
             form.Collaborators?.Select(c => new FormCollaboratorContract(c.UserId, c.Role)).ToList() ?? new List<FormCollaboratorContract>(),
             form.CreatedAt,
             form.UpdatedAt

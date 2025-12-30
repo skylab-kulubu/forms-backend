@@ -25,6 +25,7 @@ public record FormContract(
     bool AllowMultipleResponses,
     Guid? LinkedFormId,
     bool IsChildForm,
+    CollaboratorRole userRole,
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
     DateTime? UpdatedAt
@@ -40,9 +41,11 @@ public record FormDisplayContract(
 public record FormSummaryContract(
     Guid Id,
     string Title,
-    string? Description,
     FormStatus Status,
     Guid? LinkedFormId,
+    CollaboratorRole UserRole,
+    bool AllowAnonymousResponses,
+    bool AllowMultipleResponses,
     DateTime? UpdatedAt,
     int ResponseCount
 );
