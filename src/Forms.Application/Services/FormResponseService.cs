@@ -39,16 +39,16 @@ public class FormResponseService : IFormResponseService
 
             if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
             {
-                return new ServiceResult<Guid>( FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
+                return new ServiceResult<Guid>(FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
             }
         }
-            var response = MapToEntity(form, contract.Responses, userId);
+        var response = MapToEntity(form, contract.Responses, userId);
 
-            _context.Responses.Add(response);
-            await _context.SaveChangesAsync(cancellationToken);
+        _context.Responses.Add(response);
+        await _context.SaveChangesAsync(cancellationToken);
 
-            return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
-        }
+        return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
+    }
     public async Task<ServiceResult<List<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _context.Collaborators.AnyAsync(c => c.FormId == formId && c.UserId == userId && (c.Role != CollaboratorRole.None), cancellationToken);
@@ -80,18 +80,43 @@ public class FormResponseService : IFormResponseService
         if (!isAuthorized && !isResponseOwner)
             return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
-        Guid? parentResponseId = null;
-        if (response.Form.LinkedFormId.HasValue && response.UserId.HasValue)
+        FormRelationshipStatus relationshipStatus = FormRelationshipStatus.None;
+        Guid? targetLinkedFormId = null;
+
+        if (response.Form.LinkedFormId.HasValue)
         {
-            parentResponseId = await _context.Responses.AsNoTracking()
-                .Where(r => r.FormId == response.Form.LinkedFormId.Value && r.UserId == response.UserId)
-                .Where(r => r.Status == FormResponseStatus.Approved)
-                .OrderByDescending(r => r.SubmittedAt).Select(r => r.Id).FirstOrDefaultAsync(cancellationToken);
+            relationshipStatus = FormRelationshipStatus.Parent;
+            targetLinkedFormId = response.Form.LinkedFormId.Value;
+        }
+        else
+        {
+            var parentFormId = await _context.Forms
+                .AsNoTracking()
+                .Where(f => f.LinkedFormId == response.FormId)
+                .Select(f => f.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (parentFormId != Guid.Empty)
+            {
+                relationshipStatus = FormRelationshipStatus.Child;
+                targetLinkedFormId = parentFormId;
+            }
+        }
+
+        Guid? linkedResponseId = null;
+
+        if (targetLinkedFormId.HasValue && response.UserId.HasValue)
+        {
+            linkedResponseId = await _context.Responses.AsNoTracking()
+                .Where(r => r.FormId == targetLinkedFormId.Value && r.UserId == response.UserId)
+                .OrderByDescending(r => r.SubmittedAt)
+                .Select(r => r.Id)
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         return new ServiceResult<FormResponseDetailContract>(
             FormAccessStatus.Available,
-            Data: MapToDetailContract(response, parentResponseId)
+            Data: MapToDetailContract(response, relationshipStatus, linkedResponseId)
         );
     }
     public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(FormResponseStatusUpdateContract contract, Guid reviewerId, CancellationToken cancellationToken = default)
@@ -142,7 +167,7 @@ public class FormResponseService : IFormResponseService
             SubmittedAt = DateTime.UtcNow
         };
     }
-    private static FormResponseDetailContract MapToDetailContract(FormResponse response, Guid? parentResponseId)
+    private static FormResponseDetailContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId)
     {
         return new FormResponseDetailContract(
             response.Id,
@@ -150,7 +175,8 @@ public class FormResponseService : IFormResponseService
             response.UserId,
             response.Data,
             response.Status,
-            parentResponseId,
+            relationshipStatus,
+            linkedResponseId,
             response.SubmittedAt,
             response.ReviewedAt
         );

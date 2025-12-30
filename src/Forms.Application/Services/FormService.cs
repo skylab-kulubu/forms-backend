@@ -295,8 +295,6 @@ public class FormService : IFormService
 
         if (form == null) return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "Form bulunamadı veya yetkiniz yok.");
 
-        if (!form.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner)) return new ServiceResult<bool>(FormAccessStatus.NotAuthorized, Message: "Silme yetkiniz yok.");
-
         var parentForm = await _context.Forms.FirstOrDefaultAsync(f => f.LinkedFormId == id, cancellationToken);
 
         if (parentForm != null)
@@ -356,7 +354,10 @@ public class FormService : IFormService
             form.LinkedFormId,
             isChildForm,
             userRole,
-            form.Collaborators?.Select(c => new FormCollaboratorContract(c.UserId, c.Role)).ToList() ?? new List<FormCollaboratorContract>(),
+            form.Collaborators?.Select(c => new FormCollaboratorContract(
+                c.UserId,
+                c.Role
+            )).ToList() ?? new List<FormCollaboratorContract>(),
             form.CreatedAt,
             form.UpdatedAt
         );

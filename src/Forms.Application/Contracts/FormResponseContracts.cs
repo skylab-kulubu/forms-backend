@@ -22,7 +22,8 @@ public record FormResponseDetailContract(
     Guid? UserId,
     List<FormResponseSchemaItem> Schema,
     FormResponseStatus Status,
-    Guid? ParentResponseId,
+    FormRelationshipStatus Relationship,
+    Guid? LinkedResponseId,
     DateTime SubmittedAt,
     DateTime? ReviewedAt
 );
