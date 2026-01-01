@@ -75,9 +75,8 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == userId && (c.Role != CollaboratorRole.None));
-        var isResponseOwner = response.UserId == userId;
 
-        if (!isAuthorized && !isResponseOwner)
+        if (!isAuthorized)
             return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
         FormRelationshipStatus relationshipStatus = FormRelationshipStatus.None;
@@ -133,6 +132,7 @@ public class FormResponseService : IFormResponseService
 
         response.Status = contract.NewStatus;
         response.ReviewedBy = reviewerId;
+        response.ReviewNote = contract.Note;
         response.ReviewedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -173,9 +173,11 @@ public class FormResponseService : IFormResponseService
             response.Id,
             response.FormId,
             response.UserId,
+            response.ReviewedBy,
             response.Data,
             response.Status,
             relationshipStatus,
+            response.ReviewNote,
             linkedResponseId,
             response.SubmittedAt,
             response.ReviewedAt

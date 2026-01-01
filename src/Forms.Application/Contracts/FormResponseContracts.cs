@@ -20,9 +20,11 @@ public record FormResponseDetailContract(
     Guid Id,
     Guid FormId,
     Guid? UserId,
+    Guid? reviewerId,
     List<FormResponseSchemaItem> Schema,
     FormResponseStatus Status,
     FormRelationshipStatus Relationship,
+    string? ReviewerNote,
     Guid? LinkedResponseId,
     DateTime SubmittedAt,
     DateTime? ReviewedAt
@@ -30,5 +32,6 @@ public record FormResponseDetailContract(
 
 public record FormResponseStatusUpdateContract(
     Guid ResponseId,
-    FormResponseStatus NewStatus
+    FormResponseStatus NewStatus,
+    string? Note
 );

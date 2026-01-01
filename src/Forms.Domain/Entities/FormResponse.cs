@@ -12,6 +12,7 @@ public class FormResponse
     public List<FormResponseSchemaItem> Data { get; set; } = new();
     public FormResponseStatus Status { get; set; } = FormResponseStatus.Pending;
     public Guid? ReviewedBy { get; set; }
+    public string? ReviewNote { get; set; }
     public DateTime? ReviewedAt { get; set; }
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 }

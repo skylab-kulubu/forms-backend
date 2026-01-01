@@ -63,7 +63,7 @@ public static class FormAdminEndpoints
         
         group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] FormResponseStatusUpdateContract request, IFormResponseService service, CancellationToken ct) =>
         {
-            var serviceContract = new FormResponseStatusUpdateContract(id, request.NewStatus);
+            var serviceContract = new FormResponseStatusUpdateContract(id, request.NewStatus, request.Note);
             
             var result = await service.UpdateResponseStatusAsync(serviceContract, FixedUserId, ct);
             return result.ToApiResult();
