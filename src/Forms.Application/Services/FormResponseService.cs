@@ -89,8 +89,7 @@ public class FormResponseService : IFormResponseService
         }
         else
         {
-            var parentFormId = await _context.Forms
-                .AsNoTracking()
+            var parentFormId = await _context.Forms.AsNoTracking()
                 .Where(f => f.LinkedFormId == response.FormId)
                 .Select(f => f.Id)
                 .FirstOrDefaultAsync(cancellationToken);
@@ -109,7 +108,7 @@ public class FormResponseService : IFormResponseService
             linkedResponseId = await _context.Responses.AsNoTracking()
                 .Where(r => r.FormId == targetLinkedFormId.Value && r.UserId == response.UserId)
                 .OrderByDescending(r => r.SubmittedAt)
-                .Select(r => r.Id)
+                .Select(r => (Guid?)r.Id)
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
