@@ -51,15 +51,13 @@ public class FormService : IFormService
                         var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
                         collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                     }
-                }
-                ;
+                };
 
                 if (contract.LinkedFormId.HasValue)
                 {
                     var linkResult = await ApplyLinkInternalAsync(newForm, contract.LinkedFormId.Value, userId, cancellationToken);
                     if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
-                }
-                ;
+                };
 
                 newForm.Collaborators = collaborators;
                 _context.Forms.Add(newForm);

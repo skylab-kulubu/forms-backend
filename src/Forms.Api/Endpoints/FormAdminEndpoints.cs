@@ -49,9 +49,9 @@ public static class FormAdminEndpoints
             return result.Status == FormAccessStatus.Available ? Results.NoContent() : result.ToApiResult();
         });
 
-        group.MapGet("/{formId:guid}/responses", async (Guid formId, IFormResponseService service, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/responses", async (Guid id, [AsParameters] GetFormResponsesRequest request, IFormResponseService service, CancellationToken ct) =>
         {
-            var result = await service.GetFormResponsesAsync(formId, FixedUserId, ct);
+            var result = await service.GetFormResponsesAsync(id, FixedUserId, request, ct);
             return result.ToApiResult();
         });
 

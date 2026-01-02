@@ -49,23 +49,57 @@ public class FormResponseService : IFormResponseService
 
         return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
     }
-    public async Task<ServiceResult<List<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<ListResult<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, GetFormResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _context.Collaborators.AnyAsync(c => c.FormId == formId && c.UserId == userId && (c.Role != CollaboratorRole.None), cancellationToken);
 
-        if (!isAuthorized) return new ServiceResult<List<FormResponseSummaryContract>>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
+        if (!isAuthorized) return new ServiceResult<ListResult<FormResponseSummaryContract>>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
-        var responses = await _context.Responses.AsNoTracking().Where(r => r.FormId == formId).OrderByDescending(r => r.SubmittedAt)
+        var query = _context.Responses.AsNoTracking().Where(r => r.FormId == formId);
+
+        switch (request.ResponderType)
+        {
+            case FormResponderType.Registered:
+                query = query.Where(r => r.UserId != null);
+                break;
+            case FormResponderType.Anonymous:
+                query = query.Where(r => r.UserId == null);
+                break;
+            case FormResponderType.All:
+            default:
+                break;
+        }
+
+        if (request.Status.HasValue)
+            query = query.Where(r => r.Status == request.Status.Value);
+
+        if (request.FilterByUserId.HasValue)
+            query = query.Where(r => r.UserId == request.FilterByUserId.Value);
+
+        if (request.SortingDirection == "ascending") { query = query.OrderBy(r => r.SubmittedAt); }
+        else { query = query.OrderByDescending(r => r.SubmittedAt); }
+
+
+        var totalResponseCount = await query.CountAsync(cancellationToken);
+
+        var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(r => new FormResponseSummaryContract(
                 r.Id,
                 r.UserId,
                 r.Status,
+                r.ReviewedBy,
                 r.SubmittedAt,
                 r.ReviewedAt
-            ))
-            .ToListAsync(cancellationToken);
+            )).ToListAsync(cancellationToken);
+        
+        var resultData = new ListResult<FormResponseSummaryContract>(
+            items,
+            totalResponseCount,
+            request.Page,
+            request.PageSize
+        );
 
-        return new ServiceResult<List<FormResponseSummaryContract>>(FormAccessStatus.Available, Data: responses);
+        return new ServiceResult<ListResult<FormResponseSummaryContract>>(FormAccessStatus.Available, Data: resultData);
     }
     public async Task<ServiceResult<FormResponseDetailContract>> GetResponseByIdAsync(Guid responseId, Guid userId, CancellationToken cancellationToken = default)
     {

@@ -12,6 +12,7 @@ public record FormResponseSummaryContract(
     Guid Id,
     Guid? UserId,
     FormResponseStatus Status,
+    Guid? ReviewedBy,
     DateTime SubmittedAt,
     DateTime? ReviewedAt
 );
@@ -20,7 +21,7 @@ public record FormResponseDetailContract(
     Guid Id,
     Guid FormId,
     Guid? UserId,
-    Guid? reviewerId,
+    Guid? ReviewerId,
     List<FormResponseSchemaItem> Schema,
     FormResponseStatus Status,
     FormRelationshipStatus Relationship,
@@ -34,4 +35,13 @@ public record FormResponseStatusUpdateContract(
     Guid ResponseId,
     FormResponseStatus NewStatus,
     string? Note
+);
+
+public record GetFormResponsesRequest(
+    int Page = 1,
+    int PageSize = 15,
+    FormResponseStatus? Status = null,
+    FormResponderType ResponderType = FormResponderType.All,
+    Guid? FilterByUserId = null,
+    string SortingDirection = "descending"  
 );
