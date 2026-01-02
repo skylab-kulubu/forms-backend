@@ -51,13 +51,15 @@ public class FormService : IFormService
                         var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
                         collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                     }
-                };
+                }
+                ;
 
                 if (contract.LinkedFormId.HasValue)
                 {
                     var linkResult = await ApplyLinkInternalAsync(newForm, contract.LinkedFormId.Value, userId, cancellationToken);
                     if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
-                };
+                }
+                ;
 
                 newForm.Collaborators = collaborators;
                 _context.Forms.Add(newForm);
@@ -237,14 +239,38 @@ public class FormService : IFormService
             MapToDisplayPayload(form, step)
         );
     }
-    public async Task<ServiceResult<List<FormSummaryContract>>> GetUserFormsAsync(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<ListResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
     {
-        var forms = await _context.Forms
-        .AsNoTracking()
-        .Where(f => f.Collaborators.Any(c => c.UserId == userId))
-        .Where(f => f.Status != FormStatus.Deleted)
-        .Where(f => !_context.Forms.Any(parent => parent.LinkedFormId == f.Id && parent.Status != FormStatus.Deleted))
-        .OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt)
+        var query = _context.Forms.AsNoTracking().Where(f => f.Status != FormStatus.Deleted);
+
+        if (request.Role.HasValue) { query = query.Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == request.Role.Value)); }
+        else { query = query.Where(f => f.Collaborators.Any(c => c.UserId == userId)); }
+
+        query = query.Where(f => !_context.Forms.Any(parent => parent.LinkedFormId == f.Id && parent.Status != FormStatus.Deleted));
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+            query = query.Where(f => EF.Functions.ILike(f.Title, $"%{request.Search.Trim()}%"));
+
+        if (request.AllowAnonymous.HasValue)
+            query = query.Where(f => f.AllowAnonymousResponses == request.AllowAnonymous.Value);
+
+        if (request.AllowMultiple.HasValue)
+            query = query.Where(f => f.AllowMultipleResponses == request.AllowMultiple.Value);
+
+        if (request.HasLinkedForm.HasValue)
+        {
+            if (request.HasLinkedForm.Value)
+                query = query.Where(f => f.LinkedFormId != null);
+            else
+                query = query.Where(f => f.LinkedFormId == null);
+        }
+
+        if (request.SortDirection?.ToLower() == "ascending") { query = query.OrderBy(f => f.UpdatedAt ?? f.CreatedAt); }
+        else { query = query.OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt); }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var forms = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
         .Select(f => new FormSummaryContract(
             f.Id,
             f.Title,
@@ -255,13 +281,16 @@ public class FormService : IFormService
             f.AllowMultipleResponses,
             f.UpdatedAt ?? f.CreatedAt,
             f.Responses.Count()
-        ))
-        .ToListAsync(cancellationToken);
+        )).ToListAsync(cancellationToken);
 
-        return new ServiceResult<List<FormSummaryContract>>(
-            FormAccessStatus.Available,
-            Data: forms
+        var resultData = new ListResult<FormSummaryContract>(
+            forms,
+            totalCount,
+            request.Page,
+            request.PageSize
         );
+
+        return new ServiceResult<ListResult<FormSummaryContract>>(FormAccessStatus.Available, Data: resultData);
     }
     public async Task<ServiceResult<List<LinkableFormsContract>>> GetLinkableFormsAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {

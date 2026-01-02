@@ -12,9 +12,9 @@ public static class FormAdminEndpoints
     {
         var group = routes.MapGroup("api/admin/forms/").WithTags("FormsAdmin");
 
-        group.MapGet("/", async (IFormService service, CancellationToken ct) =>
+        group.MapGet("/", async (IFormService service, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
         {
-            var result = await service.GetUserFormsAsync(FixedUserId, ct);
+            var result = await service.GetUserFormsAsync(FixedUserId, request, ct);
             return result.ToApiResult();
         });
 
