@@ -15,6 +15,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Steeltoe.Discovery.Eureka" Version="4.0.0" />
+    <PackageReference Include="Steeltoe.Discovery.HttpClients" Version="4.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.0.1" />
   </ItemGroup>
 

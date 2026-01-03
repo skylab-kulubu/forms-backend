@@ -3,6 +3,7 @@ using Forms.Application.Services;
 using Forms.API.Endpoints;
 using Microsoft.EntityFrameworkCore;
 using Steeltoe.Discovery.Eureka;
+using Steeltoe.Discovery.HttpClients;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,8 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddScoped<IFormService, FormService>();
 builder.Services.AddScoped<IFormResponseService, FormResponseService>();
+
+builder.Services.AddHttpClient<ICurrentUserService, RemoteCurrentUserService>(client => { client.BaseAddress = new Uri("http://super-skylab/internal"); }).AddServiceDiscovery();
 
 var app = builder.Build();
 
