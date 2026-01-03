@@ -171,11 +171,20 @@ public class FormService : IFormService
         var userRole = collaborator.Role;
         return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, isChildForm, userRole));
     }
-    public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
         if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayPayload>(FormAccessStatus.NotFound);
+
+        if (!form.AllowAnonymousResponses && userId == Guid.Empty)
+        {
+            return new ServiceResult<FormDisplayPayload>(
+                FormAccessStatus.NotAuthorized,
+                Message: "Bu formu görüntülemek için giriş yapmalısınız."
+            );
+        }
+        
         var parentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.LinkedFormId == id, cancellationToken);
 
         bool isParent = form.LinkedFormId.HasValue;

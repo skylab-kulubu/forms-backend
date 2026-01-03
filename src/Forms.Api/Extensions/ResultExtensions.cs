@@ -14,41 +14,51 @@ public static class ResultExtensions
             FormAccessStatus.Declined => Results.Ok(result),
             FormAccessStatus.PendingApproval => Results.Ok(result),
 
-            FormAccessStatus.NotFound => Results.NotFound(new 
-            { 
-                status = result.Status, 
-                message = result.Message ?? "Form bulunamadı." 
+            FormAccessStatus.NotFound => Results.NotFound(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Form bulunamadı."
             }),
 
-            FormAccessStatus.NotAvailable => Results.NotFound(new 
-            { 
-                status = result.Status, 
-                message = result.Message ?? "Form artık yayında değil." 
+            FormAccessStatus.NotAvailable => Results.NotFound(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Form artık yayında değil."
             }),
 
-            FormAccessStatus.NotAuthorized => Results.Json(new 
-            { 
-                status = result.Status, 
-                message = result.Message ?? "Yetkiniz yok." 
+            FormAccessStatus.Unauthorized => Results.Json(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Giriş yapmalısınız."
+            }, statusCode: 401),
+
+            FormAccessStatus.NotAuthorized => Results.Json(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Bu işlem için yetkiniz yok."
             }, statusCode: 403),
 
-            FormAccessStatus.NotAcceptable => Results.Json(new 
-            { 
-                status = result.Status, 
-                message = result.Message ?? "Veriler yanlış veya eksik." 
+            FormAccessStatus.NotAcceptable => Results.Json(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Veriler yanlış veya eksik."
             }, statusCode: 406),
 
-            FormAccessStatus.RequiresParentApproval => Results.Json(new 
-            { 
-                status = result.Status, 
-                message = result.Message ?? "Önceki formun onayı gereklidir." 
+            FormAccessStatus.RequiresParentApproval => Results.Json(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Önceki formun onayı gereklidir."
             }, statusCode: 428),
 
-            _ => Results.BadRequest(new 
-            { 
-                status = result.Status, 
-                message = result.Message ?? "Bir hata oluştu." 
+            _ => Results.BadRequest(new
+            {
+                status = result.Status,
+                message = result.Message ?? "Bir hata oluştu."
             })
         };
+    }
+    public static IResult ToApiResult(this FormAccessStatus status, string? message = null)
+    {
+        return new ServiceResult<object>(status, Message: message).ToApiResult();
     }
 }
