@@ -71,8 +71,12 @@ public class FormService : IFormService
             }
             else
             {
-                var isAuthorized = existingForm.Collaborators.Any(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
-                if (!isAuthorized) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
+                var currentUserCollaborator = existingForm.Collaborators.FirstOrDefault(c => c.UserId == userId);
+
+                if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
+                    return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
+
+                var currentUserRole = currentUserCollaborator.Role;
 
                 var isChildForm = await _context.Forms.AnyAsync(parent => parent.LinkedFormId == formId, cancellationToken);
 
@@ -105,13 +109,21 @@ public class FormService : IFormService
                         var dbCollaborators = existingForm.Collaborators.ToList();
                         var incomingCollaborators = contract.Collaborators;
 
-                        var toDelete = dbCollaborators
+                        var toDeleteQuery = dbCollaborators
                             .Where(db => db.Role != CollaboratorRole.Owner)
-                            .Where(db => !incomingCollaborators.Any(inc => inc.UserId == db.UserId))
-                            .ToList();
+                            .Where(db => db.UserId != userId)
+                            .Where(db => !incomingCollaborators.Any(inc => inc.UserId == db.UserId));
 
-                        foreach (var item in toDelete) _context.Collaborators.Remove(item);
+                        if (currentUserRole == CollaboratorRole.Editor)
+                            toDeleteQuery = toDeleteQuery.Where(db => db.Role == CollaboratorRole.Viewer);
 
+                        var toDelete = toDeleteQuery.ToList();
+
+                        foreach (var item in toDelete)
+                        {
+                            _context.Collaborators.Remove(item);
+                            existingForm.Collaborators.Remove(item);
+                        }
 
                         foreach (var incoming in incomingCollaborators)
                         {
@@ -119,13 +131,19 @@ public class FormService : IFormService
 
                             var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
 
+                            if (currentUserRole == CollaboratorRole.Editor)
+                                if (safeRole != CollaboratorRole.Viewer) continue;
+
                             var existingCollab = dbCollaborators.FirstOrDefault(c => c.UserId == incoming.UserId);
                             if (existingCollab == null)
                             {
                                 existingForm.Collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
                             }
-                            else if (existingCollab.Role != CollaboratorRole.Owner)
+                            else
                             {
+                                if (existingCollab.Role == CollaboratorRole.Owner) continue;
+                                if (currentUserRole == CollaboratorRole.Editor && existingCollab.Role == CollaboratorRole.Editor) continue;
+
                                 existingCollab.Role = safeRole;
                             }
                         }
@@ -184,7 +202,7 @@ public class FormService : IFormService
                 Message: "Bu formu görüntülemek için giriş yapmalısınız."
             );
         }
-        
+
         var parentForm = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.LinkedFormId == id, cancellationToken);
 
         bool isParent = form.LinkedFormId.HasValue;
