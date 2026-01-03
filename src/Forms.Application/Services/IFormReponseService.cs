@@ -1,11 +1,12 @@
 using Forms.Application.Contracts;
+using Forms.Application.Contracts.Responses;
 
 namespace Forms.Application.Services;
 
 public interface IFormResponseService
 {
-    Task<ServiceResult<Guid>> SubmitResponseAsync(FormResponseSubmitContract contract, Guid? userId, CancellationToken cancellationToken = default);
-    Task<ServiceResult<ListResult<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, GetFormResponsesRequest request, CancellationToken cancellationToken = default);
-    Task<ServiceResult<FormResponseDetailContract>> GetResponseByIdAsync(Guid responseId, Guid userId, CancellationToken cancellationToken = default);
-    Task<ServiceResult<bool>> UpdateResponseStatusAsync(FormResponseStatusUpdateContract contract, Guid reviewerId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<Guid>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<PagedResult<ResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default);
 }

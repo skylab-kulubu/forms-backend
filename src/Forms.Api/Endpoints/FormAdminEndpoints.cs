@@ -1,7 +1,8 @@
-using Forms.Application.Contracts;
 using Forms.Application.Services;
 using Forms.API.Extensions;
 using Microsoft.AspNetCore.Mvc;
+using Forms.Application.Contracts.Forms;
+using Forms.Application.Contracts.Responses;
 
 namespace Forms.API.Endpoints;
 
@@ -30,7 +31,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/", async ([FromBody] FormUpsertContract request, IFormService service, CancellationToken ct) =>
+        group.MapPost("/", async ([FromBody] FormUpsertRequest request, IFormService service, CancellationToken ct) =>
         {
             var result = await service.UpsertFormAsync(request, FixedUserId, ct);
 
@@ -49,7 +50,7 @@ public static class FormAdminEndpoints
             return result.Status == FormAccessStatus.Available ? Results.NoContent() : result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/responses", async (Guid id, [AsParameters] GetFormResponsesRequest request, IFormResponseService service, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/responses", async (Guid id, [AsParameters] GetResponsesRequest request, IFormResponseService service, CancellationToken ct) =>
         {
             var result = await service.GetFormResponsesAsync(id, FixedUserId, request, ct);
             return result.ToApiResult();
@@ -61,9 +62,9 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
         
-        group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] FormResponseStatusUpdateContract request, IFormResponseService service, CancellationToken ct) =>
+        group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] ResponseStatusUpdateRequest request, IFormResponseService service, CancellationToken ct) =>
         {
-            var serviceContract = new FormResponseStatusUpdateContract(id, request.NewStatus, request.Note);
+            var serviceContract = new ResponseStatusUpdateRequest(id, request.NewStatus, request.Note);
             
             var result = await service.UpdateResponseStatusAsync(serviceContract, FixedUserId, ct);
             return result.ToApiResult();

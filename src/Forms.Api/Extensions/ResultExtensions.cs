@@ -1,4 +1,5 @@
 using Forms.Domain.Entities;
+using Forms.Application.Contracts;
 
 namespace Forms.API.Extensions;
 

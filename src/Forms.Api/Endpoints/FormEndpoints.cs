@@ -1,7 +1,7 @@
 using Forms.Application.Services;
-using Forms.Application.Contracts;
 using Forms.API.Extensions;
 using Microsoft.AspNetCore.Mvc;
+using Forms.Application.Contracts.Responses;
 
 namespace Forms.API.Endpoints;
 
@@ -19,7 +19,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses", async ([FromBody] FormResponseSubmitContract request, IFormResponseService service, CancellationToken ct) =>
+        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IFormResponseService service, CancellationToken ct) =>
         {
             var result = await service.SubmitResponseAsync(request, FixedUserId, ct);
 

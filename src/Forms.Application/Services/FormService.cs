@@ -1,8 +1,10 @@
-using Forms.Application.Contracts;
 using Forms.Domain.Entities;
 using Forms.Domain.Enums;
 using Forms.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
+using Forms.Application.Contracts;
+using Forms.Application.Contracts.Forms;
+using Forms.Application.Contracts.Collaborators;
 
 namespace Forms.Application.Services;
 
@@ -15,7 +17,7 @@ public class FormService : IFormService
         _context = context;
     }
 
-    public async Task<ServiceResult<FormContract>> UpsertFormAsync(FormUpsertContract contract, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormContract>> UpsertFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -239,7 +241,7 @@ public class FormService : IFormService
             MapToDisplayPayload(form, step)
         );
     }
-    public async Task<ServiceResult<ListResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<PagedResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
     {
         var query = _context.Forms.AsNoTracking().Where(f => f.Status != FormStatus.Deleted);
 
@@ -283,14 +285,14 @@ public class FormService : IFormService
             f.Responses.Count()
         )).ToListAsync(cancellationToken);
 
-        var resultData = new ListResult<FormSummaryContract>(
+        var resultData = new PagedResult<FormSummaryContract>(
             forms,
             totalCount,
             request.Page,
             request.PageSize
         );
 
-        return new ServiceResult<ListResult<FormSummaryContract>>(FormAccessStatus.Available, Data: resultData);
+        return new ServiceResult<PagedResult<FormSummaryContract>>(FormAccessStatus.Available, Data: resultData);
     }
     public async Task<ServiceResult<List<LinkableFormsContract>>> GetLinkableFormsAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
@@ -299,7 +301,7 @@ public class FormService : IFormService
         if (currentForm == null)
             return new ServiceResult<List<LinkableFormsContract>>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
 
-        var alreadyLinkedFormIds = await _context.Forms.AsNoTracking().Where(f => f.LinkedFormId != null && f.Status != FormStatus.Deleted).Select(f => f.LinkedFormId).ToListAsync(cancellationToken);
+        var alreadyLinkedFormIds = await _context.Forms.AsNoTracking().Where(f => f.Id != id).Where(f => f.LinkedFormId != null && f.Status != FormStatus.Deleted).Select(f => f.LinkedFormId).ToListAsync(cancellationToken);
 
         var forms = await _context.Forms.AsNoTracking()
         .Include(f => f.Collaborators)

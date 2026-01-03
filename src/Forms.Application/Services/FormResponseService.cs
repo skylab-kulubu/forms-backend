@@ -1,10 +1,10 @@
-using Forms.Application.Contracts;
 using Forms.Domain.Entities;
 using Forms.Domain.Enums;
 using Forms.Domain.Models;
 using Forms.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
+using Forms.Application.Contracts;
+using Forms.Application.Contracts.Responses;
 
 namespace Forms.Application.Services;
 
@@ -17,7 +17,7 @@ public class FormResponseService : IFormResponseService
         _context = context;
     }
 
-    public async Task<ServiceResult<Guid>> SubmitResponseAsync(FormResponseSubmitContract contract, Guid? userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<Guid>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
     {
         var form = await _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == contract.FormId, cancellationToken);
         if (form == null) return new ServiceResult<Guid>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
@@ -49,11 +49,11 @@ public class FormResponseService : IFormResponseService
 
         return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
     }
-    public async Task<ServiceResult<ListResult<FormResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, GetFormResponsesRequest request, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<PagedResult<ResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _context.Collaborators.AnyAsync(c => c.FormId == formId && c.UserId == userId && (c.Role != CollaboratorRole.None), cancellationToken);
 
-        if (!isAuthorized) return new ServiceResult<ListResult<FormResponseSummaryContract>>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
+        if (!isAuthorized) return new ServiceResult<PagedResult<ResponseSummaryContract>>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var query = _context.Responses.AsNoTracking().Where(r => r.FormId == formId);
 
@@ -83,7 +83,7 @@ public class FormResponseService : IFormResponseService
         var totalResponseCount = await query.CountAsync(cancellationToken);
 
         var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
-            .Select(r => new FormResponseSummaryContract(
+            .Select(r => new ResponseSummaryContract(
                 r.Id,
                 r.UserId,
                 r.Status,
@@ -92,26 +92,26 @@ public class FormResponseService : IFormResponseService
                 r.ReviewedAt
             )).ToListAsync(cancellationToken);
         
-        var resultData = new ListResult<FormResponseSummaryContract>(
+        var resultData = new PagedResult<ResponseSummaryContract>(
             items,
             totalResponseCount,
             request.Page,
             request.PageSize
         );
 
-        return new ServiceResult<ListResult<FormResponseSummaryContract>>(FormAccessStatus.Available, Data: resultData);
+        return new ServiceResult<PagedResult<ResponseSummaryContract>>(FormAccessStatus.Available, Data: resultData);
     }
-    public async Task<ServiceResult<FormResponseDetailContract>> GetResponseByIdAsync(Guid responseId, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, CancellationToken cancellationToken = default)
     {
         var response = await _context.Responses.AsNoTracking().Include(r => r.Form).ThenInclude(f => f.Collaborators).FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
 
         if (response == null)
-            return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotFound, Message: "Yanıt bulunamadı.");
+            return new ServiceResult<ResponseContract>(FormAccessStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == userId && (c.Role != CollaboratorRole.None));
 
         if (!isAuthorized)
-            return new ServiceResult<FormResponseDetailContract>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
+            return new ServiceResult<ResponseContract>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
         FormRelationshipStatus relationshipStatus = FormRelationshipStatus.None;
         Guid? targetLinkedFormId = null;
@@ -146,12 +146,12 @@ public class FormResponseService : IFormResponseService
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        return new ServiceResult<FormResponseDetailContract>(
+        return new ServiceResult<ResponseContract>(
             FormAccessStatus.Available,
             Data: MapToDetailContract(response, relationshipStatus, linkedResponseId)
         );
     }
-    public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(FormResponseStatusUpdateContract contract, Guid reviewerId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default)
     {
         var response = await _context.Responses.Include(r => r.Form).ThenInclude(f => f.Collaborators).FirstOrDefaultAsync(r => r.Id == contract.ResponseId, cancellationToken);
 
@@ -200,9 +200,9 @@ public class FormResponseService : IFormResponseService
             SubmittedAt = DateTime.UtcNow
         };
     }
-    private static FormResponseDetailContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId)
+    private static ResponseContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId)
     {
-        return new FormResponseDetailContract(
+        return new ResponseContract(
             response.Id,
             response.FormId,
             response.UserId,

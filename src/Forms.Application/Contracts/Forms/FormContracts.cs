@@ -1,19 +1,8 @@
 using Forms.Domain.Enums;
 using Forms.Domain.Models;
+using Forms.Application.Contracts.Collaborators;
 
-namespace Forms.Application.Contracts;
-
-public record FormUpsertContract(
-    Guid? Id,
-    string Title,
-    string? Description,
-    List<FormSchemaItem> Schema,
-    bool AllowAnonymousResponses,
-    bool AllowMultipleResponses,
-    FormStatus Status,
-    Guid? LinkedFormId,
-    List<FormCollaboratorUpsertContract>? Collaborators
-);
+namespace Forms.Application.Contracts.Forms;
 
 public record FormContract(
     Guid Id,
@@ -50,27 +39,7 @@ public record FormSummaryContract(
     int ResponseCount
 );
 
-public record FormCollaboratorContract(
-    Guid UserId,
-    CollaboratorRole Role
-);
-public record FormCollaboratorUpsertContract(
-    Guid UserId, 
-    CollaboratorRole Role
-);
-
 public record LinkableFormsContract(
     Guid Id,
     string Title
-);
-
-public record GetUserFormsRequest(
-    int Page = 1,
-    int PageSize = 10,
-    string? Search = null,               
-    CollaboratorRole? Role = null,      
-    bool? AllowAnonymous = null,        
-    bool? AllowMultiple = null,         
-    bool? HasLinkedForm = null,     
-    string SortDirection = "descending"
 );

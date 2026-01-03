@@ -1,4 +1,6 @@
-public record ListResult<T>(
+namespace Forms.Application.Contracts;
+
+public record PagedResult<T>(
     List<T> Items,
     int TotalCount,
     int Page,
