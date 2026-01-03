@@ -30,7 +30,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IFormService, FormService>();
 builder.Services.AddScoped<IFormResponseService, FormResponseService>();
 
-builder.Services.AddHttpClient<ICurrentUserService, RemoteCurrentUserService>(client => { client.BaseAddress = new Uri("http://super-skylab/internal"); }).AddServiceDiscovery();
+builder.Services.AddHttpClient<ICurrentUserService, RemoteCurrentUserService>(client => { client.BaseAddress = new Uri("http://super-skylab"); }).AddServiceDiscovery();
 
 var app = builder.Build();
 
