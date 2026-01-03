@@ -16,7 +16,6 @@ builder.Services.AddCors(options =>
     });
 });
 
-
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseNpgsql(Environment.GetEnvironmentVariable("CONNECTION_STRING"));
@@ -30,6 +29,17 @@ builder.Services.AddScoped<IFormService, FormService>();
 builder.Services.AddScoped<IFormResponseService, FormResponseService>();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<AppDbContext>();
+        context.Database.Migrate();
+    }
+    catch (Exception) { }
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
