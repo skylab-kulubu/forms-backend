@@ -1,12 +1,10 @@
 using Forms.Infrastructure.Storage;
 using Forms.Application.Services;
-using DotNetEnv;
-using Microsoft.EntityFrameworkCore;
 using Forms.API.Endpoints;
+using Microsoft.EntityFrameworkCore;
+using Steeltoe.Discovery.Eureka;
 
 var builder = WebApplication.CreateBuilder(args);
-
-Env.Load();
 
 var allowedOrigin = Environment.GetEnvironmentVariable("ALLOWED_ORIGIN") ?? "http://localhost:3000";
 
@@ -14,17 +12,17 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policyBuilder =>
     {
-        policyBuilder
-            .WithOrigins(allowedOrigin)
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        policyBuilder.WithOrigins(allowedOrigin).AllowAnyHeader().AllowAnyMethod();
     });
 });
+
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseNpgsql(Environment.GetEnvironmentVariable("CONNECTION_STRING"));
 });
+
+builder.Services.AddEurekaDiscoveryClient();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

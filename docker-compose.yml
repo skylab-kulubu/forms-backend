@@ -34,6 +34,11 @@ services:
       ALLOWED_ORIGIN: "http://localhost:3000"
       Redis__ConnectionString: "redis:6379"
       ASPNETCORE_URLS: "http://0.0.0.0:8080"
+
+      Spring__Application__Name: "FormsApi"
+      Eureka__Client__ServiceUrl: "http://eureka-server:8761/eureka/"
+      Eureka__Client__ValidateCertificates: "false"
+      Eureka__Instance__PreferIpAddress: "true"
     ports:
       - "5000:8080"   # Host: 5000, Container: 8080
     restart: unless-stopped
