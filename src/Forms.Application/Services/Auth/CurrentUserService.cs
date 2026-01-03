@@ -31,7 +31,7 @@ public class RemoteCurrentUserService : ICurrentUserService
 
             var response = await _httpClient.GetFromJsonAsync<ApiResponse<UserContract>>("/api/users/authenticated-user", cancellationToken);
 
-            if (response != null && response.Success && response.Data != null) return response.Data.Id;
+            if (response != null && response.Success && response.Data != null) return response.Data.id;
 
             return null;
         }

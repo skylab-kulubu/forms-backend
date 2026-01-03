@@ -25,6 +25,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddEurekaDiscoveryClient();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddScoped<IFormService, FormService>();
 builder.Services.AddScoped<IFormResponseService, FormResponseService>();

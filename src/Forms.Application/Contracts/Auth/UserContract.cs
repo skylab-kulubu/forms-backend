@@ -1,6 +1,6 @@
 namespace Forms.Application.Contracts.Auth;
 
 public record UserContract(
-    Guid Id,
+    Guid id,
     string Email
 );
