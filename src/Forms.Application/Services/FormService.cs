@@ -195,10 +195,10 @@ public class FormService : IFormService
 
         if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayPayload>(FormAccessStatus.NotFound);
 
-        if (!form.AllowAnonymousResponses && userId == Guid.Empty)
+        if (!form.AllowAnonymousResponses && userId == null)
         {
             return new ServiceResult<FormDisplayPayload>(
-                FormAccessStatus.NotAuthorized,
+                FormAccessStatus.Unauthorized,
                 Message: "Bu formu görüntülemek için giriş yapmalısınız."
             );
         }

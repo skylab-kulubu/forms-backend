@@ -23,7 +23,7 @@ public class FormResponseService : IFormResponseService
         if (form == null) return new ServiceResult<Guid>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
         if (form.Status != FormStatus.Open) return new ServiceResult<Guid>(FormAccessStatus.NotAcceptable, Message: "Form kapalı.");
 
-        if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<Guid>(FormAccessStatus.NotAuthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+        if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<Guid>(FormAccessStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
 
         if (userId.HasValue && !form.AllowMultipleResponses)
         {
