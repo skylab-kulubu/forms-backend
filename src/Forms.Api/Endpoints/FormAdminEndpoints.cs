@@ -30,6 +30,15 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/info", async (Guid id, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Formu görmek için giriş yapmalısınız.");
+
+            var result = await service.GetFormInfoByIdAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/{id:guid}/linkable-forms", async (Guid id, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);

@@ -268,6 +268,42 @@ public class FormService : IFormService
             MapToDisplayPayload(form, step)
         );
     }
+    public async Task<ServiceResult<FormInfoContract>> GetFormInfoByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+
+        if (form == null) return new ServiceResult<FormInfoContract>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
+
+        var canAccess = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
+
+        if (!canAccess) return new ServiceResult<FormInfoContract>(FormAccessStatus.NotAuthorized, Message: "Yetkiniz yok.");
+
+        var counts = await _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == id)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                Waiting = g.Count(r => r.Status == FormResponseStatus.Pending)
+            }).FirstOrDefaultAsync(cancellationToken);
+
+        var responseCount = counts?.Total ?? 0;
+        var waitingResponses = counts?.Waiting ?? 0;
+
+        var contract = new FormInfoContract(
+            form.Id,
+            form.Title,
+            form.Status,
+            form.UpdatedAt ?? form.CreatedAt,
+            responseCount,
+            waitingResponses,
+            AverageTimeSeconds: null,
+            LastSeenUsers: Array.Empty<FormLastSeenUserContract>()
+        );
+
+        return new ServiceResult<FormInfoContract>(FormAccessStatus.Available, Data: contract);
+
+    }
     public async Task<ServiceResult<PagedResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
     {
         var query = _context.Forms.AsNoTracking().Where(f => f.Status != FormStatus.Deleted);
