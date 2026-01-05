@@ -4,6 +4,7 @@ using Forms.Domain.Models;
 using Forms.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Forms.Application.Contracts;
+using Forms.Application.Contracts.Auth;
 using Forms.Application.Contracts.Responses;
 
 namespace Forms.Application.Services;
@@ -11,10 +12,12 @@ namespace Forms.Application.Services;
 public class FormResponseService : IFormResponseService
 {
     private readonly AppDbContext _context;
+    private readonly IExternalUserService _userService;
 
-    public FormResponseService(AppDbContext context)
+    public FormResponseService(AppDbContext context, IExternalUserService userService)
     {
         _context = context;
+        _userService = userService;
     }
 
     public async Task<ServiceResult<Guid>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
@@ -83,17 +86,31 @@ public class FormResponseService : IFormResponseService
         var totalResponseCount = await query.CountAsync(cancellationToken);
 
         var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
-            .Select(r => new ResponseSummaryContract(
+            .Select(r => new
+            {
                 r.Id,
                 r.UserId,
                 r.Status,
                 r.ReviewedBy,
                 r.SubmittedAt,
                 r.ReviewedAt
-            )).ToListAsync(cancellationToken);
-        
+            }).ToListAsync(cancellationToken);
+
+        var userIds = items.Where(r => r.UserId.HasValue).Select(r => r.UserId!.Value).Distinct().ToList();
+        var users = await _userService.GetUsersAsync(userIds, cancellationToken);
+
+        var mappedItems = items.Select(r =>
+        {
+            var userDetail = r.UserId.HasValue ? users.FirstOrDefault(u => u.Id == r.UserId) : null;
+
+            if (userDetail == null && r.UserId.HasValue)
+                userDetail = new UserContract(r.UserId.Value, null, "??", null);
+
+            return new ResponseSummaryContract(r.Id, userDetail, r.Status, r.ReviewedBy, r.SubmittedAt, r.ReviewedAt);
+        }).ToList();
+
         var resultData = new PagedResult<ResponseSummaryContract>(
-            items,
+            mappedItems,
             totalResponseCount,
             request.Page,
             request.PageSize
@@ -146,9 +163,18 @@ public class FormResponseService : IFormResponseService
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
+        var userIds = new List<Guid>();
+        if (response.UserId.HasValue) userIds.Add(response.UserId.Value);
+        if (response.ReviewedBy.HasValue) userIds.Add(response.ReviewedBy.Value);
+
+        var users = await _userService.GetUsersAsync(userIds, cancellationToken);
+
+        var responderUser = response.UserId.HasValue ? users.FirstOrDefault(u => u.Id == response.UserId) : null;
+        var reviewerUser = response.ReviewedBy.HasValue ? users.FirstOrDefault(u => u.Id == response.ReviewedBy) : null;
+
         return new ServiceResult<ResponseContract>(
             FormAccessStatus.Available,
-            Data: MapToDetailContract(response, relationshipStatus, linkedResponseId)
+            Data: MapToDetailContract(response, relationshipStatus, linkedResponseId, responderUser, reviewerUser)
         );
     }
     public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default)
@@ -200,13 +226,13 @@ public class FormResponseService : IFormResponseService
             SubmittedAt = DateTime.UtcNow
         };
     }
-    private static ResponseContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId)
+    private static ResponseContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId, UserContract? responderUser, UserContract? reviewerUser)
     {
         return new ResponseContract(
             response.Id,
             response.FormId,
-            response.UserId,
-            response.ReviewedBy,
+            responderUser,
+            reviewerUser,
             response.Data,
             response.Status,
             relationshipStatus,

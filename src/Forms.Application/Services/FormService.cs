@@ -3,18 +3,22 @@ using Forms.Domain.Enums;
 using Forms.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Forms.Application.Contracts;
+using Forms.Application.Contracts.Auth;
 using Forms.Application.Contracts.Forms;
 using Forms.Application.Contracts.Collaborators;
+using Microsoft.Extensions.Configuration;
 
 namespace Forms.Application.Services;
 
 public class FormService : IFormService
 {
     private readonly AppDbContext _context;
+    private readonly IExternalUserService _userService;
 
-    public FormService(AppDbContext context)
+    public FormService(AppDbContext context, IExternalUserService userService)
     {
         _context = context;
+        _userService = userService;
     }
 
     public async Task<ServiceResult<FormContract>> UpsertFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -67,7 +71,11 @@ public class FormService : IFormService
                 _context.Forms.Add(newForm);
                 await _context.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm));
+
+                var collaboratorIds = newForm.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
+                var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
+
+                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm, users, isChildForm: false, userRole: CollaboratorRole.Owner));
             }
             else
             {
@@ -166,7 +174,11 @@ public class FormService : IFormService
 
                 await _context.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm));
+
+                var collaboratorIds = existingForm.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
+                var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
+
+                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm, users, isChildForm: false, userRole: CollaboratorRole.Owner));
             }
         }
         catch (Exception)
@@ -185,9 +197,12 @@ public class FormService : IFormService
 
         if (collaborator == null) return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
+        var collaboratorIds = form.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
+        var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
+
         var isChildForm = await _context.Forms.AnyAsync(f => f.LinkedFormId == id, cancellationToken);
         var userRole = collaborator.Role;
-        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, isChildForm, userRole));
+        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, users, isChildForm, userRole));
     }
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
     {
@@ -433,8 +448,22 @@ public class FormService : IFormService
 
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form bağlantısı kaldırıldı.");
     }
-    private static FormContract MapToContract(Form form, bool isChildForm = false, CollaboratorRole userRole = CollaboratorRole.None)
+    private static FormContract MapToContract(Form form, List<UserContract> users, bool isChildForm = false, CollaboratorRole userRole = CollaboratorRole.None)
     {
+        var collaboratorContracts = new List<FormCollaboratorContract>();
+
+        if (form.Collaborators != null)
+        {
+            foreach (var collaborator in form.Collaborators)
+            {
+                var userDetail = users.FirstOrDefault(u => u.Id == collaborator.UserId) ?? new UserContract(collaborator.UserId, null, "??", null);
+                collaboratorContracts.Add(new FormCollaboratorContract(
+                    userDetail,
+                    collaborator.Role
+                ));
+            }
+        }
+
         return new FormContract(
             form.Id,
             form.Title,
@@ -446,10 +475,7 @@ public class FormService : IFormService
             form.LinkedFormId,
             isChildForm,
             userRole,
-            form.Collaborators?.Select(c => new FormCollaboratorContract(
-                c.UserId,
-                c.Role
-            )).ToList() ?? new List<FormCollaboratorContract>(),
+            collaboratorContracts,
             form.CreatedAt,
             form.UpdatedAt
         );

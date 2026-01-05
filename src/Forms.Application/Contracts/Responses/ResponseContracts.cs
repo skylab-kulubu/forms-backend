@@ -1,13 +1,14 @@
 using Forms.Domain.Enums;
 using Forms.Domain.Models;
+using Forms.Application.Contracts.Auth;
 
 namespace Forms.Application.Contracts.Responses;
 
 public record ResponseContract(
     Guid Id,
     Guid FormId,
-    Guid? UserId,
-    Guid? ReviewerId,
+    UserContract? User,
+    UserContract? Reviewer,
     List<FormResponseSchemaItem> Schema,
     FormResponseStatus Status,
     FormRelationshipStatus Relationship,
@@ -19,7 +20,7 @@ public record ResponseContract(
 
 public record ResponseSummaryContract(
     Guid Id,
-    Guid? UserId,
+    UserContract? User,
     FormResponseStatus Status,
     Guid? ReviewedBy,
     DateTime SubmittedAt,
