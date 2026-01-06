@@ -99,6 +99,15 @@ public static class FormAdminEndpoints
             
             var result = await service.UpdateResponseStatusAsync(serviceContract, userId.Value, ct);
             return result.ToApiResult();
-        }); 
+        });
+
+        group.MapPost("/responses/{id:guid}/archive", async (Guid id, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Cevabı arşivlemek için giriş yapmalısınız.");
+            
+            var result = await service.ArchiveResponseAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });  
     }
 }

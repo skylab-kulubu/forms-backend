@@ -9,20 +9,26 @@ public record ResponseContract(
     Guid FormId,
     UserContract? User,
     UserContract? Reviewer,
+    UserContract? Archiver,
     List<FormResponseSchemaItem> Schema,
     FormResponseStatus Status,
+    bool IsArchived,
     FormRelationshipStatus Relationship,
     string? ReviewerNote,
     Guid? LinkedResponseId,
     DateTime SubmittedAt,
-    DateTime? ReviewedAt
+    DateTime? ReviewedAt,
+    DateTime? ArchivedAt
 );
 
 public record ResponseSummaryContract(
     Guid Id,
     UserContract? User,
     FormResponseStatus Status,
+    bool IsArchived,
     Guid? ReviewedBy,
+    Guid? ArchivedBy,
     DateTime SubmittedAt,
-    DateTime? ReviewedAt
+    DateTime? ReviewedAt,
+    DateTime? ArchivedAt
 );

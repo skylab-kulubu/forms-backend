@@ -8,5 +8,6 @@ public record GetResponsesRequest(
     FormResponseStatus? Status = null,
     FormResponderType ResponderType = FormResponderType.All,
     Guid? FilterByUserId = null,
+    bool? ShowArchived = null,
     string SortingDirection = "descending"  
 );

@@ -11,6 +11,9 @@ public class FormResponse
     public Guid? UserId { get; set; }
     public List<FormResponseSchemaItem> Data { get; set; } = new();
     public FormResponseStatus Status { get; set; } = FormResponseStatus.Pending;
+    public bool IsArchived { get; set; } = false;
+    public Guid? ArchivedBy { get; set; }
+    public DateTime? ArchivedAt { get; set; }
     public Guid? ReviewedBy { get; set; }
     public string? ReviewNote { get; set; }
     public DateTime? ReviewedAt { get; set; }

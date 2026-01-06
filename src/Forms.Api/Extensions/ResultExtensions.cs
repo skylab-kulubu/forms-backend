@@ -11,6 +11,7 @@ public static class ResultExtensions
         {
             FormAccessStatus.Available => Results.Ok(result),
             FormAccessStatus.Completed => Results.Ok(result),
+            FormAccessStatus.Approved => Results.Ok(result),
             FormAccessStatus.Declined => Results.Ok(result),
             FormAccessStatus.PendingApproval => Results.Ok(result),
 

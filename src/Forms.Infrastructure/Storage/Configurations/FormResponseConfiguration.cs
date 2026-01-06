@@ -21,6 +21,10 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.Property(fr => fr.ReviewNote).HasMaxLength(500).IsRequired(false);
 
+        builder.Property(fr => fr.IsArchived).HasDefaultValue(false);
+        builder.Property(fr => fr.ArchivedBy).IsRequired(false);
+        builder.Property(fr => fr.ArchivedAt).IsRequired(false);
+
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         builder.Property(fr => fr.Data)

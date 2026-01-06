@@ -30,7 +30,7 @@ public class FormResponseService : IFormResponseService
 
         if (userId.HasValue && !form.AllowMultipleResponses)
         {
-            var hasExistingResponse = await _context.Responses.AnyAsync(r => r.FormId == form.Id && r.UserId == userId && r.Status != FormResponseStatus.Archived, cancellationToken);
+            var hasExistingResponse = await _context.Responses.AnyAsync(r => r.FormId == form.Id && r.UserId == userId && !r.IsArchived, cancellationToken);
             if (hasExistingResponse) return new ServiceResult<Guid>(FormAccessStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
@@ -60,6 +60,13 @@ public class FormResponseService : IFormResponseService
 
         var query = _context.Responses.AsNoTracking().Where(r => r.FormId == formId);
 
+        bool showArchived = request.ShowArchived.GetValueOrDefault(false);
+
+        if (showArchived) { query = query.Where(r => r.IsArchived == true); }
+        else { query = query.Where(r => r.IsArchived == false); }
+
+        if (request.Status.HasValue) { query = query.Where(r => r.Status == request.Status.Value); }
+
         switch (request.ResponderType)
         {
             case FormResponderType.Registered:
@@ -72,9 +79,6 @@ public class FormResponseService : IFormResponseService
             default:
                 break;
         }
-
-        if (request.Status.HasValue)
-            query = query.Where(r => r.Status == request.Status.Value);
 
         if (request.FilterByUserId.HasValue)
             query = query.Where(r => r.UserId == request.FilterByUserId.Value);
@@ -91,9 +95,12 @@ public class FormResponseService : IFormResponseService
                 r.Id,
                 r.UserId,
                 r.Status,
+                r.IsArchived,
                 r.ReviewedBy,
+                r.ArchivedBy,
                 r.SubmittedAt,
-                r.ReviewedAt
+                r.ReviewedAt,
+                r.ArchivedAt
             }).ToListAsync(cancellationToken);
 
         var userIds = items.Where(r => r.UserId.HasValue).Select(r => r.UserId!.Value).Distinct().ToList();
@@ -106,7 +113,7 @@ public class FormResponseService : IFormResponseService
             if (userDetail == null && r.UserId.HasValue)
                 userDetail = new UserContract(r.UserId.Value, null, "??", null);
 
-            return new ResponseSummaryContract(r.Id, userDetail, r.Status, r.ReviewedBy, r.SubmittedAt, r.ReviewedAt);
+            return new ResponseSummaryContract(r.Id, userDetail, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt);
         }).ToList();
 
         var resultData = new PagedResult<ResponseSummaryContract>(
@@ -166,15 +173,17 @@ public class FormResponseService : IFormResponseService
         var userIds = new List<Guid>();
         if (response.UserId.HasValue) userIds.Add(response.UserId.Value);
         if (response.ReviewedBy.HasValue) userIds.Add(response.ReviewedBy.Value);
+        if (response.ArchivedBy.HasValue) userIds.Add(response.ArchivedBy.Value);
 
         var users = await _userService.GetUsersAsync(userIds, cancellationToken);
 
         var responderUser = response.UserId.HasValue ? users.FirstOrDefault(u => u.Id == response.UserId) : null;
         var reviewerUser = response.ReviewedBy.HasValue ? users.FirstOrDefault(u => u.Id == response.ReviewedBy) : null;
+        var archiverUser = response.ArchivedBy.HasValue ? users.FirstOrDefault(u => u.Id == response.ArchivedBy) : null;
 
         return new ServiceResult<ResponseContract>(
             FormAccessStatus.Available,
-            Data: MapToDetailContract(response, relationshipStatus, linkedResponseId, responderUser, reviewerUser)
+            Data: MapToDetailContract(response, relationshipStatus, linkedResponseId, responderUser, reviewerUser, archiverUser)
         );
     }
     public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default)
@@ -189,6 +198,9 @@ public class FormResponseService : IFormResponseService
         if (!isAuthorized)
             return new ServiceResult<bool>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı onaylama veya reddetme yetkiniz yok.");
 
+        if (response.IsArchived)
+            return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Arşivlenmiş yanıtlar üzerinde değişiklik yapılamaz.");
+
         response.Status = contract.NewStatus;
         response.ReviewedBy = reviewerId;
         response.ReviewNote = contract.Note;
@@ -197,6 +209,28 @@ public class FormResponseService : IFormResponseService
         await _context.SaveChangesAsync(cancellationToken);
 
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Yanıt durumu başarıyla güncellendi.");
+    }
+    public async Task<ServiceResult<bool>> ArchiveResponseAsync(Guid responseId, Guid archiverId, CancellationToken cancellationToken = default)
+    {
+        var response = await _context.Responses.Include(r => r.Form).ThenInclude(f => f.Collaborators).FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+
+        if (response == null)
+            return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "İlgili yanıt bulunamadı.");
+
+        var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == archiverId && (c.Role != CollaboratorRole.None));
+
+        if (!isAuthorized)
+            return new ServiceResult<bool>(FormAccessStatus.NotAuthorized, Message: "Bu yanıtı arşivleme yetkiniz yok.");
+
+        if (response.IsArchived)
+            return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Bu yanıt zaten arşivlenmiş.");
+        
+        response.IsArchived = true;
+        response.ArchivedBy = archiverId;
+        response.ArchivedAt = DateTime.UtcNow;
+        
+        await _context.SaveChangesAsync(cancellationToken);
+        return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Yanıt başarıyla arşivlendi.");
     }
     private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, Guid? userId)
     {
@@ -226,20 +260,23 @@ public class FormResponseService : IFormResponseService
             SubmittedAt = DateTime.UtcNow
         };
     }
-    private static ResponseContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId, UserContract? responderUser, UserContract? reviewerUser)
+    private static ResponseContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId, UserContract? responderUser, UserContract? reviewerUser, UserContract? archiverUser)
     {
         return new ResponseContract(
             response.Id,
             response.FormId,
             responderUser,
             reviewerUser,
+            archiverUser,
             response.Data,
             response.Status,
+            response.IsArchived,
             relationshipStatus,
             response.ReviewNote,
             linkedResponseId,
             response.SubmittedAt,
-            response.ReviewedAt
+            response.ReviewedAt,
+            response.ArchivedAt
         );
     }
 }
