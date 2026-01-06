@@ -6,7 +6,6 @@ using Forms.Application.Contracts;
 using Forms.Application.Contracts.Auth;
 using Forms.Application.Contracts.Forms;
 using Forms.Application.Contracts.Collaborators;
-using Microsoft.Extensions.Configuration;
 
 namespace Forms.Application.Services;
 
@@ -232,7 +231,7 @@ public class FormService : IFormService
 
                 return new ServiceResult<FormDisplayPayload>(
                     FormAccessStatus.RequiresParentApproval,
-                    new FormDisplayPayload(null, lockedStep),
+                    new FormDisplayPayload(null, lockedStep, null, null),
                     "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
                 );
             }
@@ -245,11 +244,14 @@ public class FormService : IFormService
 
         if (latestResponse != null)
         {
+            var note = latestResponse.ReviewNote;
+            var date = latestResponse.ReviewedAt;
+
             if (latestResponse.Status == FormResponseStatus.Pending)
             {
                 return new ServiceResult<FormDisplayPayload>(
                     FormAccessStatus.PendingApproval,
-                     new FormDisplayPayload(null, step),
+                    new FormDisplayPayload(null, step, null, null),
                     "Form cevabınız inceleniyor, lütfen bekleyiniz."
                 );
             }
@@ -259,9 +261,9 @@ public class FormService : IFormService
                 if (!form.AllowMultipleResponses)
                 {
                     return new ServiceResult<FormDisplayPayload>(
-                        FormAccessStatus.Completed,
-                        new FormDisplayPayload(null, step),
-                        "Bu formu daha önce doldurdunuz."
+                        FormAccessStatus.Approved,
+                        new FormDisplayPayload(null, step, note, date),
+                        "Başvurunuz onaylanmıştır."
                     );
                 }
             }
@@ -271,8 +273,19 @@ public class FormService : IFormService
                 {
                     return new ServiceResult<FormDisplayPayload>(
                         FormAccessStatus.Declined,
-                        new FormDisplayPayload(null, step),
-                        "Başvurunuz reddedilmiştir ve yeni giriş hakkınız yoktur."
+                        new FormDisplayPayload(null, step, note, date),
+                        "Başvurunuz reddedilmiştir."
+                    );
+                }
+            }
+            if (latestResponse.Status == FormResponseStatus.NonRestrict)
+            {
+                if (!form.AllowMultipleResponses)
+                {
+                    return new ServiceResult<FormDisplayPayload>(
+                        FormAccessStatus.Completed,
+                        new FormDisplayPayload(null, step, null, null),
+                        "Bu formu daha önce doldurdunuz."
                     );
                 }
             }
@@ -280,7 +293,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormDisplayPayload>(
             FormAccessStatus.Available,
-            MapToDisplayPayload(form, step)
+            MapToDisplayPayload(form, step, null, null)
         );
     }
     public async Task<ServiceResult<FormInfoContract>> GetFormInfoByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -480,7 +493,7 @@ public class FormService : IFormService
             form.UpdatedAt
         );
     }
-    private FormDisplayPayload MapToDisplayPayload(Form form, int step)
+    private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null)
     {
         var contract = new FormDisplayContract(
             form.Id,
@@ -489,7 +502,7 @@ public class FormService : IFormService
             form.Schema
         );
 
-        return new FormDisplayPayload(contract, step);
+        return new FormDisplayPayload(contract, step, reviewNote, reviewedAt);
     }
     private static int ResolveStep(bool isParent, bool isChild, bool isCompleted)
     {

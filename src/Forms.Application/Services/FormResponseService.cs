@@ -30,7 +30,7 @@ public class FormResponseService : IFormResponseService
 
         if (userId.HasValue && !form.AllowMultipleResponses)
         {
-            var hasExistingResponse = await _context.Responses.AnyAsync(r => r.FormId == form.Id && r.UserId == userId, cancellationToken);
+            var hasExistingResponse = await _context.Responses.AnyAsync(r => r.FormId == form.Id && r.UserId == userId && r.Status != FormResponseStatus.Archived, cancellationToken);
             if (hasExistingResponse) return new ServiceResult<Guid>(FormAccessStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
