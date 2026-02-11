@@ -2,6 +2,7 @@ using Forms.Domain.Entities;
 using Forms.Domain.Enums;
 using Forms.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
+using Forms.Application.Validators;
 using Forms.Application.Contracts;
 using Forms.Application.Contracts.Auth;
 using Forms.Application.Contracts.Forms;
@@ -9,7 +10,7 @@ using Forms.Application.Contracts.Collaborators;
 
 namespace Forms.Application.Services;
 
-public class FormService : IFormService
+public partial class FormService : IFormService
 {
     private readonly AppDbContext _context;
     private readonly IExternalUserService _userService;
@@ -19,166 +20,134 @@ public class FormService : IFormService
         _context = context;
         _userService = userService;
     }
-
-    public async Task<ServiceResult<FormContract>> UpsertFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
-        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+        if (validation.Status != FormAccessStatus.Available)
+            return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
+        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            var formId = contract.Id ?? Guid.NewGuid();
+            var formId = Guid.NewGuid();
 
-            var existingForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == formId, cancellationToken);
-
-            if (contract.AllowAnonymousResponses && !contract.AllowMultipleResponses) return new ServiceResult<FormContract>(FormAccessStatus.NotAcceptable, Message: "Anonim formlarda çoklu yanıt özelliği açık olmalıdır.");
-
-            if (existingForm == null)
+            var newForm = new Form
             {
-                var newForm = new Form
-                {
-                    Id = formId,
-                    Title = contract.Title,
-                    Description = contract.Description,
-                    Schema = contract.Schema ?? new(),
-                    Status = contract.Status,
-                    AllowAnonymousResponses = contract.AllowAnonymousResponses,
-                    AllowMultipleResponses = contract.AllowMultipleResponses,
-                    CreatedAt = DateTime.UtcNow
-                };
+                Id = formId,
+                Title = contract.Title,
+                Description = contract.Description,
+                Schema = contract.Schema ?? new(),
+                Status = contract.Status,
+                AllowAnonymousResponses = contract.AllowAnonymousResponses,
+                AllowMultipleResponses = contract.AllowMultipleResponses,
+                LinkedFormId = null
+            };
 
-                var collaborators = new List<FormCollaborator> { new FormCollaborator { FormId = formId, UserId = userId, Role = CollaboratorRole.Owner } };
+            var collaborators = new List<FormCollaborator>
+            {
+                new FormCollaborator { FormId = formId, UserId = userId, Role = CollaboratorRole.Owner }
+            };
+
+            if (contract.Collaborators != null)
+            {
+                foreach (var incoming in contract.Collaborators)
+                {
+                    if (incoming.UserId == userId) continue;
+
+                    var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
+                    collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
+                }
+            }
+
+            newForm.Collaborators = collaborators;
+            _context.Forms.Add(newForm);
+
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            var collaboratorIds = newForm.Collaborators.Select(c => c.UserId).ToList();
+            var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
+
+            return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm, users, isChildForm: false, userRole: CollaboratorRole.Owner));
+        }
+        catch (Exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+    public async Task<ServiceResult<FormContract>> UpdateFormAsync(Guid formId, FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var existingForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == formId, cancellationToken);
+            if (existingForm == null) 
+                return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
+
+            var currentUserCollaborator = existingForm.Collaborators.FirstOrDefault(c => c.UserId == userId);
+            if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
+                return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
+
+            var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+            if (validation.Status != FormAccessStatus.Available)
+                return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
+
+            var isChildForm = await _context.Forms.AnyAsync(parent => parent.LinkedFormId == formId, cancellationToken);
+
+            existingForm.Title = contract.Title;
+            existingForm.Description = contract.Description;
+            existingForm.Schema = contract.Schema ?? new();
+            existingForm.Status = contract.Status;
+
+            if (existingForm.LinkedFormId != contract.LinkedFormId)
+            {
+                if (!contract.LinkedFormId.HasValue && existingForm.LinkedFormId.HasValue)
+                {
+                    var unlinkResult = await ApplyUnlinkInternalAsync(existingForm, userId, cancellationToken);
+                    if (unlinkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(unlinkResult.Status, Message: unlinkResult.Message);
+                }
+                else if (contract.LinkedFormId.HasValue)
+                {
+                    var linkResult = await ApplyLinkInternalAsync(existingForm, contract.LinkedFormId.Value, userId, cancellationToken);
+                    if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
+                }
+            }
+
+            if (!isChildForm)
+            {
+                existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
+                existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
 
                 if (contract.Collaborators != null)
                 {
-                    foreach (var incoming in contract.Collaborators)
+                    var incomingCollaborators = contract.Collaborators.Select(c => (c.UserId, c.Role));
+                    var currentUser = (userId, currentUserCollaborator.Role);
+
+                    existingForm.UpdateCollaborators(incomingCollaborators, currentUser);
+                }
+                
+                if (existingForm.LinkedFormId.HasValue)
+                {
+                    var childForm = await _context.Forms.Include(c => c.Collaborators).FirstOrDefaultAsync(c => c.Id == existingForm.LinkedFormId.Value, cancellationToken);
+                    if (childForm != null)
                     {
-                        if (incoming.UserId == userId) continue;
-                        var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
-                        collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
+                        childForm.Status = existingForm.Status;
+                        childForm.AllowAnonymousResponses = existingForm.AllowAnonymousResponses;
+                        childForm.AllowMultipleResponses = existingForm.AllowMultipleResponses;
+
+                        childForm.SyncChildCollaborators(existingForm.Collaborators);
                     }
                 }
-                ;
-
-                if (contract.LinkedFormId.HasValue)
-                {
-                    var linkResult = await ApplyLinkInternalAsync(newForm, contract.LinkedFormId.Value, userId, cancellationToken);
-                    if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
-                }
-                ;
-
-                newForm.Collaborators = collaborators;
-                _context.Forms.Add(newForm);
-                await _context.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-
-                var collaboratorIds = newForm.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
-                var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
-
-                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm, users, isChildForm: false, userRole: CollaboratorRole.Owner));
             }
-            else
-            {
-                var currentUserCollaborator = existingForm.Collaborators.FirstOrDefault(c => c.UserId == userId);
 
-                if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
-                    return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
 
-                var currentUserRole = currentUserCollaborator.Role;
+            var collaboratorIds = existingForm.Collaborators.Select(c => c.UserId).ToList();
+            var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-                var isChildForm = await _context.Forms.AnyAsync(parent => parent.LinkedFormId == formId, cancellationToken);
-
-                existingForm.Title = contract.Title;
-                existingForm.Description = contract.Description;
-                existingForm.Schema = contract.Schema ?? new();
-                existingForm.Status = contract.Status;
-
-                if (existingForm.LinkedFormId != contract.LinkedFormId)
-                {
-                    if (!contract.LinkedFormId.HasValue && existingForm.LinkedFormId.HasValue)
-                    {
-                        var unlinkResult = await ApplyUnlinkInternalAsync(existingForm, userId, cancellationToken);
-                        if (unlinkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(unlinkResult.Status, Message: unlinkResult.Message);
-                    }
-                    else if (contract.LinkedFormId.HasValue)
-                    {
-                        var linkResult = await ApplyLinkInternalAsync(existingForm, contract.LinkedFormId.Value, userId, cancellationToken);
-                        if (linkResult.Status != FormAccessStatus.Available) return new ServiceResult<FormContract>(linkResult.Status, Message: linkResult.Message);
-                    }
-                }
-
-                if (!isChildForm)
-                {
-                    existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
-                    existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
-
-                    if (contract.Collaborators != null)
-                    {
-                        var dbCollaborators = existingForm.Collaborators.ToList();
-                        var incomingCollaborators = contract.Collaborators;
-
-                        var toDeleteQuery = dbCollaborators
-                            .Where(db => db.Role != CollaboratorRole.Owner)
-                            .Where(db => db.UserId != userId)
-                            .Where(db => !incomingCollaborators.Any(inc => inc.UserId == db.UserId));
-
-                        if (currentUserRole == CollaboratorRole.Editor)
-                            toDeleteQuery = toDeleteQuery.Where(db => db.Role == CollaboratorRole.Viewer);
-
-                        var toDelete = toDeleteQuery.ToList();
-
-                        foreach (var item in toDelete)
-                        {
-                            _context.Collaborators.Remove(item);
-                            existingForm.Collaborators.Remove(item);
-                        }
-
-                        foreach (var incoming in incomingCollaborators)
-                        {
-                            if (incoming.UserId == userId) continue;
-
-                            var safeRole = incoming.Role == CollaboratorRole.Owner ? CollaboratorRole.Editor : incoming.Role;
-
-                            if (currentUserRole == CollaboratorRole.Editor)
-                                if (safeRole != CollaboratorRole.Viewer) continue;
-
-                            var existingCollab = dbCollaborators.FirstOrDefault(c => c.UserId == incoming.UserId);
-                            if (existingCollab == null)
-                            {
-                                existingForm.Collaborators.Add(new FormCollaborator { FormId = formId, UserId = incoming.UserId, Role = safeRole });
-                            }
-                            else
-                            {
-                                if (existingCollab.Role == CollaboratorRole.Owner) continue;
-                                if (currentUserRole == CollaboratorRole.Editor && existingCollab.Role == CollaboratorRole.Editor) continue;
-
-                                existingCollab.Role = safeRole;
-                            }
-                        }
-                    }
-                    if (existingForm.LinkedFormId.HasValue)
-                    {
-                        var childForm = await _context.Forms.Include(c => c.Collaborators).FirstOrDefaultAsync(c => c.Id == existingForm.LinkedFormId.Value, cancellationToken);
-
-                        if (childForm != null)
-                        {
-                            childForm.Status = existingForm.Status;
-                            childForm.AllowAnonymousResponses = existingForm.AllowAnonymousResponses;
-                            childForm.AllowMultipleResponses = existingForm.AllowMultipleResponses;
-
-                            SyncChildCollaborators(childForm, existingForm.Collaborators.ToList());
-                        }
-                    }
-                }
-                else { }
-
-                await _context.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-
-                var collaboratorIds = existingForm.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
-                var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
-
-                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm, users, isChildForm: false, userRole: CollaboratorRole.Owner));
-            }
+            return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm, users, isChildForm, currentUserCollaborator.Role));
         }
         catch (Exception)
         {
@@ -429,38 +398,6 @@ public class FormService : IFormService
         await _context.SaveChangesAsync(cancellationToken);
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form silindi.");
     }
-    private async Task<ServiceResult<bool>> ApplyLinkInternalAsync(Form parentForm, Guid childId, Guid userId, CancellationToken ct)
-    {
-        if (parentForm.Id == childId) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Form kendisine bağlanamaz.");
-
-        var childForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == childId, ct);
-        if (childForm == null) return new ServiceResult<bool>(FormAccessStatus.NotFound, Message: "Bağlanacak alt form bulunamadı.");
-
-        var isChildOwner = childForm.Collaborators.Any(c => c.UserId == userId && c.Role == CollaboratorRole.Owner);
-        if (!isChildOwner) return new ServiceResult<bool>(FormAccessStatus.NotAuthorized, Message: "Alt formda Owner yetkiniz olmalı.");
-
-        if (parentForm.AllowAnonymousResponses) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Anonim formlar bağlanamaz.");
-
-        if (childForm.LinkedFormId.HasValue) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Seçilen form zaten başka bir formun alt formu (Zincirleme yasak).");
-
-        var isChildAlreadyLinked = await _context.Forms.AnyAsync(f => f.LinkedFormId == childId && f.Id != parentForm.Id, ct);
-        if (isChildAlreadyLinked) return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Bu form zaten başka bir form tarafından kullanılıyor.");
-
-        parentForm.LinkedFormId = childId;
-
-        childForm.AllowAnonymousResponses = parentForm.AllowAnonymousResponses;
-        childForm.AllowMultipleResponses = parentForm.AllowMultipleResponses;
-
-        SyncChildCollaborators(childForm, parentForm.Collaborators.ToList());
-
-        return new ServiceResult<bool>(FormAccessStatus.Available, true);
-    }
-    private async Task<ServiceResult<bool>> ApplyUnlinkInternalAsync(Form parentForm, Guid userId, CancellationToken ct)
-    {
-        parentForm.LinkedFormId = null;
-
-        return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form bağlantısı kaldırıldı.");
-    }
     private static FormContract MapToContract(Form form, List<UserContract> users, bool isChildForm = false, CollaboratorRole userRole = CollaboratorRole.None)
     {
         var collaboratorContracts = new List<FormCollaboratorContract>();
@@ -516,28 +453,6 @@ public class FormService : IFormService
                 return 3;
             default:
                 return 0;
-        }
-    }
-    private void SyncChildCollaborators(Form childForm, List<FormCollaborator> parentCollaborators)
-    {
-        var childCollabs = childForm.Collaborators.ToList();
-
-        var toDelete = childCollabs.Where(c => !parentCollaborators.Any(p => p.UserId == c.UserId)).ToList();
-
-        foreach (var item in toDelete) childForm.Collaborators.Remove(item);
-
-        foreach (var parentCollab in parentCollaborators)
-        {
-            var existingChildCollab = childCollabs.FirstOrDefault(c => c.UserId == parentCollab.UserId);
-
-            if (existingChildCollab == null)
-            {
-                childForm.Collaborators.Add(new FormCollaborator { FormId = childForm.Id, UserId = parentCollab.UserId, Role = parentCollab.Role });
-            }
-            else if (existingChildCollab.Role != parentCollab.Role)
-            {
-                existingChildCollab.Role = parentCollab.Role;
-            }
         }
     }
 }

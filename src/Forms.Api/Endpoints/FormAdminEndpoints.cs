@@ -53,12 +53,22 @@ public static class FormAdminEndpoints
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Form oluşturmak için giriş yapmalısınız.");
 
-            var result = await service.UpsertFormAsync(request, userId.Value, ct);
+            var result = await service.CreateFormAsync(request, userId.Value, ct);
 
             if (result.Status == FormAccessStatus.Available && result.Data != null)
             {
-                if (!request.Id.HasValue) return Results.Created($"/api/admin/forms/{result.Data.Id}", result);
+                return Results.Created($"/api/admin/forms/{result.Data.Id}", result);
             }
+
+            return result.ToApiResult();
+        });
+
+        group.MapPut("/{id:guid}", async (Guid id, [FromBody] FormUpsertRequest request, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Form güncellemek için giriş yapmalısınız.");
+
+            var result = await service.UpdateFormAsync(id, request, userId.Value, ct);
 
             return result.ToApiResult();
         });
@@ -89,14 +99,14 @@ public static class FormAdminEndpoints
             var result = await service.GetResponseByIdAsync(id, userId.Value, ct);
             return result.ToApiResult();
         });
-        
+
         group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] ResponseStatusUpdateRequest request, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Durumu güncellemek için giriş yapmalısınız.");
 
             var serviceContract = new ResponseStatusUpdateRequest(id, request.NewStatus, request.Note);
-            
+
             var result = await service.UpdateResponseStatusAsync(serviceContract, userId.Value, ct);
             return result.ToApiResult();
         });
@@ -105,9 +115,9 @@ public static class FormAdminEndpoints
         {
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Cevabı arşivlemek için giriş yapmalısınız.");
-            
+
             var result = await service.ArchiveResponseAsync(id, userId.Value, ct);
             return result.ToApiResult();
-        });  
+        });
     }
 }
