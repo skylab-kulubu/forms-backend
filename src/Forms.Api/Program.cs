@@ -19,7 +19,14 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseNpgsql(Environment.GetEnvironmentVariable("CONNECTION_STRING"));
+    options.UseNpgsql(Environment.GetEnvironmentVariable("CONNECTION_STRING"), 
+        npgsqlOptionsAction: sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorCodesToAdd: new[] { "28P01" }); 
+        });
 });
 
 builder.Services.AddEurekaDiscoveryClient();

@@ -30,7 +30,7 @@ services:
       - postgres
       - redis
     environment:
-      CONNECTION_STRING: "Host=postgres;Port=5432;Database=forms_db;Username=admin;Password=skylab"
+      CONNECTION_STRING: "Host=postgres;Port=5432;Database=forms_db;Username=admin;Password=skylab;Keepalive=30;"
       ALLOWED_ORIGIN: "http://localhost:3000"
       Redis__ConnectionString: "redis:6379"
       ASPNETCORE_URLS: "http://0.0.0.0:8080"
