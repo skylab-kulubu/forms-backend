@@ -254,6 +254,7 @@ public class FormResponseService : IFormResponseService
             responseData.Add(new FormResponseSchemaItem
             {
                 Id = schemaItem.Id,
+                Type = schemaItem.Type,
                 Question = questionText,
                 Answer = userAnswer
             });
