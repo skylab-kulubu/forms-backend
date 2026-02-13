@@ -224,6 +224,14 @@ public class FormResponseService : IFormResponseService
 
         if (response.IsArchived)
             return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Bu yanıt zaten arşivlenmiş.");
+
+        if (response.Status == FormResponseStatus.Pending)
+        {
+            response.Status = FormResponseStatus.Declined;
+            response.ReviewNote = "Arşivlendiği için sistem tarafından otomatik olarak reddedildi.";
+            response.ReviewedBy = archiverId;
+            response.ReviewedAt = DateTime.UtcNow;
+        }
         
         response.IsArchived = true;
         response.ArchivedBy = archiverId;
