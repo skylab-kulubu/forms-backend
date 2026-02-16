@@ -14,9 +14,9 @@ public static class FormValidator
 
         bool hasFileField = schema.Any(x => x.Type.Equals("file"));
 
-        if (hasFileField)
+        if (hasFileField && allowAnonymous)
         {
-            return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Şimdilik dosya yükleme özelliği desteklenmiyor.");
+            return new ServiceResult<bool>(FormAccessStatus.NotAcceptable, Message: "Anonim formlarda dosya yüklenemez.");
         }
 
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true);
