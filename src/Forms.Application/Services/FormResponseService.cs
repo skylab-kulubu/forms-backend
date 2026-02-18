@@ -45,18 +45,18 @@ public class FormResponseService : IFormResponseService
                 return new ServiceResult<Guid>(FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
             }
         }
-        var response = MapToEntity(form, contract.Responses, userId);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId);
 
         _context.Responses.Add(response);
         await _context.SaveChangesAsync(cancellationToken);
 
         return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
     }
-    public async Task<ServiceResult<PagedResult<ResponseSummaryContract>>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _context.Collaborators.AnyAsync(c => c.FormId == formId && c.UserId == userId && (c.Role != CollaboratorRole.None), cancellationToken);
 
-        if (!isAuthorized) return new ServiceResult<PagedResult<ResponseSummaryContract>>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
+        if (!isAuthorized) return new ServiceResult<FormResponsesListResult>(FormAccessStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var query = _context.Responses.AsNoTracking().Where(r => r.FormId == formId);
 
@@ -88,6 +88,7 @@ public class FormResponseService : IFormResponseService
 
 
         var totalResponseCount = await query.CountAsync(cancellationToken);
+        var averageTimeSpent = await query.AverageAsync(r => r.TimeSpent, cancellationToken);
 
         var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(r => new
@@ -123,7 +124,9 @@ public class FormResponseService : IFormResponseService
             request.PageSize
         );
 
-        return new ServiceResult<PagedResult<ResponseSummaryContract>>(FormAccessStatus.Available, Data: resultData);
+        var finalResult = new FormResponsesListResult(resultData, averageTimeSpent);
+
+        return new ServiceResult<FormResponsesListResult>(FormAccessStatus.Available, Data: finalResult);
     }
     public async Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, CancellationToken cancellationToken = default)
     {
@@ -240,7 +243,7 @@ public class FormResponseService : IFormResponseService
         await _context.SaveChangesAsync(cancellationToken);
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Yanıt başarıyla arşivlendi.");
     }
-    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, Guid? userId)
+    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId)
     {
         var responseData = new List<FormResponseSchemaItem>();
 
@@ -265,6 +268,7 @@ public class FormResponseService : IFormResponseService
             FormId = form.Id,
             UserId = userId,
             Data = responseData,
+            TimeSpent = timeSpent,
             Status = form.AllowAnonymousResponses ? FormResponseStatus.NonRestrict : FormResponseStatus.Pending,
             SubmittedAt = DateTime.UtcNow
         };
@@ -278,6 +282,7 @@ public class FormResponseService : IFormResponseService
             reviewerUser,
             archiverUser,
             response.Data,
+            response.TimeSpent,
             response.Status,
             response.IsArchived,
             relationshipStatus,

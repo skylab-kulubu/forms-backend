@@ -10,6 +10,7 @@ public class FormResponse
     public Form Form { get; set; } = null!;
     public Guid? UserId { get; set; }
     public List<FormResponseSchemaItem> Data { get; set; } = new();
+    public int? TimeSpent { get; set; }
     public FormResponseStatus Status { get; set; } = FormResponseStatus.Pending;
     public bool IsArchived { get; set; } = false;
     public Guid? ArchivedBy { get; set; }

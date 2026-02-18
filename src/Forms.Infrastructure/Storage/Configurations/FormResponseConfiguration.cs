@@ -19,6 +19,8 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
         builder.Property(fr => fr.UserId).IsRequired(false);
         builder.HasIndex(fr => fr.UserId);
 
+        builder.Property(fr => fr.TimeSpent).IsRequired(false);
+
         builder.Property(fr => fr.ReviewNote).HasMaxLength(500).IsRequired(false);
 
         builder.Property(fr => fr.IsArchived).HasDefaultValue(false);

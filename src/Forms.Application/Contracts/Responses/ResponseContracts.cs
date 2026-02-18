@@ -11,6 +11,7 @@ public record ResponseContract(
     UserContract? Reviewer,
     UserContract? Archiver,
     List<FormResponseSchemaItem> Schema,
+    int? TimeSpent,
     FormResponseStatus Status,
     bool IsArchived,
     FormRelationshipStatus Relationship,

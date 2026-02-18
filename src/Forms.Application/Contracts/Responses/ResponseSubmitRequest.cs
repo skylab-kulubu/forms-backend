@@ -4,5 +4,6 @@ namespace Forms.Application.Contracts.Responses;
 
 public record ResponseSubmitRequest(
     Guid FormId,
-    List<FormResponseSchemaItem> Responses
+    List<FormResponseSchemaItem> Responses,
+    int TimeSpent
 );
