@@ -91,6 +91,15 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/metrics", async (Guid id, IFormMetricService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Form metriklerini görmek için giriş yapmalısınız.");
+
+            var result = await service.GetFormMetricsAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/responses/{id:guid}", async (Guid id, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
