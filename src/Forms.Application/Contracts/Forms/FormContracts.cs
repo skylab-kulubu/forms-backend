@@ -12,6 +12,7 @@ public record FormContract(
     FormStatus Status,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
+    bool RequiresManualReview,
     Guid? LinkedFormId,
     bool IsChildForm,
     CollaboratorRole userRole,
@@ -35,6 +36,7 @@ public record FormSummaryContract(
     CollaboratorRole UserRole,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
+    bool RequiresManualReview,
     DateTime? UpdatedAt,
     int ResponseCount
 );

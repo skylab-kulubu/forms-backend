@@ -22,7 +22,7 @@ public partial class FormService : IFormService
     }
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema, contract.LinkedFormId);
         if (validation.Status != FormAccessStatus.Available)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -44,6 +44,7 @@ public partial class FormService : IFormService
                     Status = contract.Status,
                     AllowAnonymousResponses = contract.AllowAnonymousResponses,
                     AllowMultipleResponses = contract.AllowMultipleResponses,
+                    RequiresManualReview = contract.RequiresManualReview,
                     LinkedFormId = null
                 };
 
@@ -98,7 +99,7 @@ public partial class FormService : IFormService
                 if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
                     return new ServiceResult<FormContract>(FormAccessStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
 
-                var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+                var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema, contract.LinkedFormId);
                 if (validation.Status != FormAccessStatus.Available)
                     return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -127,6 +128,7 @@ public partial class FormService : IFormService
                 {
                     existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
                     existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
+                    existingForm.RequiresManualReview = contract.RequiresManualReview;
 
                     if (contract.Collaborators != null)
                     {
@@ -144,6 +146,7 @@ public partial class FormService : IFormService
                             childForm.Status = existingForm.Status;
                             childForm.AllowAnonymousResponses = existingForm.AllowAnonymousResponses;
                             childForm.AllowMultipleResponses = existingForm.AllowMultipleResponses;
+                            childForm.RequiresManualReview = existingForm.RequiresManualReview;
 
                             childForm.SyncChildCollaborators(existingForm.Collaborators);
                         }
@@ -188,7 +191,7 @@ public partial class FormService : IFormService
 
         if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayPayload>(FormAccessStatus.NotFound);
 
-        if (!form.AllowAnonymousResponses && userId == null)
+        if (!form.AllowAnonymousResponses && form.LinkedFormId.HasValue && userId == null)
         {
             return new ServiceResult<FormDisplayPayload>(
                 FormAccessStatus.Unauthorized,
@@ -203,20 +206,37 @@ public partial class FormService : IFormService
 
         if (parentForm != null)
         {
-            var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
-            if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
+            if (userId == null)
             {
                 var lockedStep = ResolveStep(isParent, isChild, isCompleted: false);
-
                 return new ServiceResult<FormDisplayPayload>(
-                    FormAccessStatus.RequiresParentApproval,
+                    FormAccessStatus.Unauthorized,
                     new FormDisplayPayload(null, lockedStep, null, null),
-                    "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
+                    "Bağlı form akışı için giriş yapmalısınız."
                 );
+            }
+
+            var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId && !r.IsArchived).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
+            if (parentForm.RequiresManualReview)
+            {
+                if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
+                {
+                    var lockedStep = ResolveStep(isParent, isChild, isCompleted: false);
+
+                    return new ServiceResult<FormDisplayPayload>(
+                        FormAccessStatus.RequiresParentApproval,
+                        new FormDisplayPayload(null, lockedStep, null, null),
+                        "Bu formu görüntülemek için önceki adımın onaylanması gerekmektedir."
+                    );
+                }
+            }
+            else
+            {
+                if (parentResponse == null) return await GetDisplayFormByIdAsync(parentForm.Id, userId, cancellationToken);
             }
         }
 
-        var latestResponse = await _context.Responses.Where(r => r.FormId == id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
+        var latestResponse = await _context.Responses.Where(r => r.FormId == id && r.UserId == userId && !r.IsArchived).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
 
         bool isCompleted = latestResponse?.Status == FormResponseStatus.Approved;
         int step = ResolveStep(isParent, isChild, isCompleted);
@@ -291,11 +311,13 @@ public partial class FormService : IFormService
             .Select(g => new
             {
                 Total = g.Count(),
-                Waiting = g.Count(r => r.Status == FormResponseStatus.Pending)
+                Waiting = g.Count(r => r.Status == FormResponseStatus.Pending),
+                AvgTime = g.Average(r => (double?)r.TimeSpent)
             }).FirstOrDefaultAsync(cancellationToken);
 
         var responseCount = counts?.Total ?? 0;
         var waitingResponses = counts?.Waiting ?? 0;
+        var averageTime = counts?.AvgTime;
 
         var contract = new FormInfoContract(
             form.Id,
@@ -304,12 +326,11 @@ public partial class FormService : IFormService
             form.UpdatedAt ?? form.CreatedAt,
             responseCount,
             waitingResponses,
-            AverageTimeSeconds: null,
+            AverageTimeSeconds: averageTime,
             LastSeenUsers: Array.Empty<FormLastSeenUserContract>()
         );
 
         return new ServiceResult<FormInfoContract>(FormAccessStatus.Available, Data: contract);
-
     }
     public async Task<ServiceResult<PagedResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
     {
@@ -351,6 +372,7 @@ public partial class FormService : IFormService
             f.Collaborators.FirstOrDefault(c => c.UserId == userId)!.Role,
             f.AllowAnonymousResponses,
             f.AllowMultipleResponses,
+            f.RequiresManualReview,
             f.UpdatedAt ?? f.CreatedAt,
             f.Responses.Count()
         )).ToListAsync(cancellationToken);
@@ -432,6 +454,7 @@ public partial class FormService : IFormService
             form.Status,
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
+            form.RequiresManualReview,
             form.LinkedFormId,
             isChildForm,
             userRole,

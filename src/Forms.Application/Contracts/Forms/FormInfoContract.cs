@@ -9,7 +9,7 @@ public record FormInfoContract(
     DateTime UpdatedAt,
     int ResponseCount,
     int WaitingResponses,
-    int? AverageTimeSeconds,
+    double? AverageTimeSeconds,
     IReadOnlyList<FormLastSeenUserContract> LastSeenUsers
 );
 

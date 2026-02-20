@@ -11,6 +11,7 @@ public record FormUpsertRequest(
     List<FormSchemaItem> Schema,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
+    bool RequiresManualReview,
     FormStatus Status,
     Guid? LinkedFormId,
     List<CollaboratorUpsertRequest>? Collaborators

@@ -11,7 +11,7 @@ public class Form : BaseEntity
     public FormStatus Status { get; set; } = FormStatus.Open;
     public bool AllowAnonymousResponses { get; set; } = false;
     public bool AllowMultipleResponses { get; set; } = false;
-
+    public bool RequiresManualReview { get; set; } = false;
     // Relations
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }

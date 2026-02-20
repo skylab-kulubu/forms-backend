@@ -40,17 +40,18 @@ public class FormResponseService : IFormResponseService
         {
             var parentResponse = await _context.Responses.Where(r => r.FormId == parentForm.Id && r.UserId == userId).OrderByDescending(r => r.SubmittedAt).FirstOrDefaultAsync(cancellationToken);
 
-            if (parentResponse == null || parentResponse.Status != FormResponseStatus.Approved)
-            {
+            if (parentResponse == null)
+                return new ServiceResult<Guid>(FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamayı doldurmanız gerekmektedir.");
+
+            if (parentForm.RequiresManualReview && parentResponse.Status != FormResponseStatus.Approved)
                 return new ServiceResult<Guid>(FormAccessStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
-            }
         }
         var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId);
 
         _context.Responses.Add(response);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new ServiceResult<Guid>(!form.AllowAnonymousResponses ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
+        return new ServiceResult<Guid>(form.RequiresManualReview ? FormAccessStatus.PendingApproval : FormAccessStatus.Available, Data: response.Id, Message: "Yanıt kaydedildi.");
     }
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
@@ -269,7 +270,7 @@ public class FormResponseService : IFormResponseService
             UserId = userId,
             Data = responseData,
             TimeSpent = timeSpent,
-            Status = form.AllowAnonymousResponses ? FormResponseStatus.NonRestrict : FormResponseStatus.Pending,
+            Status = form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict,
             SubmittedAt = DateTime.UtcNow
         };
     }
