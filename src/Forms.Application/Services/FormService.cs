@@ -334,7 +334,7 @@ public partial class FormService : IFormService
     }
     public async Task<ServiceResult<PagedResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
     {
-        var query = _context.Forms.AsNoTracking().Where(f => f.Status != FormStatus.Deleted);
+        var query = _context.Forms.AsNoTracking().Include(f => f.LinkedForm).Where(f => f.Status != FormStatus.Deleted);
 
         if (request.Role.HasValue) { query = query.Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == request.Role.Value)); }
         else { query = query.Where(f => f.Collaborators.Any(c => c.UserId == userId)); }
@@ -371,7 +371,7 @@ public partial class FormService : IFormService
             f.Id,
             f.Title,
             f.Status,
-            f.LinkedFormId,
+            f.LinkedForm != null ? new LinkedFormContract(f.LinkedForm.Id, f.LinkedForm.Title) : null,
             f.Collaborators.FirstOrDefault(c => c.UserId == userId)!.Role,
             f.AllowAnonymousResponses,
             f.AllowMultipleResponses,

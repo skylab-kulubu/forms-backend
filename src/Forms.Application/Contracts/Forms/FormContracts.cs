@@ -32,7 +32,7 @@ public record FormSummaryContract(
     Guid Id,
     string Title,
     FormStatus Status,
-    Guid? LinkedFormId,
+    LinkedFormContract? LinkedForm,
     CollaboratorRole UserRole,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
