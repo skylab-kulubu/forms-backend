@@ -73,7 +73,7 @@ public partial class FormService : IFormService
                 var collaboratorIds = newForm.Collaborators.Select(c => c.UserId).ToList();
                 var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm, users, isChildForm: false, userRole: CollaboratorRole.Owner));
+                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(newForm, users, isChildForm: false, userRole: CollaboratorRole.Owner, null));
             }
             catch (Exception)
             {
@@ -91,7 +91,7 @@ public partial class FormService : IFormService
             using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                var existingForm = await _context.Forms.Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == formId, cancellationToken);
+                var existingForm = await _context.Forms.Include(f => f.Collaborators).Include(f => f.LinkedForm).FirstOrDefaultAsync(f => f.Id == formId, cancellationToken);
                 if (existingForm == null)
                     return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
 
@@ -159,7 +159,7 @@ public partial class FormService : IFormService
                 var collaboratorIds = existingForm.Collaborators.Select(c => c.UserId).ToList();
                 var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm, users, isChildForm, currentUserCollaborator.Role));
+                return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(existingForm, users, isChildForm, currentUserCollaborator.Role, existingForm.LinkedForm?.Title));
             }
             catch (Exception)
             {
@@ -170,7 +170,7 @@ public partial class FormService : IFormService
     }
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+        var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).Include(f => f.LinkedForm).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
         if (form == null) return new ServiceResult<FormContract>(FormAccessStatus.NotFound, Message: "Form bulunamadı.");
 
@@ -183,7 +183,7 @@ public partial class FormService : IFormService
 
         var isChildForm = await _context.Forms.AnyAsync(f => f.LinkedFormId == id, cancellationToken);
         var userRole = collaborator.Role;
-        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, users, isChildForm, userRole));
+        return new ServiceResult<FormContract>(FormAccessStatus.Available, Data: MapToContract(form, users, isChildForm, userRole, form.LinkedForm?.Title));
     }
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
     {
@@ -350,6 +350,9 @@ public partial class FormService : IFormService
         if (request.AllowMultiple.HasValue)
             query = query.Where(f => f.AllowMultipleResponses == request.AllowMultiple.Value);
 
+        if (request.RequiresManualReview.HasValue)
+            query = query.Where(f => f.RequiresManualReview == request.RequiresManualReview.Value);
+
         if (request.HasLinkedForm.HasValue)
         {
             if (request.HasLinkedForm.Value)
@@ -430,7 +433,7 @@ public partial class FormService : IFormService
         await _context.SaveChangesAsync(cancellationToken);
         return new ServiceResult<bool>(FormAccessStatus.Available, Data: true, Message: "Form silindi.");
     }
-    private static FormContract MapToContract(Form form, List<UserContract> users, bool isChildForm = false, CollaboratorRole userRole = CollaboratorRole.None)
+    private static FormContract MapToContract(Form form, List<UserContract> users, bool isChildForm = false, CollaboratorRole userRole = CollaboratorRole.None, string? linkedFormTitle = null)
     {
         var collaboratorContracts = new List<FormCollaboratorContract>();
 
@@ -446,6 +449,12 @@ public partial class FormService : IFormService
             }
         }
 
+        LinkedFormContract? linkedFormSummary = null;
+        if (form.LinkedFormId.HasValue && !string.IsNullOrEmpty(linkedFormTitle))
+        {
+            linkedFormSummary = new LinkedFormContract(form.LinkedFormId.Value, linkedFormTitle);
+        }
+
         return new FormContract(
             form.Id,
             form.Title,
@@ -455,7 +464,7 @@ public partial class FormService : IFormService
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
             form.RequiresManualReview,
-            form.LinkedFormId,
+            linkedFormSummary,
             isChildForm,
             userRole,
             collaboratorContracts,

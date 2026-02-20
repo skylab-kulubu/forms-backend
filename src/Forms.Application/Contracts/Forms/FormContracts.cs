@@ -13,7 +13,7 @@ public record FormContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     bool RequiresManualReview,
-    Guid? LinkedFormId,
+    LinkedFormContract? LinkedForm,
     bool IsChildForm,
     CollaboratorRole userRole,
     List<FormCollaboratorContract> Collaborators,
@@ -39,6 +39,11 @@ public record FormSummaryContract(
     bool RequiresManualReview,
     DateTime? UpdatedAt,
     int ResponseCount
+);
+
+public record LinkedFormContract( 
+    Guid Id,
+    string Title
 );
 
 public record LinkableFormsContract(

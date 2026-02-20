@@ -111,11 +111,15 @@ public class FormResponseService : IFormResponseService
         var mappedItems = items.Select(r =>
         {
             var userDetail = r.UserId.HasValue ? users.FirstOrDefault(u => u.Id == r.UserId) : null;
+            var reviewerDetail = r.ReviewedBy.HasValue ? users.FirstOrDefault(u => u.Id == r.ReviewedBy) : null;
 
             if (userDetail == null && r.UserId.HasValue)
                 userDetail = new UserContract(r.UserId.Value, null, "??", null);
 
-            return new ResponseSummaryContract(r.Id, userDetail, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt);
+            if (reviewerDetail == null && r.ReviewedBy.HasValue)
+                reviewerDetail = new UserContract(r.ReviewedBy.Value, null, "??", null);
+
+            return new ResponseSummaryContract(r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt);
         }).ToList();
 
         var resultData = new PagedResult<ResponseSummaryContract>(

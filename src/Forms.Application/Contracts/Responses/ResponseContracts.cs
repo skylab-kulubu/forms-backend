@@ -27,7 +27,7 @@ public record ResponseSummaryContract(
     UserContract? User,
     FormResponseStatus Status,
     bool IsArchived,
-    Guid? ReviewedBy,
+    UserContract? ReviewedBy,
     Guid? ArchivedBy,
     DateTime SubmittedAt,
     DateTime? ReviewedAt,

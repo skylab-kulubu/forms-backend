@@ -8,7 +8,8 @@ public record GetUserFormsRequest(
     string? Search = null,               
     CollaboratorRole? Role = null,      
     bool? AllowAnonymous = null,        
-    bool? AllowMultiple = null,         
+    bool? AllowMultiple = null,
+    bool? RequiresManualReview = null,         
     bool? HasLinkedForm = null,     
     string SortDirection = "descending"
 );
