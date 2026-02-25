@@ -191,7 +191,7 @@ public partial class FormService : IFormService
 
         if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed) return new ServiceResult<FormDisplayPayload>(FormAccessStatus.NotFound);
 
-        if (!form.AllowAnonymousResponses && form.LinkedFormId.HasValue && userId == null)
+        if (userId == null && (!form.AllowAnonymousResponses || form.LinkedFormId.HasValue))
         {
             return new ServiceResult<FormDisplayPayload>(
                 FormAccessStatus.Unauthorized,
