@@ -50,7 +50,7 @@ public partial class FormService : IFormService
 
                 var collaborators = new List<FormCollaborator>
                 {
-                new FormCollaborator { FormId = formId, UserId = userId, Role = CollaboratorRole.Owner }
+                    new FormCollaborator { FormId = formId, UserId = userId, Role = CollaboratorRole.Owner }
                 };
 
                 if (contract.Collaborators != null)

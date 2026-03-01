@@ -3,6 +3,7 @@ using Forms.API.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Forms.Application.Contracts.Forms;
 using Forms.Application.Contracts.Responses;
+using Forms.Application.Contracts.ComponentGroup;
 
 namespace Forms.API.Endpoints;
 
@@ -127,6 +128,57 @@ public static class FormAdminEndpoints
 
             var result = await service.ArchiveResponseAsync(id, userId.Value, ct);
             return result.ToApiResult();
+        });
+
+        group.MapGet("/component-groups", async (IComponentGroupService service, ICurrentUserService userService, [AsParameters] GetComponentGroupsRequest request, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Grupları görmek için giriş yapmalısınız.");
+
+            var result = await service.GetUserGroupsAsync(userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/component-groups/{id:guid}", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Grubu görmek için giriş yapmalısınız.");
+
+            var result = await service.GetGroupByIdAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/component-groups", async ([FromBody] ComponentGroupUpsertRequest request, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Grup oluşturmak için giriş yapmalısınız.");
+
+            var result = await service.CreateGroupAsync(request, userId.Value, ct);
+
+            if (result.Status == FormAccessStatus.Available && result.Data != null)
+            {
+                return Results.Created($"/component-groups/api/admin/component-groupss/{result.Data.Id}", result);
+            }
+
+            return result.ToApiResult();
+        });
+
+        group.MapPut("/component-groups/{id:guid}", async (Guid id, [FromBody] ComponentGroupUpsertRequest request, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Grup güncellemek için giriş yapmalısınız.");
+
+            var result = await service.UpdateGroupAsync(id, request, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapDelete("/component-groups/{id:guid}", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return FormAccessStatus.Unauthorized.ToApiResult("Grup silmek için giriş yapmalısınız.");
+
+            var result = await service.DeleteGroupAsync(id, userId.Value, ct);
+            return result.Status == FormAccessStatus.Available ? Results.NoContent() : result.ToApiResult();
         });
     }
 }

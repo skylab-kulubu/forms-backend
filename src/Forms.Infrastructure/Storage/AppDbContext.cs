@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Form> Forms { get; set; }
     public DbSet<FormCollaborator> Collaborators { get; set; }
     public DbSet<FormResponse> Responses { get; set; }
+    public DbSet<ComponentGroup> ComponentGroups { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
