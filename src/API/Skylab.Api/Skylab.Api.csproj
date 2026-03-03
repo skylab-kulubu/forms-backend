@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNetEnv" Version="3.1.1" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Steeltoe.Discovery.Eureka" Version="4.0.0" />
+    <PackageReference Include="Steeltoe.Discovery.HttpClients" Version="4.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Skylab.Shared.Domain\Skylab.Shared.Domain.csproj" />
+    <ProjectReference Include="..\..\Shared\Skylab.Shared.Application\Skylab.Shared.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Forms\Forms.Domain\Forms.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Forms\Forms.Application\Forms.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Forms\Forms.Infrastructure\Forms.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

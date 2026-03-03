@@ -1,0 +1,13 @@
+using Skylab.Forms.Domain.Enums;
+
+namespace Skylab.Forms.Application.Contracts.Responses;
+
+public record GetResponsesRequest(
+    int Page = 1,
+    int PageSize = 15,
+    FormResponseStatus? Status = null,
+    FormResponderType ResponderType = FormResponderType.All,
+    Guid? FilterByUserId = null,
+    bool? ShowArchived = null,
+    string SortingDirection = "descending"  
+);

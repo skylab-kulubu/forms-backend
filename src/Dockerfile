@@ -7,15 +7,14 @@ EXPOSE 8080
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-COPY ["Forms.Api/Forms.Api.csproj", "Forms.Api/"]
-RUN dotnet restore "Forms.Api/Forms.Api.csproj"
-
 COPY . .
-WORKDIR "/src/Forms.Api"
-RUN dotnet publish "Forms.Api.csproj" -c Release -o /app/publish
+RUN dotnet restore "Skylab.sln"
+
+WORKDIR "/src/API/Skylab.Api"
+RUN dotnet publish "Skylab.Api.csproj" -c Release -o /app/publish
 
 # 3) Final image
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "Forms.Api.dll"]
+ENTRYPOINT ["dotnet", "Skylab.Api.dll"]
