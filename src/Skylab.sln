@@ -17,6 +17,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Skylab.Shared.Domain", "Sha
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Skylab.Shared.Application", "Shared\Skylab.Shared.Application\Skylab.Shared.Application.csproj", "{D4F350EC-2012-4A55-A36E-87C11C3973B8}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Modules", "Modules", "{CA253913-39DE-BFD0-C9A3-4B7EC6FBDF17}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Exports", "Exports", "{86A101F5-5F7E-F865-5A2C-67EBA231CA8C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Exports.Application", "Modules\Exports\Exports.Application\Exports.Application.csproj", "{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -99,6 +105,18 @@ Global
 		{D4F350EC-2012-4A55-A36E-87C11C3973B8}.Release|x64.Build.0 = Release|Any CPU
 		{D4F350EC-2012-4A55-A36E-87C11C3973B8}.Release|x86.ActiveCfg = Release|Any CPU
 		{D4F350EC-2012-4A55-A36E-87C11C3973B8}.Release|x86.Build.0 = Release|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Debug|x64.Build.0 = Debug|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Debug|x86.Build.0 = Debug|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Release|x64.ActiveCfg = Release|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Release|x64.Build.0 = Release|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Release|x86.ActiveCfg = Release|Any CPU
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -106,5 +124,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{2F6F164F-5B9E-450C-9261-6BAF849F4308} = {4F52FD11-658E-A102-6CD3-7D7C16FFA15B}
 		{D4F350EC-2012-4A55-A36E-87C11C3973B8} = {4F52FD11-658E-A102-6CD3-7D7C16FFA15B}
+		{86A101F5-5F7E-F865-5A2C-67EBA231CA8C} = {CA253913-39DE-BFD0-C9A3-4B7EC6FBDF17}
+		{D076E692-9EB7-4F8C-BF29-56C2A7A1CC90} = {86A101F5-5F7E-F865-5A2C-67EBA231CA8C}
 	EndGlobalSection
 EndGlobal

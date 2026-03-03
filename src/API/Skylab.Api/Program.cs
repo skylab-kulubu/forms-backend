@@ -1,5 +1,6 @@
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Application.Services;
+using Skylab.Exports.Application.Services;
 using Skylab.Api.Endpoints;
 using Microsoft.EntityFrameworkCore;
 using Steeltoe.Discovery.Eureka;
@@ -39,6 +40,8 @@ builder.Services.AddScoped<IFormResponseService, FormResponseService>();
 builder.Services.AddScoped<IFormMetricService, FormMetricService>();
 builder.Services.AddScoped<IComponentGroupService, ComponentGroupService>();
 
+builder.Services.AddScoped<IExcelService, ExcelService>();
+
 builder.Services.AddHttpClient<ICurrentUserService, RemoteCurrentUserService>(client => { client.BaseAddress = new Uri("http://super-skylab"); }).AddServiceDiscovery();
 builder.Services.AddHttpClient<IExternalUserService, ExternalUserService>(client => { client.BaseAddress = new Uri("http://super-skylab"); }).AddServiceDiscovery();
 
@@ -68,5 +71,6 @@ app.UseCors("AllowFrontend");
 
 app.MapFormAdminEndpoints();
 app.MapFormEndpoints();
+app.MapExportEndpoints();
 
 app.Run();

@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\Skylab.Shared.Application\Skylab.Shared.Application.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Skylab.Shared.Domain\Skylab.Shared.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

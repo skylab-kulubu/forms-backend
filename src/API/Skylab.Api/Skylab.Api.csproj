@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\Modules\Forms\Forms.Domain\Forms.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Forms\Forms.Application\Forms.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Forms\Forms.Infrastructure\Forms.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Exports\Exports.Application\Exports.Application.csproj" />
   </ItemGroup>
 
 </Project>
