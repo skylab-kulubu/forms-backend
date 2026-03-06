@@ -131,6 +131,25 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/responses/export", async (Guid id, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Excel indirmek için giriş yapmalısınız.");
+
+            var result = await service.ExportResponsesToExcelAsync(id, userId.Value, ct);
+
+            if (result.Status == ServiceStatus.Success && result.Data != null)
+            {
+                return Results.File(
+                    fileContents: result.Data,
+                    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    fileDownloadName: $"FormCevaplari_{id.ToString().Substring(0, 8)}.xlsx"
+                );
+            }
+
+            return result.ToApiResult();
+        });
+
         group.MapGet("/component-groups", async (IComponentGroupService service, ICurrentUserService userService, [AsParameters] GetComponentGroupsRequest request, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);

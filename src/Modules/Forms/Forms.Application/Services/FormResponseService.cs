@@ -1,13 +1,15 @@
 using Skylab.Shared.Application.Contracts;
 using Skylab.Shared.Domain.Enums;
+using Skylab.Exports.Application.Contracts;
+using Skylab.Exports.Application.Services;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 using Skylab.Forms.Infrastructure.Storage;
-using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Contracts;
 using Skylab.Forms.Application.Contracts.Auth;
 using Skylab.Forms.Application.Contracts.Responses;
+using Microsoft.EntityFrameworkCore;
 
 namespace Skylab.Forms.Application.Services;
 
@@ -15,11 +17,13 @@ public class FormResponseService : IFormResponseService
 {
     private readonly FormsDbContext _context;
     private readonly IExternalUserService _userService;
+    private readonly IExcelService _excelService;
 
-    public FormResponseService(FormsDbContext context, IExternalUserService userService)
+    public FormResponseService(FormsDbContext context, IExternalUserService userService, IExcelService excelService)
     {
         _context = context;
         _userService = userService;
+        _excelService = excelService;
     }
 
     public async Task<ServiceResult<Guid>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
@@ -249,6 +253,59 @@ public class FormResponseService : IFormResponseService
         
         await _context.SaveChangesAsync(cancellationToken);
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt başarıyla arşivlendi.");
+    }
+    public async Task<ServiceResult<byte[]>> ExportResponsesToExcelAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var form = await _context.Forms.AsNoTracking().Include(f => f.Collaborators).Include(f => f.Responses.Where(r => !r.IsArchived)).FirstOrDefaultAsync(f => f.Id == formId, cancellationToken);
+
+        if (form == null)
+            return new ServiceResult<byte[]>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
+
+        var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
+        if (!isAuthorized)
+            return new ServiceResult<byte[]>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını dışa aktarma yetkiniz yok.");
+        
+        var headers = new List<string>
+        {
+            "Yanıt ID",
+            "Kullanıcı ID",
+            "Gönderim Tarihi",
+            "Durum",
+            "İncelenme Notu"
+        };
+
+        foreach (var schemaItem in form.Schema)
+        {
+            string questionText = schemaItem.Props.TryGetValue("question", out var qVal) ? qVal?.ToString() ?? "İsimsiz Soru" : "Soru";
+            headers.Add(questionText);
+        };
+
+        var rows = new List<List<string>>();
+
+        foreach (var response in form.Responses.OrderBy(r => r.SubmittedAt))
+        {
+            var row = new List<string>
+            {
+                response.Id.ToString(),
+                response.UserId?.ToString() ?? "Anonim",
+                response.SubmittedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm"),
+                response.Status.ToString(),
+                response.ReviewNote ?? ""
+            };
+
+            foreach (var schemaItem in form.Schema)
+            {
+                var answerItem = response.Data.FirstOrDefault(d => d.Id == schemaItem.Id);
+                row.Add(answerItem?.Answer ?? string.Empty);
+            }
+
+            rows.Add(row);
+        }
+
+        string sheetName = form.Title.Length > 31 ? form.Title.Substring(0, 31) : form.Title;
+
+        var exportRequest = new ExcelExportRequest(sheetName, headers, rows);
+        return _excelService.GenerateExcel(exportRequest);
     }
     private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId)
     {
