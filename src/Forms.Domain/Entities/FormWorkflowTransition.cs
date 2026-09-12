@@ -19,12 +19,15 @@ public class FormWorkflowTransition
 
     public WorkflowTransitionTrigger Trigger { get; set; }
 
-    /// <summary>null ise koşulsuz eşleşir; yalnızca fallback transition'larda beklenir.</summary>
+    /// <summary>
+    /// null veya kuralsız ise bu, grubun varsayılan rotasıdır: hiçbir koşul
+    /// tutmadığında izlenir. Varsayılanlık ayrı bir bayrakla değil koşulun
+    /// yokluğuyla belirlenir ki ikisi birbiriyle çelişemesin.
+    /// </summary>
     public WorkflowConditionGroup? Condition { get; set; }
 
-    /// <summary>Küçük değer önce değerlendirilir.</summary>
+    /// <summary>Küçük değer önce değerlendirilir; varsayılan rota her hâlükârda en sona kalır.</summary>
     public int Priority { get; set; }
 
-    /// <summary>Hiçbir koşul tutmadığında seçilen transition.</summary>
-    public bool IsFallback { get; set; } = false;
+    public bool IsDefaultRoute => Condition is null || Condition.Rules.Count == 0;
 }
