@@ -10,6 +10,12 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     public DbSet<FormCollaborator> Collaborators { get; set; }
     public DbSet<FormResponse> Responses { get; set; }
     public DbSet<ComponentGroup> ComponentGroups { get; set; }
+    public DbSet<FormWorkflow> Workflows { get; set; }
+    public DbSet<FormWorkflowVersion> WorkflowVersions { get; set; }
+    public DbSet<FormWorkflowNode> WorkflowNodes { get; set; }
+    public DbSet<FormWorkflowTransition> WorkflowTransitions { get; set; }
+    public DbSet<FormWorkflowInstance> WorkflowInstances { get; set; }
+    public DbSet<FormWorkflowStep> WorkflowSteps { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(FormsDbContext).Assembly);
