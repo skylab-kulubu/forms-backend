@@ -147,19 +147,5 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 && r.SubmittedAt <= cutoff)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.PendingReminderSentAt, remindedAt), ct);
 
-    public Task<Guid?> GetFirstChildResponseIdAsync(Guid childFormId, Guid userId, DateTime submittedAtOrAfter, CancellationToken ct = default) =>
-        _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == childFormId && r.UserId == userId && r.SubmittedAt >= submittedAtOrAfter)
-            .OrderBy(r => r.SubmittedAt)
-            .Select(r => (Guid?)r.Id)
-            .FirstOrDefaultAsync(ct);
-
-    public Task<Guid?> GetLatestParentResponseIdAsync(Guid parentFormId, Guid userId, DateTime submittedAtOrBefore, CancellationToken ct = default) =>
-        _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == parentFormId && r.UserId == userId && r.SubmittedAt <= submittedAtOrBefore)
-            .OrderByDescending(r => r.SubmittedAt)
-            .Select(r => (Guid?)r.Id)
-            .FirstOrDefaultAsync(ct);
-
     public void Add(FormResponse response) => _context.Responses.Add(response);
 }

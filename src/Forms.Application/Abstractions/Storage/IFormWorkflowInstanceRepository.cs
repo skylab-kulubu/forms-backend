@@ -29,6 +29,12 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>Koşul değerlendirmesi için başvurunun cevaplanmış adımları.</summary>
     Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Cevabın ait olduğu başvurunun bütün adımları. İnceleyen, başvuranın önceki
+    /// adımlardaki cevaplarını tek yerden görebilsin diye.
+    /// </summary>
+    Task<ResponseWorkflowProjection?> GetContextByResponseAsync(Guid responseId, CancellationToken ct = default);
+
     void Add(FormWorkflowInstance instance);
 
     /// <summary>
@@ -40,6 +46,17 @@ public interface IFormWorkflowInstanceRepository
 }
 
 public sealed record WorkflowStepAnswers(string NodeKey, IReadOnlyList<FormResponseSchemaItem> Answers);
+
+public sealed record ResponseWorkflowProjection(
+    Guid InstanceId,
+    int Stage,
+    IReadOnlyList<ResponseWorkflowStepProjection> Steps);
+
+public sealed record ResponseWorkflowStepProjection(
+    int Stage,
+    string FormTitle,
+    Guid? ResponseId,
+    FormResponseStatus? Status);
 
 public sealed record WorkflowRunSummary(
     Guid InstanceId,

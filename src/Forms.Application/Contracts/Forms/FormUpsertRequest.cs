@@ -13,6 +13,5 @@ public record FormUpsertRequest(
     bool AllowMultipleResponses,
     bool RequiresManualReview,
     FormStatus Status,
-    Guid? LinkedFormId,
     List<CollaboratorUpsertRequest>? Collaborators
 );

@@ -14,8 +14,6 @@ public record FormContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     bool RequiresManualReview,
-    LinkedFormContract? LinkedForm,
-    bool IsChildForm,
     CollaboratorRole userRole,
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
@@ -33,7 +31,6 @@ public record FormSummaryContract(
     Guid Id,
     string Title,
     FormStatus Status,
-    LinkedFormContract? LinkedForm,
     CollaboratorRole UserRole,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
@@ -46,7 +43,6 @@ public record FormAllSummaryContract(
     Guid Id,
     string Title,
     FormStatus Status,
-    LinkedFormContract? LinkedForm,
     UserContract CreatedBy,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
@@ -54,16 +50,6 @@ public record FormAllSummaryContract(
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     int ResponseCount
-);
-
-public record LinkedFormContract( 
-    Guid Id,
-    string Title
-);
-
-public record LinkableFormsContract(
-    Guid Id,
-    string Title
 );
 
 public record FormMetaContract(

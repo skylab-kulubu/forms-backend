@@ -7,7 +7,6 @@ public record FormAllSummaryProjection(
     Guid Id,
     string Title,
     FormStatus Status,
-    LinkedFormContract? LinkedForm,
     Guid OwnerUserId,
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,

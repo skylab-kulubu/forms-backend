@@ -13,7 +13,11 @@ public class Form : BaseEntity
     public bool AllowAnonymousResponses { get; set; } = false;
     public bool AllowMultipleResponses { get; set; } = false;
     public bool RequiresManualReview { get; set; } = false;
-    // Relations
+    /// <summary>
+    /// Eski bagli form akisindan kalan alan. Artik hicbir yerde okunmuyor; akislara
+    /// donusum sonrasi bir surumluk geri donus penceresi icin kolonla birlikte
+    /// duruyor ve bir sonraki surumde kaldirilacak.
+    /// </summary>
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
 
@@ -69,38 +73,6 @@ public class Form : BaseEntity
 
                 if (existing.Role != safeRole)
                     existing.Role = safeRole;
-            }
-        }
-    }
-
-    public void SyncChildCollaborators(IEnumerable<FormCollaborator> parentCollaborators)
-    {
-        var parentList = parentCollaborators.ToList();
-        var currentChildCollabs = this.Collaborators.ToList();
-
-        var toDelete = currentChildCollabs.Where(c => !parentList.Any(p => p.UserId == c.UserId)).ToList();
-
-        foreach (var item in toDelete)
-        {
-            this.Collaborators.Remove(item);
-        }
-
-        foreach (var parentCollaborator in parentList)
-        {
-            var existing = currentChildCollabs.FirstOrDefault(c => c.UserId == parentCollaborator.UserId);
-
-            if (existing == null)
-            {
-                this.Collaborators.Add(new FormCollaborator
-                {
-                    FormId = this.Id,
-                    UserId = parentCollaborator.UserId,
-                    Role = parentCollaborator.Role
-                });
-            }
-            else
-            {
-                existing.Role = parentCollaborator.Role;
             }
         }
     }

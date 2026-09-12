@@ -48,7 +48,7 @@ public class FormMailNotifier : IFormMailNotifier
         _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
     }
 
-    public async Task NotifyStatusChangedAsync(Form form, FormResponse response, CancellationToken ct = default)
+    public async Task NotifyStatusChangedAsync(Form form, FormResponse response, Guid? nextFormId = null, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(_options.StatusChangedTemplateId) || !response.UserId.HasValue) return;
 
@@ -75,8 +75,10 @@ public class FormMailNotifier : IFormMailNotifier
         if (response.ReviewedAt.HasValue)
             variables["reviewedAt"] = response.ReviewedAt.Value.ToString("dd MMMM yyyy, HH:mm", Culture);
 
-        if (form.LinkedFormId.HasValue)
-            variables["linkedFormId"] = form.LinkedFormId.Value.ToString();
+        // Değişken adı mail şablonuyla uyumlu kalsın diye korunuyor; kaynağı artık
+        // formun eski bağlantısı değil, akışın seçtiği sonraki adım.
+        if (nextFormId.HasValue)
+            variables["linkedFormId"] = nextFormId.Value.ToString();
 
         _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
     }

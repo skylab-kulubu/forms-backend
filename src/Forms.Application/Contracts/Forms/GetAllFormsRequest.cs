@@ -7,6 +7,5 @@ public record GetAllFormsRequest(
     bool? AllowAnonymous = null,
     bool? AllowMultiple = null,
     bool? RequiresManualReview = null,
-    bool? HasLinkedForm = null,
     string SortDirection = "descending"
 );

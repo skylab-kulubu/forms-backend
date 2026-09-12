@@ -19,9 +19,6 @@ public interface IFormResponseRepository
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
     Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default);
 
-    Task<Guid?> GetFirstChildResponseIdAsync(Guid childFormId, Guid userId, DateTime submittedAtOrAfter, CancellationToken ct = default);
-    Task<Guid?> GetLatestParentResponseIdAsync(Guid parentFormId, Guid userId, DateTime submittedAtOrBefore, CancellationToken ct = default);
-
     void Add(FormResponse response);
 }
 

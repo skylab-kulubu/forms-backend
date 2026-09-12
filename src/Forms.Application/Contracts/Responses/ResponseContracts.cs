@@ -15,13 +15,29 @@ public record ResponseContract(
     int? TimeSpent,
     FormResponseStatus Status,
     bool IsArchived,
-    FormRelationshipStatus Relationship,
+    ResponseWorkflowContract? Workflow,
     string? ReviewerNote,
-    Guid? LinkedResponseId,
     DateTime SubmittedAt,
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
     UserContract? SharedBy = null
+);
+
+/// <summary>
+/// Cevabın ait olduğu başvurunun tamamı. İnceleyen, başvuranın önceki adımlardaki
+/// cevaplarını buradan görür.
+/// </summary>
+public record ResponseWorkflowContract(
+    Guid InstanceId,
+    int Stage,
+    List<ResponseWorkflowStepContract> Steps
+);
+
+public record ResponseWorkflowStepContract(
+    int Stage,
+    string FormTitle,
+    Guid? ResponseId,
+    FormResponseStatus? Status
 );
 
 public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);

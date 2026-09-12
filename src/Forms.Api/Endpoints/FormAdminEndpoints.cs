@@ -61,15 +61,6 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/linkable-forms", async (Guid id, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
-        {
-            var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Veriyi görmek için giriş yapmalısınız.");
-
-            var result = await service.GetLinkableFormsAsync(id, userId.Value, ct);
-            return result.ToApiResult();
-        });
-
         group.MapPost("/", async ([FromBody] FormUpsertRequest request, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);

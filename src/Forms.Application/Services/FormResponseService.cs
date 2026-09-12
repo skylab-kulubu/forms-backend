@@ -32,6 +32,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormMailNotifier _mailNotifier;
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _workflowRuntime;
+    private readonly IFormWorkflowInstanceRepository _instances;
 
     public FormResponseService(
         IFormRepository forms,
@@ -43,7 +44,8 @@ public class FormResponseService : IFormResponseService
         ICacheService cache,
         IFormMailNotifier mailNotifier,
         ICurrentUserService currentUserService,
-        IFormWorkflowRuntime workflowRuntime)
+        IFormWorkflowRuntime workflowRuntime,
+        IFormWorkflowInstanceRepository instances)
     {
         _forms = forms;
         _responses = responses;
@@ -55,9 +57,14 @@ public class FormResponseService : IFormResponseService
         _mailNotifier = mailNotifier;
         _currentUserService = currentUserService;
         _workflowRuntime = workflowRuntime;
+        _instances = instances;
     }
 
-    private record ShareCacheEntry(Guid ResponseId, Guid? LinkedResponseId, Guid SharedByUserId);
+    /// <param name="InstanceResponseIds">
+    /// Paylasim, cevabin ait oldugu basvurunun butun adimlarini kapsar: inceleyen
+    /// baslangictan itibaren tum cevaplari gorebilsin.
+    /// </param>
+    private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
     public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
     {
@@ -79,27 +86,6 @@ public class FormResponseService : IFormResponseService
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        var parentForm = await _forms.GetParentOfAsync(form.Id, cancellationToken);
-
-        if (parentForm != null && userId.HasValue)
-        {
-            var parentResponse = await _responses.GetLatestForUserAsync(parentForm.Id, userId.Value, cancellationToken);
-
-            if (parentResponse == null)
-                return new ServiceResult<ResponseSubmitResult>(ServiceStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamayı doldurmanız gerekmektedir.");
-
-            if (parentForm.RequiresManualReview && parentResponse.Status != FormResponseStatus.Approved)
-                return new ServiceResult<ResponseSubmitResult>(ServiceStatus.RequiresParentApproval, Message: "Bu formu doldurmak için önceki aşamanın onaylanması gerekmektedir.");
-
-            if (form.AllowMultipleResponses)
-            {
-                var lastChildResponse = await _responses.GetLatestForUserAsync(form.Id, userId.Value, cancellationToken);
-
-                if (lastChildResponse != null && parentResponse.SubmittedAt <= lastChildResponse.SubmittedAt)
-                    return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Yeni bir yanıt göndermek için önceki aşamayı tekrar doldurmanız gerekmektedir.");
-            }
-        }
-
         var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId);
 
         _responses.Add(response);
@@ -107,40 +93,10 @@ public class FormResponseService : IFormResponseService
 
         await AfterResponseSavedAsync(form, response, cancellationToken);
 
-        bool isChild = parentForm != null;
-        bool isLinkedFlow = form.LinkedFormId.HasValue || isChild;
-        int step = 0;
-        string message;
-        ServiceStatus status;
+        var status = form.RequiresManualReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
+        var message = form.RequiresManualReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
 
-        if (isLinkedFlow)
-        {
-            if (form.RequiresManualReview)
-            {
-                step = isChild ? 4 : 2;
-                status = ServiceStatus.PendingApproval;
-                message = "Yanıtınız incelemeye alındı.";
-            }
-            else if (!isChild && form.LinkedFormId.HasValue)
-            {
-                step = 3;
-                status = ServiceStatus.Success;
-                message = "Yanıt kaydedildi, bir sonraki adıma geçebilirsiniz.";
-            }
-            else
-            {
-                step = 5;
-                status = ServiceStatus.Completed;
-                message = "Tüm adımları tamamladınız.";
-            }
-        }
-        else
-        {
-            status = form.RequiresManualReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
-            message = form.RequiresManualReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
-        }
-
-        var result = new ResponseSubmitResult(response.Id, form.LinkedFormId, step);
+        var result = new ResponseSubmitResult(response.Id, LinkedFormId: null, Step: 0);
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
     }
 
@@ -245,36 +201,11 @@ public class FormResponseService : IFormResponseService
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
             shareEntry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
-            if (shareEntry == null || (shareEntry.ResponseId != responseId && shareEntry.LinkedResponseId != responseId))
+            if (shareEntry == null || (shareEntry.ResponseId != responseId && !shareEntry.InstanceResponseIds.Contains(responseId)))
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Paylaşım bağlantısı geçersiz veya süresi dolmuş.");
         }
 
-        FormRelationshipStatus relationshipStatus = FormRelationshipStatus.None;
-        Guid? targetLinkedFormId = null;
-
-        if (response.Form.LinkedFormId.HasValue)
-        {
-            relationshipStatus = FormRelationshipStatus.Parent;
-            targetLinkedFormId = response.Form.LinkedFormId.Value;
-        }
-        else
-        {
-            var parentForm = await _forms.GetParentOfAsync(response.FormId, cancellationToken);
-            if (parentForm != null)
-            {
-                relationshipStatus = FormRelationshipStatus.Child;
-                targetLinkedFormId = parentForm.Id;
-            }
-        }
-
-        Guid? linkedResponseId = null;
-
-        if (targetLinkedFormId.HasValue && response.UserId.HasValue)
-        {
-            linkedResponseId = relationshipStatus == FormRelationshipStatus.Parent
-                ? await _responses.GetFirstChildResponseIdAsync(targetLinkedFormId.Value, response.UserId.Value, response.SubmittedAt, cancellationToken)
-                : await _responses.GetLatestParentResponseIdAsync(targetLinkedFormId.Value, response.UserId.Value, response.SubmittedAt, cancellationToken);
-        }
+        var workflow = await BuildWorkflowContractAsync(responseId, cancellationToken);
 
         var userIds = new List<Guid>();
         if (response.UserId.HasValue) userIds.Add(response.UserId.Value);
@@ -291,7 +222,7 @@ public class FormResponseService : IFormResponseService
 
         return new ServiceResult<ResponseContract>(
             ServiceStatus.Success,
-            Data: MapToDetailContract(response, relationshipStatus, linkedResponseId, responderUser, reviewerUser, archiverUser, sharedByUser)
+            Data: MapToDetailContract(response, workflow, responderUser, reviewerUser, archiverUser, sharedByUser)
         );
     }
 
@@ -319,7 +250,7 @@ public class FormResponseService : IFormResponseService
             if (workflow.Data is null)
                 return new ServiceResult<bool>(workflow.Status, Message: workflow.Message);
 
-            await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, cancellationToken);
+            await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, workflow.Data.FormId, cancellationToken);
 
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu güncellendi ve akış ilerletildi.");
         }
@@ -328,7 +259,7 @@ public class FormResponseService : IFormResponseService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, cancellationToken);
+        await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, ct: cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu başarıyla güncellendi.");
     }
@@ -463,7 +394,7 @@ public class FormResponseService : IFormResponseService
         };
     }
 
-    private static ResponseContract MapToDetailContract(FormResponse response, FormRelationshipStatus relationshipStatus, Guid? linkedResponseId, UserContract? responderUser, UserContract? reviewerUser, UserContract? archiverUser, UserContract? sharedByUser = null)
+    private static ResponseContract MapToDetailContract(FormResponse response, ResponseWorkflowContract? workflow, UserContract? responderUser, UserContract? reviewerUser, UserContract? archiverUser, UserContract? sharedByUser = null)
     {
         return new ResponseContract(
             response.Id,
@@ -475,9 +406,8 @@ public class FormResponseService : IFormResponseService
             response.TimeSpent,
             response.Status,
             response.IsArchived,
-            relationshipStatus,
+            workflow,
             response.ReviewNote,
-            linkedResponseId,
             response.SubmittedAt,
             response.ReviewedAt,
             response.ArchivedAt,
@@ -496,18 +426,24 @@ public class FormResponseService : IFormResponseService
         if (!isCollaborator)
             return new ServiceResult<ShareTokenContract>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı paylaşma yetkiniz yok.");
 
-        var linkedResponseId = await ResolveLinkedResponseIdAsync(response, cancellationToken);
+        var context = await _instances.GetContextByResponseAsync(responseId, cancellationToken);
+
+        var relatedResponseIds = (context?.Steps ?? [])
+            .Where(step => step.ResponseId.HasValue && step.ResponseId.Value != responseId)
+            .Select(step => step.ResponseId!.Value)
+            .ToList();
 
         var existingToken = await _cache.GetAsync<string>(ResponseKeyPrefix + responseId, ct: cancellationToken);
         var token = existingToken ?? GenerateToken();
 
-        var entry = new ShareCacheEntry(responseId, linkedResponseId, userId);
+        var entry = new ShareCacheEntry(responseId, relatedResponseIds, userId);
         var expiresAt = DateTime.UtcNow.Add(ShareTokenLifetime);
 
         await _cache.SetAsync(TokenKeyPrefix + token, entry, ShareTokenLifetime, cancellationToken);
         await _cache.SetAsync(ResponseKeyPrefix + responseId, token, ShareTokenLifetime, cancellationToken);
-        if (linkedResponseId.HasValue)
-            await _cache.SetAsync(ResponseKeyPrefix + linkedResponseId.Value, token, ShareTokenLifetime, cancellationToken);
+
+        foreach (var relatedId in relatedResponseIds)
+            await _cache.SetAsync(ResponseKeyPrefix + relatedId, token, ShareTokenLifetime, cancellationToken);
 
         return new ServiceResult<ShareTokenContract>(ServiceStatus.Success, Data: new ShareTokenContract(token, expiresAt));
     }
@@ -531,8 +467,9 @@ public class FormResponseService : IFormResponseService
 
         await _cache.RemoveAsync(TokenKeyPrefix + token, cancellationToken);
         await _cache.RemoveAsync(ResponseKeyPrefix + (entry?.ResponseId ?? responseId), cancellationToken);
-        if (entry?.LinkedResponseId is Guid linkedId)
-            await _cache.RemoveAsync(ResponseKeyPrefix + linkedId, cancellationToken);
+
+        foreach (var relatedId in entry?.InstanceResponseIds ?? [])
+            await _cache.RemoveAsync(ResponseKeyPrefix + relatedId, cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Paylaşım iptal edildi.");
     }
@@ -543,7 +480,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<ResponseMetaContract>(ServiceStatus.NotFound);
 
         var entry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
-        if (entry == null || (entry.ResponseId != responseId && entry.LinkedResponseId != responseId))
+        if (entry == null || (entry.ResponseId != responseId && !entry.InstanceResponseIds.Contains(responseId)))
             return new ServiceResult<ResponseMetaContract>(ServiceStatus.NotFound);
 
         var response = await _responses.GetByIdWithFormAndCollaboratorsAsync(responseId, cancellationToken);
@@ -558,17 +495,16 @@ public class FormResponseService : IFormResponseService
         );
     }
 
-    private async Task<Guid?> ResolveLinkedResponseIdAsync(FormResponse response, CancellationToken cancellationToken)
+    private async Task<ResponseWorkflowContract?> BuildWorkflowContractAsync(Guid responseId, CancellationToken cancellationToken)
     {
-        if (!response.UserId.HasValue) return null;
+        var context = await _instances.GetContextByResponseAsync(responseId, cancellationToken);
+        if (context is null) return null;
 
-        if (response.Form.LinkedFormId.HasValue)
-            return await _responses.GetFirstChildResponseIdAsync(response.Form.LinkedFormId.Value, response.UserId.Value, response.SubmittedAt, cancellationToken);
+        var steps = context.Steps
+            .Select(step => new ResponseWorkflowStepContract(step.Stage, step.FormTitle, step.ResponseId, step.Status))
+            .ToList();
 
-        var parentForm = await _forms.GetParentOfAsync(response.FormId, cancellationToken);
-        if (parentForm == null) return null;
-
-        return await _responses.GetLatestParentResponseIdAsync(parentForm.Id, response.UserId.Value, response.SubmittedAt, cancellationToken);
+        return new ResponseWorkflowContract(context.InstanceId, context.Stage, steps);
     }
 
     private static string GenerateToken()

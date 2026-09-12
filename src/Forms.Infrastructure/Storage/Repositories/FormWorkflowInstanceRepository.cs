@@ -67,6 +67,47 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
         return [.. rows.Select(row => new WorkflowStepAnswers(row.NodeKey, row.Data))];
     }
 
+    public async Task<ResponseWorkflowProjection?> GetContextByResponseAsync(Guid responseId, CancellationToken ct = default)
+    {
+        var owningStep = await _context.WorkflowSteps.AsNoTracking()
+            .Where(step => step.ResponseId == responseId)
+            .Select(step => new { step.WorkflowInstanceId, step.Sequence })
+            .FirstOrDefaultAsync(ct);
+
+        if (owningStep is null) return null;
+
+        // Formu sonradan silinmiş bir adım da başvurunun geçmişinin parçasıdır.
+        var steps = await _context.WorkflowSteps.AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(step => step.WorkflowInstanceId == owningStep.WorkflowInstanceId)
+            .OrderBy(step => step.Sequence)
+            .Select(step => new
+            {
+                step.Sequence,
+                step.ResponseId,
+                Status = step.Response == null ? (FormResponseStatus?)null : step.Response.Status,
+                step.Node.FormId
+            })
+            .ToListAsync(ct);
+
+        var formIds = steps.Select(step => step.FormId).Distinct().ToList();
+
+        var titles = await _context.Forms.AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(form => formIds.Contains(form.Id))
+            .ToDictionaryAsync(form => form.Id, form => form.Title, ct);
+
+        var mapped = steps
+            .Select(step => new ResponseWorkflowStepProjection(
+                step.Sequence,
+                titles.TryGetValue(step.FormId, out var title) ? title : "(silinmiş form)",
+                step.ResponseId,
+                step.Status))
+            .ToList();
+
+        return new ResponseWorkflowProjection(owningStep.WorkflowInstanceId, owningStep.Sequence, mapped);
+    }
+
     public void Add(FormWorkflowInstance instance) => _context.WorkflowInstances.Add(instance);
 
     public void Add(FormWorkflowStep step) => _context.WorkflowSteps.Add(step);
