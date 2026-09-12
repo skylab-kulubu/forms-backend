@@ -80,7 +80,7 @@ Dynamic form creation and response management service.
 - Form CRUD operations and soft deletion
 - JSONB-based flexible form schema support
 - Response collection and management
-- Linked forms for multi-step workflows
+- Multi-step form workflows with conditional branching, see [Form Workflows](#form-workflows)
 - Collaborator management with Owner, Editor, and Viewer roles
 - Manual review workflow (`Pending -> Approved / Declined`)
 - Response archiving
@@ -99,8 +99,126 @@ Dynamic form creation and response management service.
 |-------|-------------|
 | `Forms` | Form definitions, JSONB schema, status, and response settings |
 | `Responses` | User responses, review information, archive state, and timing |
-| `FormCollaborators` | Collaborator roles with a composite user/form key |
-| `ComponentGroups` | Reusable form component templates |
+| `Collaborators` | Collaborator roles with a composite user/form key |
+| `ComponentGroup` | Reusable form component templates |
+| `Workflows` | Workflow header: name, owner, and repeat-run setting |
+| `WorkflowVersions` | One frozen graph per version, in draft, published, or archived state |
+| `WorkflowNodes` | The forms a version chains, and which one starts the flow |
+| `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
+| `WorkflowInstances` | One user's run of a workflow, bound to the version it started on |
+| `WorkflowSteps` | Each position in a run, with its response and the route chosen out of it |
+
+## Form Workflows
+
+A workflow chains several forms into one application. The definition is a **directed acyclic graph**: it may branch, but a single application follows **exactly one route** through it and never revisits a form. A route may span at most **three forms**, while the workflow as a whole may hold more.
+
+Routing is decided the moment an answer arrives and is then written to the application. Nothing is recomputed on later reads, so editing a definition can never change the path an application already took.
+
+```text
+                      ┌─ answer = A ─> Form 2A ─ approved ─┐
+Form 1 ───────────────┤                                     ├─> Form 3
+                      └─ otherwise ──> Form 2B ─ approved ──┘
+```
+
+### Definition and versions
+
+| Entity | Holds |
+|--------|-------|
+| `FormWorkflow` | Name, owner, and whether one user may run the flow more than once |
+| `FormWorkflowVersion` | One frozen copy of the graph, in `Draft`, `Published`, or `Archived` |
+| `FormWorkflowNode` | One step: the form it shows, its `NodeKey`, whether it starts the flow |
+| `FormWorkflowTransition` | One route out of a node: trigger, optional condition, priority, target |
+
+Publishing freezes a version. Editing a published workflow opens a **new draft** instead of mutating what is live, and an application keeps running on the version it started on, even after a newer one is published and even when the newer one no longer contains the form the applicant is on.
+
+Steps are addressed by **`NodeKey`**, not by id. Node ids are regenerated for every version, so conditions that point at an earlier step survive a new draft.
+
+### Triggers and routes
+
+| Trigger | Fires when |
+|---------|------------|
+| `ResponseSubmitted` (0) | The answer is saved and the form needs no review |
+| `ResponseApproved` (1) | A reviewer approves the answer |
+| `ResponseDeclined` (2) | A reviewer declines the answer |
+
+A node's form decides which triggers are legal: a form that requires review may only route on approval or decline, and a form that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once.
+
+Within one trigger, transitions are evaluated by ascending `Priority` and the first matching condition wins. **A transition with no condition is the default route** and is always evaluated last, whatever its priority. A trigger with no transitions at all ends the flow, so a terminal step needs no configuration.
+
+> **A conditional group needs a default route.** Publishing fails without one, because an answer that matches nothing would otherwise leave the application with nowhere to go.
+
+### Conditions
+
+A condition reads the answer snapshot, never the live form. Rules address a question by id, optionally in an earlier step through `nodeKey`:
+
+```json
+{
+  "operator": 0,
+  "rules": [
+    { "questionId": "department", "comparison": 0, "value": "engineering" },
+    { "nodeKey": "stage1", "questionId": "experience", "comparison": 6, "value": "2" }
+  ]
+}
+```
+
+`operator` is `0` for **all** and `1` for **any**.
+
+| Value | Comparison | Reads |
+|-------|------------|-------|
+| 0, 1 | `Equals`, `NotEquals` | The whole answer, trimmed and case-insensitive |
+| 2, 3 | `In`, `NotIn` | `values`, against the answer split into its selections |
+| 4 | `Contains` | `value` as a substring of the answer |
+| 5-8 | `GreaterThan`, `GreaterThanOrEqual`, `LessThan`, `LessThanOrEqual` | Both sides parsed as numbers |
+| 9, 10 | `IsEmpty`, `IsNotEmpty` | Only whether an answer exists |
+
+A multiple-choice answer is split from a JSON array (`["react","vue"]`) when it looks like one, and from a comma-separated list otherwise.
+
+Answers are stored as text, so numeric comparisons parse both sides with a decimal point. A single comma with no dot is read as a decimal separator, so `3,5` is 3.5, while anything ambiguous such as `1.234,5` fails to parse. **A rule that cannot read its answer evaluates to false instead of throwing**, so one malformed answer can never break routing for everyone else.
+
+> **Enums travel as numbers but are stored as names.** Requests and responses use the numeric value, matching the rest of this API. The `Condition` column is jsonb and keeps the names (`"comparison": "greaterThanOrEqual"`) so a stored definition stays readable.
+
+### Applications
+
+| Entity | Holds |
+|--------|-------|
+| `FormWorkflowInstance` | One user's run: the version it is bound to, its status and outcome |
+| `FormWorkflowStep` | One position in that run: node, response, previous step, chosen transition, sequence |
+
+A step with no `CompletedAt` is the step the application is waiting on. When that step already carries a response, the application is **waiting for review**. There is no separate status for that, so the two can never disagree.
+
+Opening the workflow's **start form** resumes an application at whatever step it reached. Opening another node's form directly is refused, so a shared link cannot skip a step or enter a branch that was never chosen.
+
+### What the database enforces
+
+These are constraints rather than checks in code, so a race cannot get past them.
+
+| Constraint | Prevents |
+|------------|----------|
+| One step per application with `CompletedAt IS NULL` | Two branches running at once |
+| `WorkflowSteps.ResponseId` unique | A repeated submission opening a second step |
+| One `Active` application per workflow and user | Two concurrent first submissions both starting a run |
+| One `Published` and one `Draft` version per workflow | Ambiguity about which definition is live |
+| Unique `(version, source node, trigger, priority)` | Two routes tied at the same priority |
+| One node per form and one start node per version | An answer that belongs to no single step |
+| `xmin` on the application | A lost update when two requests advance the same run |
+
+> **Order matters when saving.** Closing a step and opening the next one are two saves inside one transaction, because a single save would let the provider write the insert before the update and trip the one-open-step index. The same applies to archiving a published version before promoting a draft.
+
+### Publishing
+
+`POST /api/admin/workflows/{id}/publish` validates before it promotes anything. A draft that does not validate leaves the live version untouched and returns every finding at once, and a draft may be saved in any state so the editor can work on an unfinished graph.
+
+Publishing refuses a definition that has no start node or more than one, contains a cycle, has a route longer than three forms, leaves a node unreachable, points a route at a node that does not exist, mixes a trigger with the wrong review setting, leaves a conditional group without a default route, ties two routes at one priority, or reads a question the form does not have.
+
+A condition may only read a step that lies on **every** route to the step being left. Reading a step that some routes skip would silently evaluate against an answer that was never given.
+
+The forms themselves must also hold up: each must exist, be open, reject anonymous answers because a run belongs to a signed-in user, and name the workflow owner as an Owner. A form may belong to at most one published workflow, or an answer could not say which run it belongs to.
+
+### Forms used by a published workflow
+
+Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot delete or rename a question a condition reads, change the review setting, open the form to anonymous answers, close it, or delete it.
+
+> **Legacy:** `Forms.LinkedFormId` and the `step` and `linkedFormId` fields in the public payloads survive from the older two-form chaining. Nothing reads the column any more, and the payload fields are filled only for two-step workflows so the previous client keeps working. Both go away once the frontend reads `state` and `stage`.
 
 ## API Endpoints
 
@@ -128,7 +246,6 @@ Dynamic form creation and response management service.
 | `PUT` | `/api/admin/forms/{id}` | Update a form |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
-| `GET` | `/api/admin/forms/{id}/linkable-forms` | List forms that can be linked |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
@@ -142,6 +259,20 @@ Dynamic form creation and response management service.
 | `POST` | `/api/admin/forms/responses/{id}/revoke-token` | Revoke a response share token |
 | `PATCH` | `/api/admin/forms/responses/{id}/status` | Update response review status |
 | `POST` | `/api/admin/forms/responses/{id}/archive` | Archive a response |
+
+### Workflows - Admin
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/admin/workflows` | List the current user's workflows |
+| `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
+| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions |
+| `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
+| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole |
+| `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
+| `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
+| `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
+| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow, leaving running applications alone |
 
 ### Component Groups - Admin
 
