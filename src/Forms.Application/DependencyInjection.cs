@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddScoped<IFormDraftService, FormDraftService>();
         services.AddScoped<IComponentGroupService, ComponentGroupService>();
         services.AddScoped<IFormWorkflowRuntime, FormWorkflowRuntime>();
+        services.AddScoped<IFormWorkflowService, FormWorkflowService>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();
 
         return services;

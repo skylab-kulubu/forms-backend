@@ -32,6 +32,7 @@ app.UseSwaggerUI();
 app.UseCors("AllowFrontend");
 
 app.MapFormAdminEndpoints();
+app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();
 
 app.Run();
