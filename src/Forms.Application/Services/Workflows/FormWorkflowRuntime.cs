@@ -56,10 +56,12 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         var openNode = definition.Nodes.First(candidate => candidate.Id == openStep.NodeId);
 
         // Cevabı olan ama kapanmamış adım, incelemeyi bekleyen adımdır.
+        var isTwoStepFlow = definition.Nodes.Count == 2;
+
         return openStep.ResponseId is null
-            ? Result(new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId))
+            ? Result(new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId), null, isTwoStepFlow)
             : Result(new WorkflowStepOutcome(instance.Id, WorkflowActionState.AwaitingReview, openStep.Sequence, null),
-                "Form cevabınız inceleniyor, lütfen bekleyiniz.");
+                "Form cevabınız inceleniyor, lütfen bekleyiniz.", isTwoStepFlow);
     }
 
     public async Task<ServiceResult<WorkflowStepOutcome>> SubmitAsync(
@@ -147,7 +149,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
             return Result(
                 new WorkflowStepOutcome(instance.Id, WorkflowActionState.AwaitingReview, step.Sequence, null),
-                "Yanıtınız incelemeye alındı.");
+                "Yanıtınız incelemeye alındı.",
+                definition.Nodes.Count == 2);
         }
 
         var (outcome, nextStep) = await AdvanceAsync(
@@ -155,7 +158,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         await CommitAsync(instance, nextStep, cancellationToken);
 
-        return Result(outcome, MessageFor(outcome));
+        return Result(outcome, MessageFor(outcome), definition.Nodes.Count == 2);
     }
 
     public Task<bool> HasPendingRouteAsync(Guid responseId, CancellationToken cancellationToken = default) =>
@@ -209,7 +212,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         return Result(outcome, outcome.State == WorkflowActionState.Declined
             ? "Başvuru reddedildi."
-            : MessageFor(outcome));
+            : MessageFor(outcome), definition.Nodes.Count == 2);
     }
 
     private async Task<ServiceResult<WorkflowStepOutcome>> ResolveStartAsync(
@@ -237,13 +240,15 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 Message: "Devam eden bir başvurunuz var; önce onu tamamlayın.");
         }
 
-        if (lastRun is not null && !location.AllowMultipleRuns) return ClosedRun(lastRun);
+        var isTwoStepFlow = location.NodeCount == 2;
 
-        return Result(new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId));
+        if (lastRun is not null && !location.AllowMultipleRuns) return ClosedRun(lastRun, isTwoStepFlow);
+
+        return Result(new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId), null, isTwoStepFlow);
     }
 
     /// <summary>Sonuçlanmış bir başvuruyu, kullanıcıya gösterilecek inceleme notuyla bildirir.</summary>
-    private static ServiceResult<WorkflowStepOutcome> ClosedRun(WorkflowRunSummary run)
+    private static ServiceResult<WorkflowStepOutcome> ClosedRun(WorkflowRunSummary run, bool isTwoStepFlow)
     {
         var state = run.Status == WorkflowInstanceStatus.Faulted
             ? WorkflowActionState.Faulted
@@ -255,7 +260,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         return Result(outcome, state == WorkflowActionState.Declined
             ? "Başvurunuz reddedilmiştir."
-            : MessageFor(outcome));
+            : MessageFor(outcome), isTwoStepFlow);
     }
 
     /// <summary>
@@ -375,6 +380,10 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
     /// <summary>Açık adımın tekliğini WorkflowSteps üzerindeki kısmi tekil indeks garanti eder.</summary>
     private static FormWorkflowStep? FindOpenStep(FormWorkflowInstance instance) =>
         instance.Steps.SingleOrDefault(step => step.CompletedAt is null);
+
+    /// <summary>İki adımlı akışlarda eski istemcinin 1..5 aşamasını üretebilmesi için işaretler.</summary>
+    private static ServiceResult<WorkflowStepOutcome> Result(WorkflowStepOutcome outcome, string? message, bool isTwoStepFlow) =>
+        Result(outcome with { IsLegacyTwoStepFlow = isTwoStepFlow }, message);
 
     private static ServiceResult<WorkflowStepOutcome> Result(WorkflowStepOutcome outcome, string? message = null) =>
         new(outcome.State switch

@@ -69,13 +69,15 @@ public interface IFormWorkflowRepository
 /// <param name="LockedQuestionIds">Yönlendirme koşullarının dayandığı, silinemez sorular.</param>
 public sealed record WorkflowFormLock(string WorkflowName, IReadOnlyCollection<string> LockedQuestionIds);
 
+/// <param name="NodeCount">Sürümdeki adım sayısı; legacy 1..5 aşamasını hesaplamak için.</param>
 public sealed record WorkflowNodeLocation(
     Guid WorkflowId,
     Guid WorkflowVersionId,
     Guid NodeId,
     string NodeKey,
     bool IsStart,
-    bool AllowMultipleRuns);
+    bool AllowMultipleRuns,
+    int NodeCount);
 
 public sealed record WorkflowDefinition(
     Guid WorkflowId,

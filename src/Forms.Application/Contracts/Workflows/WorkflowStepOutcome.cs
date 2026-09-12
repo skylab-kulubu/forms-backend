@@ -20,13 +20,19 @@ public enum WorkflowActionState
 /// </summary>
 /// <param name="Stage">Adımın 1'den başlayan sıra numarası; grafikten değil başvurudan gelir.</param>
 /// <param name="FormId">ShowForm durumunda gösterilecek form.</param>
+/// <param name="IsLegacyTwoStepFlow">
+/// Akış iki adımlı, yani eski bağlı form ikilisinden dönüştürülmüş. Yalnızca eski
+/// istemcinin beklediği 1..5 aşamasını hesaplamak için var; frontend State ve
+/// Stage alanlarına geçtiğinde kaldırılacak.
+/// </param>
 public sealed record WorkflowStepOutcome(
     Guid? InstanceId,
     WorkflowActionState State,
     int Stage,
     Guid? FormId,
     string? ReviewNote = null,
-    DateTime? ReviewedAt = null)
+    DateTime? ReviewedAt = null,
+    bool IsLegacyTwoStepFlow = false)
 {
     public static readonly WorkflowStepOutcome NotInWorkflow =
         new(null, WorkflowActionState.NotInWorkflow, 0, null);

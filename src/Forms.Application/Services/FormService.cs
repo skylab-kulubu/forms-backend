@@ -544,10 +544,9 @@ public partial class FormService : IFormService
             contract = new FormDisplayContract(target.Id, target.Title, target.Description, target.Schema);
         }
 
-        // Step yalnız legacy bağlı form akışının alanı; akış motorunda sıra Stage'ten okunur.
         var payload = new FormDisplayPayload(
             contract,
-            Step: 0,
+            LegacyStep.From(outcome),
             outcome.ReviewNote,
             outcome.ReviewedAt,
             outcome.InstanceId,

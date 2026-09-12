@@ -166,8 +166,9 @@ public class FormResponseService : IFormResponseService
 
         var result = new ResponseSubmitResult(
             response.Id,
-            LinkedFormId: null,
-            Step: 0,
+            // Eski istemci sonraki formu bu alandan okuyor.
+            LinkedFormId: outcome.IsLegacyTwoStepFlow ? outcome.FormId : null,
+            LegacyStep.From(outcome),
             outcome.InstanceId,
             outcome.State,
             outcome.Stage,

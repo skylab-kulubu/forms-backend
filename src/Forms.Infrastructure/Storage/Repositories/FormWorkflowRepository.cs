@@ -28,7 +28,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.Id,
                 node.NodeKey,
                 node.IsStart,
-                node.WorkflowVersion.Workflow.AllowMultipleRuns))
+                node.WorkflowVersion.Workflow.AllowMultipleRuns,
+                node.WorkflowVersion.Nodes.Count))
             .FirstOrDefaultAsync(ct);
 
     public async Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default)
