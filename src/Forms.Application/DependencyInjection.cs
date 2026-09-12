@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Skylab.Forms.Application.Services;
+using Skylab.Forms.Application.Services.Workflows;
 
 namespace Skylab.Forms.Application;
 
@@ -12,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<IFormMetricService, FormMetricService>();
         services.AddScoped<IFormDraftService, FormDraftService>();
         services.AddScoped<IComponentGroupService, ComponentGroupService>();
+        services.AddScoped<IFormWorkflowRuntime, FormWorkflowRuntime>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();
 
         return services;

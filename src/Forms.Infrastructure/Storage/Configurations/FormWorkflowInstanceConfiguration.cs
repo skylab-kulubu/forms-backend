@@ -1,4 +1,5 @@
 using Skylab.Forms.Domain.Entities;
+using Skylab.Forms.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -13,6 +14,13 @@ public class FormWorkflowInstanceConfiguration : IEntityTypeConfiguration<FormWo
         builder.HasKey(i => i.Id);
 
         builder.HasIndex(i => new { i.WorkflowId, i.UserId, i.Status });
+
+        // Bir kullanıcının aynı akışta tek aktif başvurusu olur. AllowMultipleRuns
+        // ardışık çalıştırmaya izin verir, eşzamanlı olana değil: eşzamanlı iki ilk
+        // gönderimden yalnızca biri başvuru yaratabilsin.
+        builder.HasIndex(i => new { i.WorkflowId, i.UserId }, "IX_WorkflowInstances_WorkflowId_UserId_Active")
+            .IsUnique()
+            .HasFilter($"\"Status\" = {(int)WorkflowInstanceStatus.Active}");
 
         builder.HasOne(i => i.Workflow)
             .WithMany()
