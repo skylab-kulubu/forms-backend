@@ -24,7 +24,9 @@ public sealed record WorkflowStepOutcome(
     Guid? InstanceId,
     WorkflowActionState State,
     int Stage,
-    Guid? FormId)
+    Guid? FormId,
+    string? ReviewNote = null,
+    DateTime? ReviewedAt = null)
 {
     public static readonly WorkflowStepOutcome NotInWorkflow =
         new(null, WorkflowActionState.NotInWorkflow, 0, null);

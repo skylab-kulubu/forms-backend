@@ -20,4 +20,12 @@ public class FormResponse
     public DateTime? ReviewedAt { get; set; }
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? PendingReminderSentAt { get; set; }
+
+    public void ApplyReview(FormResponseStatus status, Guid reviewerId, string? note, DateTime reviewedAt)
+    {
+        Status = status;
+        ReviewedBy = reviewerId;
+        ReviewNote = note;
+        ReviewedAt = reviewedAt;
+    }
 }

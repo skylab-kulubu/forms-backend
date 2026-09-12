@@ -6,6 +6,8 @@ using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts;
 using Skylab.Forms.Application.Contracts.Collaborators;
 using Skylab.Forms.Application.Contracts.Forms;
+using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Application.Validators;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -22,6 +24,8 @@ public partial class FormService : IFormService
     private readonly IFormDraftService _draftService;
     private readonly ICurrentUserService _currentUserService;
     private readonly ICacheService _cache;
+    private readonly IFormWorkflowRepository _workflows;
+    private readonly IFormWorkflowRuntime _workflowRuntime;
 
     public FormService(
         IFormRepository forms,
@@ -30,7 +34,9 @@ public partial class FormService : IFormService
         IExternalUserService userService,
         IFormDraftService draftService,
         ICurrentUserService currentUserService,
-        ICacheService cache)
+        ICacheService cache,
+        IFormWorkflowRepository workflows,
+        IFormWorkflowRuntime workflowRuntime)
     {
         _forms = forms;
         _responses = responses;
@@ -39,6 +45,8 @@ public partial class FormService : IFormService
         _draftService = draftService;
         _currentUserService = currentUserService;
         _cache = cache;
+        _workflows = workflows;
+        _workflowRuntime = workflowRuntime;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -102,6 +110,16 @@ public partial class FormService : IFormService
         var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema, contract.LinkedFormId);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
+
+        var workflowLock = await _workflows.GetPublishedLockAsync(formId, cancellationToken);
+
+        if (workflowLock is not null)
+        {
+            var lockViolation = FindWorkflowLockViolation(existingForm, contract, workflowLock);
+
+            if (lockViolation is not null)
+                return new ServiceResult<FormContract>(ServiceStatus.NotAcceptable, Message: lockViolation);
+        }
 
         bool statusChanged = existingForm.Status != contract.Status;
 
@@ -209,6 +227,15 @@ public partial class FormService : IFormService
                 ServiceStatus.Unauthorized,
                 Message: "Bu formu görüntülemek için giriş yapmalısınız."
             );
+        }
+
+        if (userId.HasValue)
+        {
+            var workflow = await _workflowRuntime.ResolveDisplayAsync(id, userId.Value, cancellationToken);
+
+            // Veri yoksa hata vardır; ikisi de akış yoluna aittir.
+            if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
+                return await MapWorkflowDisplayAsync(workflow, cancellationToken);
         }
 
         var parentForm = await _forms.GetParentOfAsync(id, cancellationToken);
@@ -434,6 +461,13 @@ public partial class FormService : IFormService
 
         if (form == null) return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı veya yetkiniz yok.");
 
+        if (await _workflows.GetPublishedLockAsync(id, cancellationToken) is { } workflowLock)
+        {
+            return new ServiceResult<bool>(
+                ServiceStatus.NotAcceptable,
+                Message: $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; önce akıştan çıkarın.");
+        }
+
         var parentForm = await _forms.GetParentOfForEditAsync(id, cancellationToken);
 
         if (parentForm != null)
@@ -491,6 +525,59 @@ public partial class FormService : IFormService
             form.CreatedAt,
             form.UpdatedAt
         );
+    }
+
+    private async Task<ServiceResult<FormDisplayPayload>> MapWorkflowDisplayAsync(
+        ServiceResult<WorkflowStepOutcome> workflow,
+        CancellationToken cancellationToken)
+    {
+        if (workflow.Data is not { } outcome)
+            return new ServiceResult<FormDisplayPayload>(workflow.Status, Message: workflow.Message);
+
+        FormDisplayContract? contract = null;
+
+        if (outcome is { State: WorkflowActionState.ShowForm, FormId: { } targetFormId })
+        {
+            var target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
+            if (target == null) return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
+
+            contract = new FormDisplayContract(target.Id, target.Title, target.Description, target.Schema);
+        }
+
+        // Step yalnız legacy bağlı form akışının alanı; akış motorunda sıra Stage'ten okunur.
+        var payload = new FormDisplayPayload(
+            contract,
+            Step: 0,
+            outcome.ReviewNote,
+            outcome.ReviewedAt,
+            outcome.InstanceId,
+            outcome.State,
+            outcome.Stage);
+
+        return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
+    }
+
+    /// <summary>
+    /// Yayınlanmış bir akışta kullanılan formda yalnız yönlendirmeyi bozan
+    /// değişiklikler engellenir; soru ekleme, metin düzeltme ve sıralama serbesttir.
+    /// </summary>
+    private static string? FindWorkflowLockViolation(Form existingForm, FormUpsertRequest contract, WorkflowFormLock workflowLock)
+    {
+        if (contract.Status != FormStatus.Open)
+            return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; kapatılamaz.";
+
+        if (contract.RequiresManualReview != existingForm.RequiresManualReview)
+            return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; onay ayarı değiştirilemez.";
+
+        if (contract.AllowAnonymousResponses)
+            return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; anonim yanıtlara açılamaz.";
+
+        var questionIds = (contract.Schema ?? new()).Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var missing = workflowLock.LockedQuestionIds.FirstOrDefault(questionId => !questionIds.Contains(questionId));
+
+        return missing is null
+            ? null
+            : $"'{missing}' sorusu '{workflowLock.WorkflowName}' akışının yönlendirme koşullarında kullanılıyor; silinemez veya yeniden adlandırılamaz.";
     }
 
     private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null)

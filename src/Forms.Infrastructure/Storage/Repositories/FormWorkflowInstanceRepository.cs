@@ -29,9 +29,30 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .ThenInclude(instance => instance.Steps)
             .FirstOrDefaultAsync(step => step.ResponseId == responseId, ct);
 
-    public Task<bool> HasAnyRunAsync(Guid workflowId, Guid userId, CancellationToken ct = default) =>
-        _context.WorkflowInstances.AsNoTracking()
-            .AnyAsync(instance => instance.WorkflowId == workflowId && instance.UserId == userId, ct);
+    public async Task<WorkflowRunSummary?> GetLastRunAsync(Guid workflowId, Guid userId, CancellationToken ct = default)
+    {
+        var instance = await _context.WorkflowInstances.AsNoTracking()
+            .Where(candidate => candidate.WorkflowId == workflowId && candidate.UserId == userId)
+            .OrderByDescending(candidate => candidate.StartedAt)
+            .Select(candidate => new { candidate.Id, candidate.Status, candidate.Outcome })
+            .FirstOrDefaultAsync(ct);
+
+        if (instance is null) return null;
+
+        // Sonuçlanmış başvuruda kullanıcıya gösterilecek not, son incelenen cevabınkidir.
+        var review = await _context.WorkflowSteps.AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(step => step.WorkflowInstanceId == instance.Id && step.Response != null && step.Response.ReviewedAt != null)
+            .OrderByDescending(step => step.Response!.ReviewedAt)
+            .Select(step => new { step.Response!.ReviewNote, step.Response.ReviewedAt })
+            .FirstOrDefaultAsync(ct);
+
+        return new WorkflowRunSummary(instance.Id, instance.Status, instance.Outcome, review?.ReviewNote, review?.ReviewedAt);
+    }
+
+    public Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default) =>
+        _context.WorkflowSteps.AsNoTracking()
+            .AnyAsync(step => step.ResponseId == responseId && step.CompletedAt == null, ct);
 
     public async Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default)
     {
@@ -47,4 +68,6 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
     }
 
     public void Add(FormWorkflowInstance instance) => _context.WorkflowInstances.Add(instance);
+
+    public void Add(FormWorkflowStep step) => _context.WorkflowSteps.Add(step);
 }

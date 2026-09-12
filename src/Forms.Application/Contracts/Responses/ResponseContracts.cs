@@ -1,6 +1,7 @@
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 using Skylab.Forms.Application.Contracts.Identity;
+using Skylab.Forms.Application.Contracts.Workflows;
 
 namespace Skylab.Forms.Application.Contracts.Responses;
 
@@ -25,10 +26,16 @@ public record ResponseContract(
 
 public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);
 
+/// <param name="LinkedFormId">Legacy bağlı form akışının hedefi; akış motorunda null.</param>
+/// <param name="Step">Legacy 1..5 aşaması; akış motorunda 0.</param>
 public record ResponseSubmitResult(
     Guid ResponseId,
     Guid? LinkedFormId,
-    int Step
+    int Step,
+    Guid? InstanceId = null,
+    WorkflowActionState? State = null,
+    int Stage = 0,
+    Guid? NextFormId = null
 );
 
 public record ResponseSummaryContract(

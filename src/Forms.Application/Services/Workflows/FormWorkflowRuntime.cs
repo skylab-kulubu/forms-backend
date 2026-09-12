@@ -86,7 +86,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                     Message: "Bu formu doldurmak için önceki adımı tamamlamanız gerekiyor.");
             }
 
-            if (!location.AllowMultipleRuns && await _instances.HasAnyRunAsync(location.WorkflowId, userId, cancellationToken))
+            if (!location.AllowMultipleRuns && await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken) is not null)
             {
                 return new ServiceResult<WorkflowStepOutcome>(
                     ServiceStatus.NotAcceptable,
@@ -150,17 +150,22 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 "Yanıtınız incelemeye alındı.");
         }
 
-        var outcome = await AdvanceAsync(
+        var (outcome, nextStep) = await AdvanceAsync(
             instance, definition, node, step, response.Data, WorkflowTransitionTrigger.ResponseSubmitted, cancellationToken);
 
-        await _uow.SaveChangesAsync(cancellationToken);
+        await CommitAsync(instance, nextStep, cancellationToken);
 
         return Result(outcome, MessageFor(outcome));
     }
 
+    public Task<bool> HasPendingRouteAsync(Guid responseId, CancellationToken cancellationToken = default) =>
+        _instances.HasOpenStepForResponseAsync(responseId, cancellationToken);
+
     public async Task<ServiceResult<WorkflowStepOutcome>> ReviewAsync(
         FormResponse response,
         FormResponseStatus newStatus,
+        Guid reviewerId,
+        string? note,
         CancellationToken cancellationToken = default)
     {
         var step = await _instances.GetStepByResponseAsync(response.Id, cancellationToken);
@@ -192,11 +197,19 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             ? WorkflowTransitionTrigger.ResponseApproved
             : WorkflowTransitionTrigger.ResponseDeclined;
 
-        var outcome = await AdvanceAsync(instance, definition, node, step, response.Data, trigger, cancellationToken);
+        response.ApplyReview(newStatus, reviewerId, note, DateTime.UtcNow);
 
-        await _uow.SaveChangesAsync(cancellationToken);
+        var (outcome, nextStep) = await AdvanceAsync(instance, definition, node, step, response.Data, trigger, cancellationToken);
 
-        return Result(outcome, MessageFor(outcome));
+        // Akış burada bittiyse kullanıcı gerekçeyi aynı yanıtta görmeli.
+        if (outcome.State is WorkflowActionState.Completed or WorkflowActionState.Declined)
+            outcome = outcome with { ReviewNote = response.ReviewNote, ReviewedAt = response.ReviewedAt };
+
+        await CommitAsync(instance, nextStep, cancellationToken);
+
+        return Result(outcome, outcome.State == WorkflowActionState.Declined
+            ? "Başvuru reddedildi."
+            : MessageFor(outcome));
     }
 
     private async Task<ServiceResult<WorkflowStepOutcome>> ResolveStartAsync(
@@ -214,18 +227,43 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 Message: "Bu formu görüntülemek için önceki adımı tamamlamanız gerekiyor.");
         }
 
-        if (!location.AllowMultipleRuns && await _instances.HasAnyRunAsync(location.WorkflowId, userId, cancellationToken))
+        var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
+
+        // Aktif başvuru bu formu içermiyorsa kullanıcı akışın başka bir dalında demektir.
+        if (lastRun is { Status: WorkflowInstanceStatus.Active })
         {
-            return Result(
-                new WorkflowStepOutcome(null, WorkflowActionState.Completed, 0, null),
-                "Bu akışı daha önce tamamladınız.");
+            return new ServiceResult<WorkflowStepOutcome>(
+                ServiceStatus.RequiresParentApproval,
+                Message: "Devam eden bir başvurunuz var; önce onu tamamlayın.");
         }
+
+        if (lastRun is not null && !location.AllowMultipleRuns) return ClosedRun(lastRun);
 
         return Result(new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId));
     }
 
-    /// <summary>Adımı kapatır, rotayı yazar ve sonraki adımı açar ya da başvuruyu bitirir.</summary>
-    private async Task<WorkflowStepOutcome> AdvanceAsync(
+    /// <summary>Sonuçlanmış bir başvuruyu, kullanıcıya gösterilecek inceleme notuyla bildirir.</summary>
+    private static ServiceResult<WorkflowStepOutcome> ClosedRun(WorkflowRunSummary run)
+    {
+        var state = run.Status == WorkflowInstanceStatus.Faulted
+            ? WorkflowActionState.Faulted
+            : run.Outcome == WorkflowInstanceOutcome.Declined
+                ? WorkflowActionState.Declined
+                : WorkflowActionState.Completed;
+
+        var outcome = new WorkflowStepOutcome(run.InstanceId, state, 0, null, run.ReviewNote, run.ReviewedAt);
+
+        return Result(outcome, state == WorkflowActionState.Declined
+            ? "Başvurunuz reddedilmiştir."
+            : MessageFor(outcome));
+    }
+
+    /// <summary>
+    /// Adımı kapatır ve rotayı yazar. Sonraki adım burada context'e eklenmez:
+    /// kapanış UPDATE'i ile yeni adımın INSERT'ü aynı kayıt işleminde gönderilirse
+    /// EF INSERT'ü önce yazar ve "tek açık adım" kısmi tekil indeksi ihlal edilir.
+    /// </summary>
+    private async Task<(WorkflowStepOutcome Outcome, FormWorkflowStep? NextStep)> AdvanceAsync(
         FormWorkflowInstance instance,
         WorkflowDefinition definition,
         FormWorkflowNode node,
@@ -249,25 +287,45 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             instance.Status = WorkflowInstanceStatus.Faulted;
             instance.CompletedAt = now;
 
-            return new WorkflowStepOutcome(instance.Id, WorkflowActionState.Faulted, step.Sequence, null);
+            return (new WorkflowStepOutcome(instance.Id, WorkflowActionState.Faulted, step.Sequence, null), null);
         }
 
         if (decision.Transition?.TargetNodeId is not { } targetNodeId)
-            return Complete(instance, step, trigger, now);
+            return (Complete(instance, step, trigger, now), null);
 
         var targetNode = definition.Nodes.First(candidate => candidate.Id == targetNodeId);
 
         var nextStep = new FormWorkflowStep
         {
+            WorkflowInstanceId = instance.Id,
             NodeId = targetNode.Id,
             PreviousStepId = step.Id,
             Sequence = step.Sequence + 1
         };
 
-        instance.Steps.Add(nextStep);
+        var outcome = new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, nextStep.Sequence, targetNode.FormId);
 
-        return new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, nextStep.Sequence, targetNode.FormId);
+        return (outcome, nextStep);
     }
+
+    /// <summary>Kapanan adımı, ardından yeni adımı tek transaction içinde yazar.</summary>
+    private Task CommitAsync(FormWorkflowInstance instance, FormWorkflowStep? nextStep, CancellationToken cancellationToken) =>
+        _uow.ExecuteInTransactionAsync(async token =>
+        {
+            await _uow.SaveChangesAsync(token);
+
+            if (nextStep is not null)
+            {
+                // Adım açıkça eklenir: anahtarı istemci tarafında dolu olduğu için
+                // yalnız koleksiyona eklemek EF'e onu mevcut satır gibi gösterir.
+                _instances.Add(nextStep);
+                instance.Steps.Add(nextStep);
+
+                await _uow.SaveChangesAsync(token);
+            }
+
+            return true;
+        }, cancellationToken);
 
     private static WorkflowStepOutcome Complete(
         FormWorkflowInstance instance,

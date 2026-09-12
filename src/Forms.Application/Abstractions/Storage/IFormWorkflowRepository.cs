@@ -11,7 +11,16 @@ public interface IFormWorkflowRepository
     Task<WorkflowNodeLocation?> FindPublishedNodeAsync(Guid formId, CancellationToken ct = default);
 
     Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Form yayındaki bir akışta kullanılıyorsa, onu kısıtlayan bilgiler. null ise
+    /// form serbestçe düzenlenebilir.
+    /// </summary>
+    Task<WorkflowFormLock?> GetPublishedLockAsync(Guid formId, CancellationToken ct = default);
 }
+
+/// <param name="LockedQuestionIds">Yönlendirme koşullarının dayandığı, silinemez sorular.</param>
+public sealed record WorkflowFormLock(string WorkflowName, IReadOnlyCollection<string> LockedQuestionIds);
 
 public sealed record WorkflowNodeLocation(
     Guid WorkflowId,

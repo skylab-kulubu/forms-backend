@@ -19,7 +19,7 @@ public interface IFormWorkflowRuntime
 
     /// <summary>
     /// Henüz eklenmemiş bir cevabı aktif adıma bağlar, rotayı seçer ve tek bir
-    /// kayıt işlemiyle yazar.
+    /// kayıt işlemiyle yazar. Form akışa ait değilse cevaba dokunmaz.
     /// </summary>
     Task<ServiceResult<WorkflowStepOutcome>> SubmitAsync(
         Form form,
@@ -28,11 +28,19 @@ public interface IFormWorkflowRuntime
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Onay veya red sonrasında rotayı seçer. Cevabın inceleme alanları çağıran
-    /// tarafından yazılır; ikisi de aynı kayıt işleminde commit edilir.
+    /// İnceleme sonucunu cevaba yazar ve rotayı seçer. İkisi aynı kayıt işleminde
+    /// commit edilir; yönlendirme yapılamıyorsa cevap da değişmez.
     /// </summary>
     Task<ServiceResult<WorkflowStepOutcome>> ReviewAsync(
         FormResponse response,
         FormResponseStatus newStatus,
+        Guid reviewerId,
+        string? note,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cevabın rotası henüz belirlenmemişse true. Arşivleme gibi cevabı dolaylı
+    /// olarak reddeden işlemlerin akışı kilitlemesini engellemek için kullanılır.
+    /// </summary>
+    Task<bool> HasPendingRouteAsync(Guid responseId, CancellationToken cancellationToken = default);
 }
