@@ -6,12 +6,13 @@ public enum AnalyticsKind
     Text = 1,        // short_text, long_text, link: free text, not aggregated
     File = 2,        // file upload: only answered/skipped counts
     Choice = 3,      // combobox: single choice
-    MultiChoice = 4, // multi_choice: comma-joined multiple selections
+    MultiChoice = 4, // multi_choice: several selections, as a JSON array or comma-joined
     Switch = 5,      // toggle: localized Evet/Hayır
     Number = 6,      // slider: numeric
     Matrix = 7,      // matrix: per-row column distribution
     Date = 8,        // date: monthly histogram
-    Time = 9         // time: hour-of-day histogram
+    Time = 9,        // time: hour-of-day histogram
+    Repeater = 10    // repeater: repeated group, only answered/skipped counts
 }
 
 public record FormAnswerAnalyticsContract(

@@ -18,8 +18,12 @@ public static class AnswerAnalyticsBuilder
         ["time"] = AnalyticsKind.Time,
         ["short_text"] = AnalyticsKind.Text,
         ["long_text"] = AnalyticsKind.Text,
+        // Eski şemalar link'i ayrı bir tip olarak taşıyor; yeni formlarda short_text
+        // altında inputType olarak duruyor. Giriş kalmalı, yoksa o sorular bilinmeyen
+        // tipe düşer ve analitikte tamamen kaybolur.
         ["link"] = AnalyticsKind.Text,
         ["file"] = AnalyticsKind.File,
+        ["repeater"] = AnalyticsKind.Repeater,
     };
 
     public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyList<List<FormResponseSchemaItem>> responses)
@@ -78,7 +82,7 @@ public static class AnswerAnalyticsBuilder
                 break;
 
             case AnalyticsKind.MultiChoice:
-                var options = answered.SelectMany(SplitMultiChoice).ToList();
+                var options = answered.SelectMany(FormAnswerText.Selections).ToList();
                 distribution = ToBuckets(options, answeredCount);
                 break;
 
@@ -101,7 +105,7 @@ public static class AnswerAnalyticsBuilder
                 break;
         }
 
-        var aggregatable = kind is not (AnalyticsKind.None or AnalyticsKind.Text or AnalyticsKind.File);
+        var aggregatable = kind is not (AnalyticsKind.None or AnalyticsKind.Text or AnalyticsKind.File or AnalyticsKind.Repeater);
 
         return new QuestionAnalyticsContract(
             schemaItem.Id, text, schemaItem.Type ?? "", kind, aggregatable,
@@ -116,9 +120,6 @@ public static class AnswerAnalyticsBuilder
             return fromResponse;
         return schemaItem.Id;
     }
-
-    private static IEnumerable<string> SplitMultiChoice(string answer) =>
-        answer.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static List<AnswerBucketContract> ToBuckets(IEnumerable<string> values, int denom) =>
         values

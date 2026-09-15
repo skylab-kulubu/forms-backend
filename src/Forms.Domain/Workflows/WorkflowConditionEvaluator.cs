@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
@@ -63,44 +62,21 @@ public static class WorkflowConditionEvaluator
         return Normalize(answer).Contains(needle, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Çoklu seçimde "seçilenlerden herhangi biri listede mi" anlamına gelir.</summary>
+    /// <summary>
+    /// Tek seçimde "cevap listede mi", çoklu seçimde "seçilenlerden herhangi biri
+    /// listede mi" anlamına gelir. Cevabın tamamı önce bütün olarak denenir: bir
+    /// seçenek adının içinde virgül olabilir ve bölünürse hiçbir değere uymaz.
+    /// </summary>
     private static bool SharesValue(string? answer, IReadOnlyList<string>? values)
     {
         if (values is null || values.Count == 0) return false;
 
-        var selected = SplitAnswer(answer);
+        if (values.Any(value => TextEquals(answer, value))) return true;
+
+        var selected = FormAnswerText.Selections(answer);
         if (selected.Count == 0) return false;
 
         return selected.Any(item => values.Any(value => TextEquals(item, value)));
-    }
-
-    /// <summary>
-    /// Çoklu seçim cevabının JSON dizisi mi yoksa virgülle ayrılmış metin mi
-    /// olduğu istemciye göre değişebildiği için ikisi de kabul edilir.
-    /// </summary>
-    private static IReadOnlyList<string> SplitAnswer(string? answer)
-    {
-        var trimmed = Normalize(answer);
-        if (trimmed.Length == 0) return Array.Empty<string>();
-
-        if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-        {
-            try
-            {
-                var parsed = JsonSerializer.Deserialize<List<string?>>(trimmed);
-
-                if (parsed is not null)
-                    return parsed.Where(value => !string.IsNullOrWhiteSpace(value))
-                        .Select(value => value!.Trim())
-                        .ToList();
-            }
-            catch (JsonException)
-            {
-                // Dizi gibi görünen ama geçerli olmayan metin düz metin sayılır.
-            }
-        }
-
-        return trimmed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private static bool CompareNumbers(string? answer, string? value, Func<int, bool> matches)
