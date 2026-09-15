@@ -166,12 +166,12 @@ A condition reads the answer snapshot, never the live form. Rules address a ques
 | Value | Comparison | Reads |
 |-------|------------|-------|
 | 0, 1 | `Equals`, `NotEquals` | The whole answer, trimmed and case-insensitive |
-| 2, 3 | `In`, `NotIn` | `values`, against the answer split into its selections |
+| 2, 3 | `In`, `NotIn` | `values`, against the whole answer and against the answer split into its selections |
 | 4 | `Contains` | `value` as a substring of the answer |
 | 5-8 | `GreaterThan`, `GreaterThanOrEqual`, `LessThan`, `LessThanOrEqual` | Both sides parsed as numbers |
 | 9, 10 | `IsEmpty`, `IsNotEmpty` | Only whether an answer exists |
 
-A multiple-choice answer is split from a JSON array (`["react","vue"]`) when it looks like one, and from a comma-separated list otherwise.
+A multiple-choice answer is split from a JSON array (`["react","vue"]`) when it looks like one, and from a comma-separated list otherwise. Because answers are stored as the option's visible text, a condition compares labels, not option ids: a label a condition reads cannot be renamed without breaking the route, which is why the form contract reports those labels as locked.
 
 Answers are stored as text, so numeric comparisons parse both sides with a decimal point. A single comma with no dot is read as a decimal separator, so `3,5` is 3.5, while anything ambiguous such as `1.234,5` fails to parse. **A rule that cannot read its answer evaluates to false instead of throwing**, so one malformed answer can never break routing for everyone else.
 
@@ -216,7 +216,9 @@ The forms themselves must also hold up: each must exist, be open, reject anonymo
 
 ### Forms used by a published workflow
 
-Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot delete or rename a question a condition reads, change the review setting, open the form to anonymous answers, close it, or delete it.
+Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, change the review setting, open the form to anonymous answers, close it, or delete it.
+
+One lock the backend cannot enforce: **the option labels a condition compares against**. Answers are stored as the option's visible text and the backend never reads the option list out of a question's `props`, so renaming an option silently stops the condition from matching. The form contract reports those labels so the editor can protect them.
 
 > **Legacy:** `Forms.LinkedFormId` and the `step` and `linkedFormId` fields in the public payloads survive from the older two-form chaining. Nothing reads the column any more, and the payload fields are filled only for two-step workflows so the previous client keeps working. Both go away once the frontend reads `state` and `stage`.
 
@@ -269,6 +271,7 @@ Publishing locks the parts of a form that routing depends on. While the workflow
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
 | `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole |
+| `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with a reason when they are not |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
@@ -382,4 +385,4 @@ dotnet build src/Forms.sln -c Release
 dotnet list src/Forms.sln package --vulnerable --include-transitive
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for architectural boundaries and contribution rules.
+See [FRONTEND.md](FRONTEND.md) for the client-side contracts and [CONTRIBUTING.md](CONTRIBUTING.md) for architectural boundaries and contribution rules.
