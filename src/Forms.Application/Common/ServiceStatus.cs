@@ -15,5 +15,11 @@ public enum ServiceStatus
     Approved = 601,
     Declined = 602,
     RequiresParentApproval = 603,
-    Completed = 604
+    Completed = 604,
+
+    /// <summary>
+    /// Yayınlanmış bir akış tanımı beklenen sonucu üretemedi. Kullanıcı hatası değil,
+    /// sunucu tarafı bir tanım arızasıdır ve izlenebilir olmalıdır.
+    /// </summary>
+    ConfigurationError = 605
 }

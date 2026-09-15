@@ -4,59 +4,30 @@ namespace Skylab.Forms.Api.Extensions;
 
 public static class ResultExtensions
 {
+    /// <summary>
+    /// Hata yanıtları da başarı yanıtlarıyla aynı zarfı taşır. İstemci tek bir şekli
+    /// çözümler ve 428 gibi durumlar yanında veri taşıyabilir.
+    /// </summary>
     public static IResult ToApiResult<T>(this ServiceResult<T> result)
     {
-        return result.Status switch
+        if (!result.Status.IsFailure())
+            return Results.Ok(result);
+
+        var (statusCode, fallback) = result.Status switch
         {
-            ServiceStatus.Success => Results.Ok(result),
-            ServiceStatus.Created => Results.Ok(result),
-            ServiceStatus.Approved => Results.Ok(result),
-            ServiceStatus.Declined => Results.Ok(result),
-            ServiceStatus.PendingApproval => Results.Ok(result),
-            ServiceStatus.Completed => Results.Ok(result),
-
-            ServiceStatus.NotFound => Results.NotFound(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Kayıt bulunamadı."
-            }),
-
-            ServiceStatus.NotAvailable => Results.NotFound(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Kayıt artık mevcut değil."
-            }),
-
-            ServiceStatus.Unauthorized => Results.Json(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Giriş yapmalısınız."
-            }, statusCode: 401),
-
-            ServiceStatus.NotAuthorized => Results.Json(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Bu işlem için yetkiniz yok."
-            }, statusCode: 403),
-
-            ServiceStatus.NotAcceptable => Results.Json(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Veriler yanlış veya eksik."
-            }, statusCode: 400),
-
-            ServiceStatus.RequiresParentApproval => Results.Json(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Önceki formun onayı gereklidir."
-            }, statusCode: 428),
-
-            _ => Results.BadRequest(new
-            {
-                status = result.Status,
-                message = result.Message ?? "Bir hata oluştu."
-            })
+            ServiceStatus.NotFound => (404, "Kayıt bulunamadı."),
+            ServiceStatus.NotAvailable => (410, "Kayıt artık mevcut değil."),
+            ServiceStatus.Unauthorized => (401, "Giriş yapmalısınız."),
+            ServiceStatus.NotAuthorized => (403, "Bu işlem için yetkiniz yok."),
+            ServiceStatus.NotAcceptable => (400, "Veriler yanlış veya eksik."),
+            ServiceStatus.RequiresParentApproval => (428, "Önceki formun onayı gereklidir."),
+            ServiceStatus.ConfigurationError => (500, "Akış tanımı bu adım için sonuç üretemedi."),
+            _ => (400, "Bir hata oluştu.")
         };
+
+        var body = result.Message is null ? result with { Message = fallback } : result;
+
+        return Results.Json(body, statusCode: statusCode);
     }
 
     public static IResult ToApiResult(this ServiceStatus status, string? message = null)
