@@ -110,11 +110,11 @@ public class FormService : IFormService
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
-        var workflowLock = await _workflows.GetPublishedLockAsync(formId, cancellationToken);
+        var membership = await FindMembershipAsync(formId, cancellationToken);
 
-        if (workflowLock is not null)
+        if (membership is { IsPublished: true })
         {
-            var lockViolation = FindWorkflowLockViolation(existingForm, contract, workflowLock);
+            var lockViolation = FindWorkflowLockViolation(existingForm, contract, membership);
 
             if (lockViolation is not null)
                 return new ServiceResult<FormContract>(ServiceStatus.NotAcceptable, Message: lockViolation);
@@ -159,7 +159,9 @@ public class FormService : IFormService
         var collaboratorIds = existingForm.Collaborators.Select(c => c.UserId).ToList();
         var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: MapToContract(existingForm, users, currentUserCollaborator.Role));
+        return new ServiceResult<FormContract>(
+            ServiceStatus.Success,
+            Data: MapToContract(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken))));
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -177,15 +179,21 @@ public class FormService : IFormService
         var collaboratorIds = form.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
         var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: MapToContract(form, users, userRole));
+        return new ServiceResult<FormContract>(
+            ServiceStatus.Success,
+            Data: MapToContract(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken))));
     }
 
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
     {
         var form = await _forms.GetByIdAsync(id, cancellationToken);
 
-        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed)
+        if (form == null || form.Status == FormStatus.Deleted)
             return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
+
+        // Kapalı form "yok" değildir: istemci bunu ayrı bir ekranla karşılayabilsin.
+        if (form.Status == FormStatus.Closed)
+            return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         if (userId == null && !form.AllowAnonymousResponses)
         {
@@ -232,8 +240,11 @@ public class FormService : IFormService
     {
         var form = await _forms.GetByIdAsync(id, cancellationToken);
 
-        if (form == null || form.Status == FormStatus.Deleted || form.Status == FormStatus.Closed)
+        if (form == null || form.Status == FormStatus.Deleted)
             return new ServiceResult<FormMetaContract>(ServiceStatus.NotFound);
+
+        if (form.Status == FormStatus.Closed)
+            return new ServiceResult<FormMetaContract>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         return new ServiceResult<FormMetaContract>(
             ServiceStatus.Success,
@@ -272,7 +283,22 @@ public class FormService : IFormService
     public async Task<ServiceResult<PagedResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default)
     {
         var data = await _forms.GetUserFormsAsync(userId, request, cancellationToken);
-        return new ServiceResult<PagedResult<FormSummaryContract>>(ServiceStatus.Success, Data: data);
+
+        // Akış adımları listeden gizlenmez; hangi formun akışa ait olduğunu istemci
+        // bu alandan görüp kendi süzmesini yapar.
+        var memberships = await _workflows.GetFormMembershipsAsync(
+            [.. data.Items.Select(form => form.Id)], cancellationToken);
+
+        var items = data.Items
+            .Select(form => form with
+            {
+                Workflow = memberships.TryGetValue(form.Id, out var membership) ? ToWorkflowRef(membership) : null
+            })
+            .ToList();
+
+        return new ServiceResult<PagedResult<FormSummaryContract>>(
+            ServiceStatus.Success,
+            Data: new PagedResult<FormSummaryContract>(items, data.TotalCount, data.Page, data.PageSize));
     }
 
     public async Task<ServiceResult<PagedResult<FormAllSummaryContract>>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken cancellationToken = default)
@@ -312,11 +338,11 @@ public class FormService : IFormService
 
         if (form == null) return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı veya yetkiniz yok.");
 
-        if (await _workflows.GetPublishedLockAsync(id, cancellationToken) is { } workflowLock)
+        if (await FindMembershipAsync(id, cancellationToken) is { IsPublished: true } membership)
         {
             return new ServiceResult<bool>(
                 ServiceStatus.NotAcceptable,
-                Message: $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; önce akıştan çıkarın.");
+                Message: $"Bu form '{membership.WorkflowName}' akışında kullanılıyor; önce akıştan çıkarın.");
         }
 
         form.Status = FormStatus.Deleted;
@@ -329,7 +355,7 @@ public class FormService : IFormService
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Form silindi.");
     }
 
-    private static FormContract MapToContract(Form form, List<UserContract> users, CollaboratorRole userRole = CollaboratorRole.None)
+    private static FormContract MapToContract(Form form, List<UserContract> users, CollaboratorRole userRole = CollaboratorRole.None, FormWorkflowRefContract? workflow = null)
     {
         var collaboratorContracts = new List<FormCollaboratorContract>();
 
@@ -354,6 +380,7 @@ public class FormService : IFormService
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
             form.RequiresManualReview,
+            workflow,
             userRole,
             collaboratorContracts,
             form.CreatedAt,
@@ -385,7 +412,8 @@ public class FormService : IFormService
             outcome.ReviewedAt,
             outcome.InstanceId,
             outcome.State,
-            outcome.Stage);
+            outcome.Stage,
+            outcome.StartFormId);
 
         return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
     }
@@ -394,7 +422,7 @@ public class FormService : IFormService
     /// Yayınlanmış bir akışta kullanılan formda yalnız yönlendirmeyi bozan
     /// değişiklikler engellenir; soru ekleme, metin düzeltme ve sıralama serbesttir.
     /// </summary>
-    private static string? FindWorkflowLockViolation(Form existingForm, FormUpsertRequest contract, WorkflowFormLock workflowLock)
+    private static string? FindWorkflowLockViolation(Form existingForm, FormUpsertRequest contract, WorkflowFormMembership workflowLock)
     {
         if (contract.Status != FormStatus.Open)
             return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; kapatılamaz.";
@@ -405,13 +433,33 @@ public class FormService : IFormService
         if (contract.AllowAnonymousResponses)
             return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; anonim yanıtlara açılamaz.";
 
+        // Yalnız sorunun şemada kalması denetlenir. Soru metnini değiştirmek serbesttir:
+        // koşullar soruyu id ile okur. Seçenek adları istemci tarafında korunur, çünkü
+        // backend şema içindeki seçenek listesini okumaz.
         var questionIds = (contract.Schema ?? new()).Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
-        var missing = workflowLock.LockedQuestionIds.FirstOrDefault(questionId => !questionIds.Contains(questionId));
+        var missing = workflowLock.LockedQuestions.FirstOrDefault(question => !questionIds.Contains(question.QuestionId));
 
         return missing is null
             ? null
-            : $"'{missing}' sorusu '{workflowLock.WorkflowName}' akışının yönlendirme koşullarında kullanılıyor; silinemez veya yeniden adlandırılamaz.";
+            : $"'{missing.QuestionId}' sorusu '{workflowLock.WorkflowName}' akışının yönlendirme koşullarında kullanılıyor; formdan çıkarılamaz.";
     }
+
+    private async Task<WorkflowFormMembership?> FindMembershipAsync(Guid formId, CancellationToken cancellationToken)
+    {
+        var memberships = await _workflows.GetFormMembershipsAsync([formId], cancellationToken);
+
+        return memberships.TryGetValue(formId, out var membership) ? membership : null;
+    }
+
+    private static FormWorkflowRefContract? ToWorkflowRef(WorkflowFormMembership? membership) =>
+        membership is null
+            ? null
+            : new FormWorkflowRefContract(
+                membership.WorkflowId,
+                membership.WorkflowName,
+                membership.IsStart,
+                membership.IsPublished,
+                [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
     private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null)
     {

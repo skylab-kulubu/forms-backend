@@ -95,13 +95,24 @@ public class FormWorkflowService : IFormWorkflowService
     {
         var workflows = await _workflows.GetOwnedWorkflowsAsync(userId, cancellationToken);
 
+        var startFormIds = workflows
+            .Where(workflow => workflow.StartFormId.HasValue)
+            .Select(workflow => workflow.StartFormId!.Value)
+            .Distinct()
+            .ToList();
+
+        var headers = await _workflows.GetFormHeadersAsync(startFormIds, cancellationToken);
+
         var summaries = workflows
             .Select(workflow => new WorkflowSummaryContract(
                 workflow.Id,
                 workflow.Name,
                 workflow.Status,
                 workflow.AllowMultipleRuns,
-                workflow.PublishedNodeCount,
+                ToFormRef(workflow.StartFormId, headers),
+                workflow.NodeCount,
+                workflow.PublishedVersion,
+                workflow.HasUnpublishedChanges,
                 workflow.UpdatedAt))
             .ToList();
 
@@ -183,6 +194,62 @@ public class FormWorkflowService : IFormWorkflowService
         }, cancellationToken);
 
         return await BuildContractAsync(workflow, cancellationToken);
+    }
+
+    public async Task<ServiceResult<List<WorkflowAvailableFormContract>>> GetAvailableFormsAsync(
+        Guid workflowId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
+        if (workflow is null) return NotFound<List<WorkflowAvailableFormContract>>();
+        if (workflow.OwnerUserId != userId) return NotOwner<List<WorkflowAvailableFormContract>>();
+
+        var candidates = await _workflows.GetOwnedFormsAsync(userId, cancellationToken);
+        var formIds = candidates.Select(form => form.Id).ToList();
+
+        var facts = await _workflows.GetNodeFormsAsync(formIds, userId, cancellationToken);
+        var clashes = await _workflows.FindFormsInOtherPublishedWorkflowsAsync(workflowId, formIds, cancellationToken);
+        var legacyLinked = await _workflows.FindLegacyLinkedFormsAsync(formIds, cancellationToken);
+
+        var draft = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
+        var used = (draft?.Nodes ?? []).Select(node => node.FormId).ToHashSet();
+
+        var available = candidates
+            .Select(form =>
+            {
+                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked);
+
+                return new WorkflowAvailableFormContract(
+                    form.Id,
+                    form.Title,
+                    reason is null,
+                    reason,
+                    used.Contains(form.Id));
+            })
+            .ToList();
+
+        return new ServiceResult<List<WorkflowAvailableFormContract>>(ServiceStatus.Success, available);
+    }
+
+    /// <summary>
+    /// Publish doğrulamasıyla aynı sözlüğü kullanır ki istemci tek bir kod kümesi
+    /// için metin yazsın. Sıra, kullanıcının önce düzeltebileceği sebepten başlar.
+    /// </summary>
+    private static string? FindIneligibilityReason(
+        Guid formId,
+        IReadOnlyDictionary<Guid, WorkflowNodeForm> facts,
+        IReadOnlyDictionary<Guid, string> clashes,
+        IReadOnlyCollection<Guid> legacyLinked)
+    {
+        if (!facts.TryGetValue(formId, out var form) || !form.Exists) return "formMissing";
+        if (!form.WorkflowOwnerIsFormOwner) return "formNotOwned";
+        if (form.AllowAnonymousResponses) return "formAnonymous";
+        if (!form.IsOpen) return "formClosed";
+        if (clashes.ContainsKey(formId)) return "formInAnotherWorkflow";
+        if (legacyLinked.Contains(formId)) return "formIsLegacyLinked";
+
+        return null;
     }
 
     public async Task<ServiceResult<WorkflowValidationContract>> ValidateAsync(
@@ -374,12 +441,19 @@ public class FormWorkflowService : IFormWorkflowService
             .Distinct()
             .ToList();
 
-        var titles = formIds.Count == 0
-            ? new Dictionary<Guid, string>()
-            : await _workflows.GetFormTitlesAsync(formIds, cancellationToken);
+        var headers = formIds.Count == 0
+            ? new Dictionary<Guid, WorkflowFormHeader>()
+            : await _workflows.GetFormHeadersAsync(formIds, cancellationToken);
 
         var owner = await _userService.GetUserAsync(workflow.OwnerUserId, cancellationToken)
             ?? new UserContract(workflow.OwnerUserId, null, null, null);
+
+        // Taslak yoksa yayındaki sürüm doğrulanır; editör rozeti ikinci bir çağrı beklemesin.
+        var validated = draft ?? published;
+
+        var validation = validated is null
+            ? new WorkflowValidationContract(false, [])
+            : ToValidationContract(await FindErrorsAsync(workflow, validated, cancellationToken));
 
         var contract = new WorkflowContract(
             workflow.Id,
@@ -388,26 +462,33 @@ public class FormWorkflowService : IFormWorkflowService
             workflow.Status,
             workflow.AllowMultipleRuns,
             owner,
-            ToVersionContract(draft, titles),
-            ToVersionContract(published, titles),
+            ToVersionContract(draft, headers),
+            ToVersionContract(published, headers),
+            validation,
             workflow.CreatedAt,
             workflow.UpdatedAt);
 
         return new ServiceResult<WorkflowContract>(ServiceStatus.Success, contract);
     }
 
-    private static WorkflowVersionContract? ToVersionContract(FormWorkflowVersion? version, IReadOnlyDictionary<Guid, string> titles)
+    private static WorkflowVersionContract? ToVersionContract(FormWorkflowVersion? version, IReadOnlyDictionary<Guid, WorkflowFormHeader> headers)
     {
         if (version is null) return null;
 
         var keysById = version.Nodes.ToDictionary(node => node.Id, node => node.NodeKey);
 
         var nodes = version.Nodes
-            .Select(node => new WorkflowNodeContract(
-                node.NodeKey,
-                node.FormId,
-                titles.TryGetValue(node.FormId, out var title) ? title : "(silinmiş form)",
-                node.IsStart))
+            .Select(node =>
+            {
+                var found = headers.TryGetValue(node.FormId, out var header);
+
+                return new WorkflowNodeContract(
+                    node.NodeKey,
+                    node.FormId,
+                    found ? header!.Title : "(silinmiş form)",
+                    found && header!.RequiresManualReview,
+                    node.IsStart);
+            })
             .ToList();
 
         var transitions = version.Transitions
@@ -422,6 +503,11 @@ public class FormWorkflowService : IFormWorkflowService
 
         return new WorkflowVersionContract(version.Id, version.Version, version.Status, version.PublishedAt, nodes, transitions);
     }
+
+    private static WorkflowFormRefContract? ToFormRef(Guid? formId, IReadOnlyDictionary<Guid, WorkflowFormHeader> headers) =>
+        formId is { } id
+            ? new WorkflowFormRefContract(id, headers.TryGetValue(id, out var header) ? header.Title : "(silinmiş form)")
+            : null;
 
     private static WorkflowValidationContract ToValidationContract(IReadOnlyList<WorkflowValidationError> errors) =>
         new(errors.Count == 0, [.. errors.Select(error => new WorkflowValidationErrorContract(error.Code, error.Message, error.NodeKey))]);

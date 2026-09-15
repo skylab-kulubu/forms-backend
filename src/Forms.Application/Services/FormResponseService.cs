@@ -70,7 +70,7 @@ public class FormResponseService : IFormResponseService
     {
         var form = await _forms.GetByIdAsync(contract.FormId, cancellationToken);
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
-        if (form.Status != FormStatus.Open) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Form kapalı.");
+        if (form.Status != FormStatus.Open) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
 
@@ -118,17 +118,22 @@ public class FormResponseService : IFormResponseService
         if (workflow.Data is not { } outcome)
             return new ServiceResult<ResponseSubmitResult>(workflow.Status, Message: workflow.Message);
 
-        await AfterResponseSavedAsync(form, response, cancellationToken);
+        // Reddedilen gönderimde cevap kaydedilmedi; yan etkiler çalışmamalı. Sonuç yine
+        // de döner: istemci "kaldığın yerden devam et" için başlangıç formuna ihtiyaç duyar.
+        var rejected = workflow.Status.IsFailure();
+
+        if (!rejected) await AfterResponseSavedAsync(form, response, cancellationToken);
 
         var result = new ResponseSubmitResult(
-            response.Id,
+            rejected ? null : response.Id,
             // Eski istemci sonraki formu bu alandan okuyor.
             LinkedFormId: outcome.IsLegacyTwoStepFlow ? outcome.FormId : null,
             LegacyStep.From(outcome),
             outcome.InstanceId,
             outcome.State,
             outcome.Stage,
-            outcome.FormId);
+            outcome.FormId,
+            outcome.StartFormId);
 
         return new ServiceResult<ResponseSubmitResult>(workflow.Status, result, workflow.Message);
     }
@@ -205,7 +210,7 @@ public class FormResponseService : IFormResponseService
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Paylaşım bağlantısı geçersiz veya süresi dolmuş.");
         }
 
-        var workflow = await BuildWorkflowContractAsync(responseId, cancellationToken);
+        var workflow = await BuildWorkflowContractAsync(response, cancellationToken);
 
         var userIds = new List<Guid>();
         if (response.UserId.HasValue) userIds.Add(response.UserId.Value);
@@ -247,7 +252,7 @@ public class FormResponseService : IFormResponseService
 
         if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
         {
-            if (workflow.Data is null)
+            if (workflow.Status.IsFailure() || workflow.Data is null)
                 return new ServiceResult<bool>(workflow.Status, Message: workflow.Message);
 
             await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, workflow.Data.FormId, cancellationToken);
@@ -351,7 +356,9 @@ public class FormResponseService : IFormResponseService
             foreach (var schemaItem in form.Schema)
             {
                 var answerItem = response.Data.FirstOrDefault(d => d.Id == schemaItem.Id);
-                row.Add(answerItem?.Answer ?? string.Empty);
+
+                // Çoklu seçim JSON dizisi olarak gelmiş olabilir; hücreye ham JSON düşmesin.
+                row.Add(FormAnswerText.ToDisplayText(answerItem?.Answer));
             }
 
             rows.Add(row);
@@ -495,16 +502,37 @@ public class FormResponseService : IFormResponseService
         );
     }
 
-    private async Task<ResponseWorkflowContract?> BuildWorkflowContractAsync(Guid responseId, CancellationToken cancellationToken)
+    private async Task<ResponseWorkflowContract?> BuildWorkflowContractAsync(FormResponse response, CancellationToken cancellationToken)
     {
-        var context = await _instances.GetContextByResponseAsync(responseId, cancellationToken);
+        var context = await _instances.GetContextByResponseAsync(response.Id, cancellationToken);
         if (context is null) return null;
 
         var steps = context.Steps
             .Select(step => new ResponseWorkflowStepContract(step.Stage, step.FormTitle, step.ResponseId, step.Status))
             .ToList();
 
-        return new ResponseWorkflowContract(context.InstanceId, context.Stage, steps);
+        var preview = await _workflowRuntime.PreviewReviewAsync(response, cancellationToken);
+
+        return new ResponseWorkflowContract(
+            context.InstanceId,
+            context.Stage,
+            steps,
+            await ToRouteContractAsync(preview?.OnApprove, cancellationToken),
+            await ToRouteContractAsync(preview?.OnDecline, cancellationToken));
+    }
+
+    private async Task<ResponseWorkflowRouteContract?> ToRouteContractAsync(
+        WorkflowRouteTarget? target,
+        CancellationToken cancellationToken)
+    {
+        if (target is null) return null;
+
+        if (target.FormId is not { } formId)
+            return new ResponseWorkflowRouteContract(EndsFlow: true, FormId: null, FormTitle: null);
+
+        var form = await _forms.GetByIdAsync(formId, cancellationToken);
+
+        return new ResponseWorkflowRouteContract(EndsFlow: false, formId, form?.Title);
     }
 
     private static string GenerateToken()

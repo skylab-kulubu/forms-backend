@@ -37,6 +37,12 @@ public interface IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Adım seçicinin kaynağı: uygun olmayan formlar sebebiyle birlikte döner.</summary>
+    Task<ServiceResult<List<WorkflowAvailableFormContract>>> GetAvailableFormsAsync(
+        Guid workflowId,
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<WorkflowValidationContract>> ValidateAsync(
         Guid workflowId,
         Guid userId,

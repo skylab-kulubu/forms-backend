@@ -27,10 +27,19 @@ public record ResponseContract(
 /// Cevabın ait olduğu başvurunun tamamı. İnceleyen, başvuranın önceki adımlardaki
 /// cevaplarını buradan görür.
 /// </summary>
+/// <param name="OnApprove">Onaylanırsa ne olacağı. Adımın rotası çoktan seçildiyse null.</param>
 public record ResponseWorkflowContract(
     Guid InstanceId,
     int Stage,
-    List<ResponseWorkflowStepContract> Steps
+    List<ResponseWorkflowStepContract> Steps,
+    ResponseWorkflowRouteContract? OnApprove,
+    ResponseWorkflowRouteContract? OnDecline
+);
+
+public record ResponseWorkflowRouteContract(
+    bool EndsFlow,
+    Guid? FormId,
+    string? FormTitle
 );
 
 public record ResponseWorkflowStepContract(
@@ -42,16 +51,19 @@ public record ResponseWorkflowStepContract(
 
 public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);
 
+/// <param name="ResponseId">Cevap kaydedilmediyse null: reddedilen gönderimlerde böyledir.</param>
 /// <param name="LinkedFormId">Legacy bağlı form akışının hedefi; akış motorunda null.</param>
 /// <param name="Step">Legacy 1..5 aşaması; akış motorunda 0.</param>
+/// <param name="StartFormId">Başvuruyu kaldığı yerden sürdüren form.</param>
 public record ResponseSubmitResult(
-    Guid ResponseId,
+    Guid? ResponseId,
     Guid? LinkedFormId,
     int Step,
     Guid? InstanceId = null,
     WorkflowActionState? State = null,
     int Stage = 0,
-    Guid? NextFormId = null
+    Guid? NextFormId = null,
+    Guid? StartFormId = null
 );
 
 public record ResponseSummaryContract(

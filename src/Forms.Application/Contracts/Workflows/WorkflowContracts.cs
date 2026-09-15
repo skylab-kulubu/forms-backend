@@ -14,6 +14,8 @@ public record WorkflowContract(
     UserContract Owner,
     WorkflowVersionContract? Draft,
     WorkflowVersionContract? Published,
+    /// <summary>Taslağın son doğrulama sonucu; ayrıca /validate çağırmaya gerek yok.</summary>
+    WorkflowValidationContract Validation,
     DateTime CreatedAt,
     DateTime? UpdatedAt
 );
@@ -27,10 +29,14 @@ public record WorkflowVersionContract(
     List<WorkflowTransitionContract> Transitions
 );
 
+/// <param name="RequiresManualReview">
+/// Adımın formu onay gerektiriyor mu? Editörün hangi tetikleri sunacağını bu belirler.
+/// </param>
 public record WorkflowNodeContract(
     string NodeKey,
     Guid FormId,
     string FormTitle,
+    bool RequiresManualReview,
     bool IsStart
 );
 
@@ -42,13 +48,35 @@ public record WorkflowTransitionContract(
     int Priority
 );
 
+/// <param name="PublishedVersion">Yayındaki sürüm numarası; hiç yayınlanmadıysa null.</param>
+/// <param name="HasUnpublishedChanges">Yayınlanmamış bir taslak var mı?</param>
 public record WorkflowSummaryContract(
     Guid Id,
     string Name,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
-    int PublishedNodeCount,
+    WorkflowFormRefContract? StartForm,
+    int NodeCount,
+    int? PublishedVersion,
+    bool HasUnpublishedChanges,
     DateTime? UpdatedAt
+);
+
+public record WorkflowFormRefContract(
+    Guid Id,
+    string Title
+);
+
+/// <param name="Reason">
+/// Uygun değilse sebebin sabit kodu: formClosed, formAnonymous, formNotOwned,
+/// formInAnotherWorkflow, formIsLegacyLinked. Doğrulama kodlarıyla aynı sözlük.
+/// </param>
+public record WorkflowAvailableFormContract(
+    Guid Id,
+    string Title,
+    bool IsEligible,
+    string? Reason,
+    bool IsUsedInThisWorkflow
 );
 
 public record WorkflowVersionSummaryContract(

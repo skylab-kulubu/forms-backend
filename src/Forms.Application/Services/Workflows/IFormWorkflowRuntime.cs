@@ -43,4 +43,12 @@ public interface IFormWorkflowRuntime
     /// olarak reddeden işlemlerin akışı kilitlemesini engellemek için kullanılır.
     /// </summary>
     Task<bool> HasPendingRouteAsync(Guid responseId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Bu cevap onaylanırsa ve reddedilirse akışın nereye gideceği. İnceleyen kararını
+    /// vermeden sonucunu görsün diye; rotası çoktan seçilmiş adımda null döner.
+    /// </summary>
+    Task<WorkflowReviewPreview?> PreviewReviewAsync(
+        FormResponse response,
+        CancellationToken cancellationToken = default);
 }

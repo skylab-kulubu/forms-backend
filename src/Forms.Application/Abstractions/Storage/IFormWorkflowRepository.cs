@@ -15,10 +15,12 @@ public interface IFormWorkflowRepository
     Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default);
 
     /// <summary>
-    /// Form yayındaki bir akışta kullanılıyorsa, onu kısıtlayan bilgiler. null ise
-    /// form serbestçe düzenlenebilir.
+    /// Bu formların hangi akışta yer aldığı. Yayınlanmış üyelik varsa o bildirilir,
+    /// yoksa taslak üyelik. Akışta yer almayan form sözlükte bulunmaz.
     /// </summary>
-    Task<WorkflowFormLock?> GetPublishedLockAsync(Guid formId, CancellationToken ct = default);
+    Task<IReadOnlyDictionary<Guid, WorkflowFormMembership>> GetFormMembershipsAsync(
+        IReadOnlyCollection<Guid> formIds,
+        CancellationToken ct = default);
 
     Task<FormWorkflow?> GetAsync(Guid workflowId, CancellationToken ct = default);
     Task<FormWorkflow?> GetForEditAsync(Guid workflowId, CancellationToken ct = default);
@@ -31,13 +33,17 @@ public interface IFormWorkflowRepository
     Task<IReadOnlyList<WorkflowVersionProjection>> GetVersionsAsync(Guid workflowId, CancellationToken ct = default);
     Task<IReadOnlyList<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(Guid ownerUserId, CancellationToken ct = default);
 
+    /// <summary>Kullanıcının Owner olduğu, silinmemiş formlar: adım seçicinin kaynağı.</summary>
+    Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default);
+
     /// <summary>Graf doğrulamasının ihtiyaç duyduğu form gerçekleri.</summary>
     Task<IReadOnlyDictionary<Guid, WorkflowNodeForm>> GetNodeFormsAsync(
         IReadOnlyCollection<Guid> formIds,
         Guid ownerUserId,
         CancellationToken ct = default);
 
-    Task<IReadOnlyDictionary<Guid, string>> GetFormTitlesAsync(
+    /// <summary>Adım kartlarının ihtiyaç duyduğu form başlığı ve onay ayarı.</summary>
+    Task<IReadOnlyDictionary<Guid, WorkflowFormHeader>> GetFormHeadersAsync(
         IReadOnlyCollection<Guid> formIds,
         CancellationToken ct = default);
 
@@ -66,8 +72,25 @@ public interface IFormWorkflowRepository
     void RemoveRange(IEnumerable<FormWorkflowTransition> transitions);
 }
 
-/// <param name="LockedQuestionIds">Yönlendirme koşullarının dayandığı, silinemez sorular.</param>
-public sealed record WorkflowFormLock(string WorkflowName, IReadOnlyCollection<string> LockedQuestionIds);
+/// <param name="IsPublished">Üyelik yayında mı? Kilitler yalnız yayındayken geçerlidir.</param>
+/// <param name="LockedQuestions">Yönlendirme koşullarının dayandığı sorular ve değerler.</param>
+public sealed record WorkflowFormMembership(
+    Guid WorkflowId,
+    string WorkflowName,
+    bool IsStart,
+    bool IsPublished,
+    IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions);
+
+/// <summary>
+/// Bir koşulun okuduğu soru ve karşılaştırdığı metinler. Cevaplar seçeneğin görünen
+/// adıyla saklandığı için, o adı değiştirmek koşulu sessizce bozar: değerler de
+/// sorunun kendisi kadar korunmalı.
+/// </summary>
+/// <param name="Values">
+/// Yalnız metin karşılaştırmalarından gelir. Sayısal karşılaştırmaların ve
+/// boş/dolu kontrollerinin seçenek adıyla ilgisi yoktur, listeye girmezler.
+/// </param>
+public sealed record WorkflowLockedQuestion(string QuestionId, IReadOnlyCollection<string> Values);
 
 /// <param name="NodeCount">Sürümdeki adım sayısı; legacy 1..5 aşamasını hesaplamak için.</param>
 public sealed record WorkflowNodeLocation(
@@ -77,7 +100,8 @@ public sealed record WorkflowNodeLocation(
     string NodeKey,
     bool IsStart,
     bool AllowMultipleRuns,
-    int NodeCount);
+    int NodeCount,
+    Guid StartFormId);
 
 public sealed record WorkflowDefinition(
     Guid WorkflowId,
@@ -97,5 +121,12 @@ public sealed record WorkflowSummaryProjection(
     string Name,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
-    int PublishedNodeCount,
+    Guid? StartFormId,
+    int NodeCount,
+    int? PublishedVersion,
+    bool HasUnpublishedChanges,
     DateTime? UpdatedAt);
+
+public sealed record WorkflowCandidateForm(Guid Id, string Title);
+
+public sealed record WorkflowFormHeader(string Title, bool RequiresManualReview);

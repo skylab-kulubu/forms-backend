@@ -13,5 +13,6 @@ public record FormDisplayPayload(
     DateTime? ReviewedAt = null,
     Guid? InstanceId = null,
     WorkflowActionState? State = null,
-    int Stage = 0
+    int Stage = 0,
+    Guid? StartFormId = null
 );

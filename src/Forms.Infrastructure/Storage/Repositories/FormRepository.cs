@@ -64,12 +64,6 @@ public sealed class FormRepository : IFormRepository
             ? query.Where(f => f.Collaborators.Any(c => c.UserId == userId && c.Role == request.Role.Value))
             : query.Where(f => f.Collaborators.Any(c => c.UserId == userId));
 
-        // Akışın ara adımları tek başına doldurulamaz; listede yalnız giriş noktaları görünür.
-        query = query.Where(f => !_context.WorkflowNodes.Any(node =>
-            node.FormId == f.Id
-            && !node.IsStart
-            && node.WorkflowVersion.Status == WorkflowStatus.Published));
-
         if (!string.IsNullOrWhiteSpace(request.Search))
             query = query.Where(f => EF.Functions.ILike(f.Title, $"%{request.Search.Trim()}%"));
 
@@ -97,6 +91,7 @@ public sealed class FormRepository : IFormRepository
                 f.AllowAnonymousResponses,
                 f.AllowMultipleResponses,
                 f.RequiresManualReview,
+                null,
                 f.UpdatedAt ?? f.CreatedAt,
                 f.Responses.Count()
             ))

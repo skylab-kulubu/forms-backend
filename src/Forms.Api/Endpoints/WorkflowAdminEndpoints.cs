@@ -71,6 +71,15 @@ public static class WorkflowAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/available-forms", async (Guid id, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Formları görmek için giriş yapmalısınız.");
+
+            var result = await service.GetAvailableFormsAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
         group.MapPost("/{id:guid}/validate", async (Guid id, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);

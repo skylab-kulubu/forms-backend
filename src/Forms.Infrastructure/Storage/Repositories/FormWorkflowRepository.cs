@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 using Skylab.Forms.Domain.Workflows;
 
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
@@ -29,7 +30,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.NodeKey,
                 node.IsStart,
                 node.WorkflowVersion.Workflow.AllowMultipleRuns,
-                node.WorkflowVersion.Nodes.Count))
+                node.WorkflowVersion.Nodes.Count,
+                node.WorkflowVersion.Nodes.Where(start => start.IsStart).Select(start => start.FormId).FirstOrDefault()))
             .FirstOrDefaultAsync(ct);
 
     public async Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default)
@@ -44,36 +46,80 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             : new WorkflowDefinition(version.WorkflowId, version.Id, [.. version.Nodes], [.. version.Transitions]);
     }
 
-    public async Task<WorkflowFormLock?> GetPublishedLockAsync(Guid formId, CancellationToken ct = default)
+    public async Task<IReadOnlyDictionary<Guid, WorkflowFormMembership>> GetFormMembershipsAsync(
+        IReadOnlyCollection<Guid> formIds,
+        CancellationToken ct = default)
     {
+        var empty = new Dictionary<Guid, WorkflowFormMembership>();
+
+        if (formIds.Count == 0) return empty;
+
         var usages = await _context.WorkflowNodes.AsNoTracking()
-            .Where(node => node.FormId == formId)
-            .Where(node => node.WorkflowVersion.Status == WorkflowStatus.Published)
+            .Where(node => formIds.Contains(node.FormId))
+            .Where(node => node.WorkflowVersion.Status != WorkflowStatus.Archived)
             .Where(node => node.WorkflowVersion.Workflow.Status != WorkflowStatus.Archived)
             .Select(node => new
             {
-                node.WorkflowVersionId,
+                node.FormId,
                 node.NodeKey,
+                node.IsStart,
+                node.WorkflowVersionId,
+                IsPublished = node.WorkflowVersion.Status == WorkflowStatus.Published,
+                node.WorkflowVersion.WorkflowId,
                 WorkflowName = node.WorkflowVersion.Workflow.Name
             })
             .ToListAsync(ct);
 
-        if (usages.Count == 0) return null;
+        if (usages.Count == 0) return empty;
 
-        var versionIds = usages.Select(usage => usage.WorkflowVersionId).ToList();
+        // Yayınlanmış üyelik taslağı bastırır: kilitleri belirleyen odur.
+        var chosen = usages
+            .GroupBy(usage => usage.FormId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(usage => usage.IsPublished).First());
+
+        var publishedVersionIds = chosen.Values
+            .Where(usage => usage.IsPublished)
+            .Select(usage => usage.WorkflowVersionId)
+            .Distinct()
+            .ToList();
+
+        var lockedByNodeKey = await FindLockedQuestionsAsync(publishedVersionIds, ct);
+
+        return chosen.ToDictionary(
+            entry => entry.Key,
+            entry => new WorkflowFormMembership(
+                entry.Value.WorkflowId,
+                entry.Value.WorkflowName,
+                entry.Value.IsStart,
+                entry.Value.IsPublished,
+                entry.Value.IsPublished && lockedByNodeKey.TryGetValue(entry.Value.NodeKey, out var locked)
+                    ? [.. locked.Select(question => new WorkflowLockedQuestion(question.Key, question.Value))]
+                    : []));
+    }
+
+    /// <summary>
+    /// Yayınlanmış sürümlerde hangi adımın hangi sorularının ve hangi değerlerinin
+    /// okunduğu. Koşullar jsonb içinde saklandığı için sorguyla süzülemez;
+    /// yönlendirmeler tek seferde okunup bellekte taranır.
+    /// </summary>
+    private async Task<Dictionary<string, Dictionary<string, HashSet<string>>>> FindLockedQuestionsAsync(
+        List<Guid> versionIds,
+        CancellationToken ct)
+    {
+        var readsByNodeKey = new Dictionary<string, Dictionary<string, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
+
+        if (versionIds.Count == 0) return readsByNodeKey;
 
         var nodeKeysById = await _context.WorkflowNodes.AsNoTracking()
             .Where(node => versionIds.Contains(node.WorkflowVersionId))
             .ToDictionaryAsync(node => node.Id, node => node.NodeKey, ct);
 
-        // Koşullar jsonb içinde saklandığı için sorguyla süzülemez; ilgili
-        // version'ların yönlendirmeleri okunup bellekte taranır.
         var transitions = await _context.WorkflowTransitions.AsNoTracking()
             .Where(transition => versionIds.Contains(transition.WorkflowVersionId))
+            .Select(transition => new { transition.SourceNodeId, transition.Condition })
             .ToListAsync(ct);
-
-        var formNodeKeys = usages.Select(usage => usage.NodeKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var lockedQuestionIds = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var transition in transitions)
         {
@@ -86,11 +132,37 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                     ? nodeKeysById[transition.SourceNodeId]
                     : rule.NodeKey;
 
-                if (formNodeKeys.Contains(readsFrom)) lockedQuestionIds.Add(rule.QuestionId);
+                if (!readsByNodeKey.TryGetValue(readsFrom, out var questions))
+                    readsByNodeKey[readsFrom] = questions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+                if (!questions.TryGetValue(rule.QuestionId, out var values))
+                    questions[rule.QuestionId] = values = new HashSet<string>(StringComparer.Ordinal);
+
+                foreach (var value in TextValuesOf(rule)) values.Add(value);
             }
         }
 
-        return new WorkflowFormLock(usages[0].WorkflowName, lockedQuestionIds);
+        return readsByNodeKey;
+    }
+
+    /// <summary>Kuralın seçenek adıyla karşılaştırdığı metinler.</summary>
+    private static IEnumerable<string> TextValuesOf(WorkflowConditionRule rule)
+    {
+        var comparesText = rule.Comparison
+            is WorkflowConditionComparison.Equals
+            or WorkflowConditionComparison.NotEquals
+            or WorkflowConditionComparison.In
+            or WorkflowConditionComparison.NotIn
+            or WorkflowConditionComparison.Contains;
+
+        if (!comparesText) yield break;
+
+        if (!string.IsNullOrWhiteSpace(rule.Value)) yield return rule.Value;
+
+        foreach (var value in rule.Values ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(value)) yield return value;
+        }
     }
 
     public Task<FormWorkflow?> GetAsync(Guid workflowId, CancellationToken ct = default) =>
@@ -132,20 +204,64 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 version.Nodes.Count))
             .ToListAsync(ct);
 
-    public async Task<IReadOnlyList<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(Guid ownerUserId, CancellationToken ct = default) =>
-        await _context.Workflows.AsNoTracking()
+    public async Task<IReadOnlyList<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(Guid ownerUserId, CancellationToken ct = default)
+    {
+        var rows = await _context.Workflows.AsNoTracking()
             .Where(workflow => workflow.OwnerUserId == ownerUserId)
             .OrderByDescending(workflow => workflow.UpdatedAt ?? workflow.CreatedAt)
-            .Select(workflow => new WorkflowSummaryProjection(
+            .Select(workflow => new
+            {
                 workflow.Id,
                 workflow.Name,
                 workflow.Status,
                 workflow.AllowMultipleRuns,
-                workflow.Versions
+                PublishedVersion = workflow.Versions
+                    .Where(version => version.Status == WorkflowStatus.Published)
+                    .Select(version => (int?)version.Version)
+                    .FirstOrDefault(),
+                PublishedNodeCount = workflow.Versions
                     .Where(version => version.Status == WorkflowStatus.Published)
                     .Select(version => version.Nodes.Count)
                     .FirstOrDefault(),
-                workflow.UpdatedAt ?? workflow.CreatedAt))
+                PublishedStartFormId = workflow.Versions
+                    .Where(version => version.Status == WorkflowStatus.Published)
+                    .SelectMany(version => version.Nodes)
+                    .Where(node => node.IsStart)
+                    .Select(node => (Guid?)node.FormId)
+                    .FirstOrDefault(),
+                HasDraft = workflow.Versions.Any(version => version.Status == WorkflowStatus.Draft),
+                DraftNodeCount = workflow.Versions
+                    .Where(version => version.Status == WorkflowStatus.Draft)
+                    .Select(version => version.Nodes.Count)
+                    .FirstOrDefault(),
+                DraftStartFormId = workflow.Versions
+                    .Where(version => version.Status == WorkflowStatus.Draft)
+                    .SelectMany(version => version.Nodes)
+                    .Where(node => node.IsStart)
+                    .Select(node => (Guid?)node.FormId)
+                    .FirstOrDefault(),
+                UpdatedAt = workflow.UpdatedAt ?? workflow.CreatedAt
+            })
+            .ToListAsync(ct);
+
+        // Satır, yayındaki sürümü anlatır; hiç yayınlanmadıysa taslağı.
+        return [.. rows.Select(row => new WorkflowSummaryProjection(
+            row.Id,
+            row.Name,
+            row.Status,
+            row.AllowMultipleRuns,
+            row.PublishedVersion.HasValue ? row.PublishedStartFormId : row.DraftStartFormId,
+            row.PublishedVersion.HasValue ? row.PublishedNodeCount : row.DraftNodeCount,
+            row.PublishedVersion,
+            row.HasDraft,
+            row.UpdatedAt))];
+    }
+
+    public async Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default) =>
+        await _context.Forms.AsNoTracking()
+            .Where(form => form.Collaborators.Any(c => c.UserId == ownerUserId && c.Role == CollaboratorRole.Owner))
+            .OrderByDescending(form => form.UpdatedAt ?? form.CreatedAt)
+            .Select(form => new WorkflowCandidateForm(form.Id, form.Title))
             .ToListAsync(ct);
 
     public async Task<IReadOnlyDictionary<Guid, WorkflowNodeForm>> GetNodeFormsAsync(
@@ -179,13 +295,13 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 QuestionIds: [.. form.Schema.Select(item => item.Id)]));
     }
 
-    public async Task<IReadOnlyDictionary<Guid, string>> GetFormTitlesAsync(
+    public async Task<IReadOnlyDictionary<Guid, WorkflowFormHeader>> GetFormHeadersAsync(
         IReadOnlyCollection<Guid> formIds,
         CancellationToken ct = default) =>
         await _context.Forms.AsNoTracking()
             .IgnoreQueryFilters()
             .Where(form => formIds.Contains(form.Id))
-            .ToDictionaryAsync(form => form.Id, form => form.Title, ct);
+            .ToDictionaryAsync(form => form.Id, form => new WorkflowFormHeader(form.Title, form.RequiresManualReview), ct);
 
     public async Task<IReadOnlyDictionary<Guid, string>> FindFormsInOtherPublishedWorkflowsAsync(
         Guid workflowId,

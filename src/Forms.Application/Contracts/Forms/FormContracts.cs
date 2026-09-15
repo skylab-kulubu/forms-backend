@@ -14,6 +14,7 @@ public record FormContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     bool RequiresManualReview,
+    FormWorkflowRefContract? Workflow,
     CollaboratorRole userRole,
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
@@ -35,6 +36,7 @@ public record FormSummaryContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     bool RequiresManualReview,
+    FormWorkflowRefContract? Workflow,
     DateTime? UpdatedAt,
     int ResponseCount
 );
@@ -50,6 +52,28 @@ public record FormAllSummaryContract(
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     int ResponseCount
+);
+
+/// <summary>
+/// Formun hangi akışta yer aldığı. Akışta değilse null. Yayınlanmış bir akışta yer
+/// alıyorsa LockedQuestions, yönlendirmenin dayandığı soruları ve o soruların
+/// değiştirilemeyecek seçenek adlarını verir.
+/// </summary>
+public record FormWorkflowRefContract(
+    Guid Id,
+    string Name,
+    bool IsStart,
+    bool IsPublished,
+    List<FormLockedQuestionContract> LockedQuestions
+);
+
+/// <param name="Values">
+/// Koşulun karşılaştırdığı seçenek adları. Cevaplar seçeneğin görünen adıyla
+/// saklandığı için bu adları değiştirmek yönlendirmeyi sessizce bozar.
+/// </param>
+public record FormLockedQuestionContract(
+    string Id,
+    List<string> Values
 );
 
 public record FormMetaContract(
