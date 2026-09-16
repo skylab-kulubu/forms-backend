@@ -1,7 +1,6 @@
 using Skylab.Forms.Api.Endpoints;
 using Skylab.Forms.Application;
 using Skylab.Forms.Infrastructure;
-using Steeltoe.Discovery.Eureka;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,7 +16,6 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddEurekaDiscoveryClient();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddApplicationServices();

@@ -27,7 +27,6 @@
 | Database | PostgreSQL (EF Core 9 + Npgsql) |
 | Cache & Drafts | Redis |
 | API | ASP.NET Core Minimal APIs |
-| Service Discovery | Steeltoe Eureka |
 | Service Authentication | Keycloak client credentials |
 | Excel Export | ClosedXML |
 | Documentation | Swagger / OpenAPI |
@@ -59,7 +58,7 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 - **Domain** - Forms entities, enums, domain models, and domain behavior. It has no project or framework dependency.
 - **Application** - Use-case services, repository/external-service abstractions, request and response contracts, validators, result types, and orchestration. It depends only on Domain.
 - **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, identity clients, SkyMail integration, Excel generation, and background workers. It implements Application ports.
-- **API** - Minimal API endpoints, middleware, Swagger, CORS, service discovery, and dependency composition.
+- **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition.
 
 ### Key Patterns
 
@@ -292,7 +291,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 ## Authentication & Authorization
 
 - **Current user:** The API parses the forwarded Bearer token to resolve the current user ID and client roles.
-- **External user data:** User details are fetched from the `super-skylab` service through an Application abstraction and Infrastructure HTTP adapter.
+- **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
 - **Service authentication:** SkyMail calls use a Keycloak client-credentials token.
 - **Authorization:** Role-based rules are enforced in the Application services:
   - **Owner** - Full control and collaborator management
@@ -346,7 +345,7 @@ Database migrations run automatically on startup. Swagger UI is available at the
 docker compose up --build
 ```
 
-The Compose stack starts PostgreSQL, Redis, and Forms API. It expects the external `skynet` network because Eureka, `super-skylab`, and SkyMail are external services.
+The Compose file runs only the Forms API. Start shared Postgres and Redis first (`core-backend` `make data-up`, network `skylab`). Internal URLs are Compose DNS (`postgres:5432`, `redis:6379`, `http://core:8080`, `http://skymail:3000`).
 
 ### Docker Image
 
@@ -359,7 +358,9 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
-| `Redis__ConnectionString` | Redis connection string | No, defaults to `localhost:6379` |
+| `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
+| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL | No, defaults to `http://core:8080` |
+| `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
 | `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
 | `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For mail integration |
 | `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For mail integration |

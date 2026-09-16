@@ -20,7 +20,6 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
     <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
-    <PackageReference Include="Steeltoe.Discovery.HttpClients" Version="4.2.0" />
   </ItemGroup>
 
   <ItemGroup>

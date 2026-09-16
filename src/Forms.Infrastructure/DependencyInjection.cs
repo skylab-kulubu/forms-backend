@@ -12,7 +12,6 @@ using Skylab.Forms.Infrastructure.Mail;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
 using StackExchange.Redis;
-using Steeltoe.Discovery.HttpClients;
 
 namespace Skylab.Forms.Infrastructure;
 
@@ -28,7 +27,7 @@ public static class DependencyInjection
 
         var redisConnection = Environment.GetEnvironmentVariable("Redis__ConnectionString")
             ?? configuration["Redis:ConnectionString"]
-            ?? "localhost:6379";
+            ?? "localhost:6379,defaultDatabase=1";
 
         services.AddDbContext<FormsDbContext>(options =>
         {
@@ -57,8 +56,8 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, JwtCurrentUserService>();
         services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
         {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://super-skylab");
-        }).AddServiceDiscovery();
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+        });
 
         services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
         services.AddHttpClient("keycloak");
@@ -67,8 +66,8 @@ public static class DependencyInjection
 
         services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
         {
-            client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail/v1/");
-        }).AddServiceDiscovery().AddHttpMessageHandler<ServiceTokenHandler>();
+            client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail:3000/v1/");
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
 
         services.AddSingleton<ChannelMailDispatcher>();
         services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());
