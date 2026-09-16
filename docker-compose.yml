@@ -1,69 +1,26 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: forms-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: "${POSTGRES_USER:-forms}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
-      POSTGRES_DB: "${POSTGRES_DB:-forms_db}"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forms} -d ${POSTGRES_DB:-forms_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    networks:
-      - skynet
-
-  redis:
-    image: redis:7-alpine
-    container_name: forms-redis
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks:
-      - skynet
-
-  api:
-    container_name: forms-api
+  forms:
+    container_name: forms
     build:
       context: ./src
       dockerfile: Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
-      CONNECTION_STRING: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-forms_db};Username=${POSTGRES_USER:-forms};Password=${POSTGRES_PASSWORD}"
-      ALLOWED_ORIGIN: "http://localhost:5000"
-      Redis__ConnectionString: "redis:6379"
+      CONNECTION_STRING: "Host=postgres;Port=5432;Database=forms_db;Username=forms;Password=${FORMS_DB_PASSWORD:-postgres}"
+      ALLOWED_ORIGIN: "${ALLOWED_ORIGIN:-http://localhost:5000}"
+      Redis__ConnectionString: "redis:6379,defaultDatabase=1"
       ASPNETCORE_URLS: "http://0.0.0.0:8080"
-
-      Spring__Application__Name: "FormsApi"
-      Eureka__Client__ServiceUrl: "http://eureka-server:8761/eureka/"
-      Eureka__Client__ValidateCertificates: "false"
-      Eureka__Instance__PreferIpAddress: "true"
-
+      Services__Users__BaseUrl: "${CORE_URL:-http://core:8080}"
+      Services__SkyMail__BaseUrl: "${SKYMAIL_URL:-http://skymail:3000/v1/}"
       Keycloak__TokenUrl: "${KEYCLOAK_TOKEN_URL}"
       Keycloak__ClientId: "${KEYCLOAK_CLIENT_ID}"
       Keycloak__ClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
-
       FormMail__FormCopyTemplateId: "${FORMMAIL_FORM_COPY_TEMPLATE_ID}"
       FormMail__StatusChangedTemplateId: "${FORMMAIL_STATUS_CHANGED_TEMPLATE_ID}"
       FormMail__PendingReminderTemplateId: "${FORMMAIL_PENDING_REMINDER_TEMPLATE_ID}"
     restart: unless-stopped
     networks:
-      - skynet
-
-volumes:
-  pgdata:
+      - skylab
 
 networks:
-  skynet:
+  skylab:
     external: true
