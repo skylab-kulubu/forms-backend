@@ -171,7 +171,7 @@ public class FormService : IFormService
         if (form == null) return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
-        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var userRole = collaborator?.Role ?? CollaboratorRole.None;
@@ -260,7 +260,7 @@ public class FormService : IFormService
 
         var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && c.Role != CollaboratorRole.None);
 
-        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormInfoContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var counts = await _responses.GetCountsAsync(id, cancellationToken);

@@ -37,10 +37,20 @@ public class JwtCurrentUserService(IHttpContextAccessor httpContextAccessor) : I
                 if (string.IsNullOrEmpty(resourceAccess)) return Task.FromResult(false);
 
                 using var resourceDoc = JsonDocument.Parse(resourceAccess);
-                if (!resourceDoc.RootElement.TryGetProperty(client, out var clientElement))
-                    return Task.FromResult(false);
-
-                claimValue = clientElement.GetRawText();
+                string[] clients = client == "forms" ? ["forms", "dotnet"] : [client];
+                foreach (var id in clients)
+                {
+                    if (!resourceDoc.RootElement.TryGetProperty(id, out var clientElement))
+                        continue;
+                    if (!clientElement.TryGetProperty("roles", out var clientRoles))
+                        continue;
+                    foreach (var r in clientRoles.EnumerateArray())
+                    {
+                        if (string.Equals(r.GetString(), role, StringComparison.OrdinalIgnoreCase))
+                            return Task.FromResult(true);
+                    }
+                }
+                return Task.FromResult(false);
             }
 
             if (string.IsNullOrEmpty(claimValue)) return Task.FromResult(false);

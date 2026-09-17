@@ -27,7 +27,7 @@ public static class FormAdminEndpoints
 
         group.MapGet("/all", async (IFormService service, ICurrentUserService userService, [AsParameters] GetAllFormsRequest request, CancellationToken ct) =>
         {
-            if (!await userService.HasRoleAsync("skyforms:*", "dotnet", ct))
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
                 return ServiceStatus.NotAuthorized.ToApiResult();
 
             var result = await service.GetAllFormsAsync(request, ct);
