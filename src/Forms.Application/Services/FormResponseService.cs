@@ -152,7 +152,7 @@ public class FormResponseService : IFormResponseService
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormResponsesListResult>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var paged = await _responses.GetPagedAsync(formId, request, cancellationToken);
@@ -197,7 +197,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<ResponseContract>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken);
+        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
 
         ShareCacheEntry? shareEntry = null;
         if (!canView)
@@ -320,7 +320,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<byte[]>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<byte[]>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını dışa aktarma yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
