@@ -359,12 +359,12 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 |----------|-------------|----------|
 | `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
 | `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
-| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL | No, defaults to `http://core:8080` |
+| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`) | No, defaults to `http://core:8080` |
 | `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
 | `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
-| `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For mail integration |
-| `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For mail integration |
-| `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For mail integration |
+| `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core user lookup |
+| `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core user lookup |
+| `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core user lookup |
 | `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template | Optional |
 | `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template | Optional |
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |

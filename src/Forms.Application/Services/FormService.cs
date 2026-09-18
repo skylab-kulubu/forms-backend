@@ -26,6 +26,7 @@ public class FormService : IFormService
     private readonly ICacheService _cache;
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowRuntime _workflowRuntime;
+    private readonly ICoreEventLookup _events;
 
     public FormService(
         IFormRepository forms,
@@ -36,7 +37,8 @@ public class FormService : IFormService
         ICurrentUserService currentUserService,
         ICacheService cache,
         IFormWorkflowRepository workflows,
-        IFormWorkflowRuntime workflowRuntime)
+        IFormWorkflowRuntime workflowRuntime,
+        ICoreEventLookup events)
     {
         _forms = forms;
         _responses = responses;
@@ -47,6 +49,7 @@ public class FormService : IFormService
         _cache = cache;
         _workflows = workflows;
         _workflowRuntime = workflowRuntime;
+        _events = events;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -66,7 +69,8 @@ public class FormService : IFormService
             Status = contract.Status,
             AllowAnonymousResponses = contract.AllowAnonymousResponses,
             AllowMultipleResponses = contract.AllowMultipleResponses,
-            RequiresManualReview = contract.RequiresManualReview
+            RequiresManualReview = contract.RequiresManualReview,
+            EventId = contract.EventId
         };
 
         var collaborators = new List<FormCollaborator>
@@ -93,7 +97,7 @@ public class FormService : IFormService
         var collaboratorIds = newForm.Collaborators.Select(c => c.UserId).ToList();
         var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: MapToContract(newForm, users, CollaboratorRole.Owner));
+        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: await MapToContractAsync(newForm, users, CollaboratorRole.Owner, cancellationToken: cancellationToken));
     }
 
     public async Task<ServiceResult<FormContract>> UpdateFormAsync(Guid formId, FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -135,6 +139,8 @@ public class FormService : IFormService
         existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
         existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
         existingForm.RequiresManualReview = contract.RequiresManualReview;
+        if (contract.EventId.HasValue)
+            existingForm.EventId = contract.EventId;
 
         if (contract.Collaborators != null)
         {
@@ -161,7 +167,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: MapToContract(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken))));
+            Data: await MapToContractAsync(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken)), cancellationToken));
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -181,7 +187,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: MapToContract(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken))));
+            Data: await MapToContractAsync(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken)), cancellationToken));
     }
 
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
@@ -296,6 +302,8 @@ public class FormService : IFormService
             })
             .ToList();
 
+        items = await AttachEventsAsync(items, cancellationToken);
+
         return new ServiceResult<PagedResult<FormSummaryContract>>(
             ServiceStatus.Success,
             Data: new PagedResult<FormSummaryContract>(items, data.TotalCount, data.Page, data.PageSize));
@@ -326,6 +334,18 @@ public class FormService : IFormService
             );
         }).ToList();
 
+        var byForm = (await _events.FindByFormIdsAsync(forms.Select(f => f.Id), cancellationToken))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var row in raw.Items)
+        {
+            if (byForm.ContainsKey(row.Id) || row.EventId is not Guid eventId) continue;
+            var ev = await _events.FindByIdAsync(eventId, cancellationToken);
+            if (ev is not null) byForm[row.Id] = ev;
+        }
+        forms = forms
+            .Select(f => f with { Event = byForm.TryGetValue(f.Id, out var ev) ? ev : f.Event })
+            .ToList();
+
         return new ServiceResult<PagedResult<FormAllSummaryContract>>(
             ServiceStatus.Success,
             Data: new PagedResult<FormAllSummaryContract>(forms, raw.TotalCount, raw.Page, raw.PageSize)
@@ -355,7 +375,29 @@ public class FormService : IFormService
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Form silindi.");
     }
 
-    private static FormContract MapToContract(Form form, List<UserContract> users, CollaboratorRole userRole = CollaboratorRole.None, FormWorkflowRefContract? workflow = null)
+    private async Task<List<FormSummaryContract>> AttachEventsAsync(
+        List<FormSummaryContract> items,
+        CancellationToken cancellationToken)
+    {
+        var byForm = (await _events.FindByFormIdsAsync(items.Select(form => form.Id), cancellationToken))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var form in items)
+        {
+            if (byForm.ContainsKey(form.Id) || form.EventId is not Guid eventId) continue;
+            var ev = await _events.FindByIdAsync(eventId, cancellationToken);
+            if (ev is not null) byForm[form.Id] = ev;
+        }
+        return items
+            .Select(form => form with { Event = byForm.TryGetValue(form.Id, out var ev) ? ev : form.Event })
+            .ToList();
+    }
+
+    private async Task<FormContract> MapToContractAsync(
+        Form form,
+        List<UserContract> users,
+        CollaboratorRole userRole = CollaboratorRole.None,
+        FormWorkflowRefContract? workflow = null,
+        CancellationToken cancellationToken = default)
     {
         var collaboratorContracts = new List<FormCollaboratorContract>();
 
@@ -371,6 +413,11 @@ public class FormService : IFormService
             }
         }
 
+        var ev = form.EventId is Guid eventId
+            ? await _events.FindByIdAsync(eventId, cancellationToken)
+            : null;
+        ev ??= await _events.FindByFormIdAsync(form.Id, cancellationToken);
+
         return new FormContract(
             form.Id,
             form.Title,
@@ -384,7 +431,8 @@ public class FormService : IFormService
             userRole,
             collaboratorContracts,
             form.CreatedAt,
-            form.UpdatedAt
+            form.UpdatedAt,
+            ev
         );
     }
 

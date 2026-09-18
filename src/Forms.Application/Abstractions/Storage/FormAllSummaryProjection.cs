@@ -13,5 +13,6 @@ public record FormAllSummaryProjection(
     bool RequiresManualReview,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    int ResponseCount
+    int ResponseCount,
+    Guid? EventId
 );

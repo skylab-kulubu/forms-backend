@@ -21,13 +21,12 @@ public class ExternalUserService : IExternalUserService
     {
         try
         {
-            var response = await _httpClient.GetFromJsonAsync<ApiResponse<ExternalUserResponse>>($"/internal/api/users/{userId}", _jsonOptions, cancellationToken);
-
-            if (response != null && response.Success && response.Data != null)
+            var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", _jsonOptions, cancellationToken);
+            if (user is null || user.Id == Guid.Empty)
             {
-                return MapToContract(response.Data);
+                return null;
             }
-            return null;
+            return MapToContract(user);
         }
         catch (Exception)
         {
@@ -40,20 +39,16 @@ public class ExternalUserService : IExternalUserService
         var distinctIds = userIds.Distinct().Where(id => id != Guid.Empty).ToList();
         if (!distinctIds.Any()) return [];
 
-        try
+        var users = new List<UserContract>(distinctIds.Count);
+        foreach (var id in distinctIds)
         {
-            var response = await _httpClient.PostAsJsonAsync("/internal/api/users/batch", distinctIds, _jsonOptions, cancellationToken);
-            var result = await response.Content.ReadFromJsonAsync<ApiResponse<List<ExternalUserResponse>>>(_jsonOptions, cancellationToken);
-
-            if (result != null && result.Success && result.Data != null)
-                return result.Data.Select(MapToContract).ToList();
-
-            return [];
+            var user = await GetUserAsync(id, cancellationToken);
+            if (user is not null)
+            {
+                users.Add(user);
+            }
         }
-        catch (Exception)
-        {
-            return [];
-        }
+        return users;
     }
 
     private static UserContract MapToContract(ExternalUserResponse user)
