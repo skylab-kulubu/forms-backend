@@ -34,6 +34,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly ICoreGuestApply _guestApply;
+    private readonly ICoreEventLookup _events;
 
     public FormResponseService(
         IFormRepository forms,
@@ -47,7 +48,8 @@ public class FormResponseService : IFormResponseService
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
-        ICoreGuestApply guestApply)
+        ICoreGuestApply guestApply,
+        ICoreEventLookup events)
     {
         _forms = forms;
         _responses = responses;
@@ -61,6 +63,7 @@ public class FormResponseService : IFormResponseService
         _workflowRuntime = workflowRuntime;
         _instances = instances;
         _guestApply = guestApply;
+        _events = events;
     }
 
     /// <param name="InstanceResponseIds">
@@ -111,16 +114,7 @@ public class FormResponseService : IFormResponseService
         List<FormResponseSchemaItem> answers,
         CancellationToken cancellationToken)
     {
-        if (form.EventId is not Guid eventId) return null;
-
-        var identity = EventIdentity.Extract(form.Schema, answers);
-        if (identity is null)
-            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
-
-        if (!await _guestApply.ApplyAsync(eventId, identity, cancellationToken))
-            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Başvuru kaydedilemedi.");
-
-        return null;
+        return await GuestTicketWriter.WriteAsync(form, answers, _events, _guestApply, cancellationToken);
     }
 
     /// <summary>
