@@ -261,6 +261,12 @@ public class FormService : IFormService
             };
         }
 
+        if (form.EventId is null)
+        {
+            var linked = await _events.FindByFormIdAsync(form.Id, cancellationToken);
+            if (linked is not null) form.EventId = linked.Id;
+        }
+
         return new ServiceResult<FormDisplayPayload>(ServiceStatus.Success, MapToDisplayPayload(form, 0));
     }
 
