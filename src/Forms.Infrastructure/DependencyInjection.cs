@@ -68,12 +68,12 @@ public static class DependencyInjection
         services.AddHttpClient<ICoreEventLookup, CoreEventLookup>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
+        });
 
         services.AddHttpClient<ICoreGuestApply, CoreGuestApply>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
+        });
 
         services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
         {
