@@ -54,15 +54,21 @@ public static class DependencyInjection
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, JwtCurrentUserService>();
-        services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        });
 
         services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
         services.AddHttpClient("keycloak");
         services.AddSingleton<IServiceTokenProvider, KeycloakServiceTokenProvider>();
         services.AddTransient<ServiceTokenHandler>();
+
+        services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
+
+        services.AddHttpClient<ICoreEventLookup, CoreEventLookup>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
 
         services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
         {
