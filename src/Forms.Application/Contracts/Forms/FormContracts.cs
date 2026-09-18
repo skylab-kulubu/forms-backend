@@ -22,11 +22,12 @@ public record FormContract(
     EventRefContract? Event = null
 );
 
-public record FormDisplayContract(
+    public record FormDisplayContract(
     Guid Id,
     string Title,
     string? Description,
-    List<FormSchemaItem> Schema
+    List<FormSchemaItem> Schema,
+    Guid? EventId = null
 );
 
 public record FormSummaryContract(

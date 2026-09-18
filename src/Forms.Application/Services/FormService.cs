@@ -11,6 +11,7 @@ using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Application.Validators;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 using System.Text.Json;
 
 namespace Skylab.Forms.Application.Services;
@@ -54,7 +55,17 @@ public class FormService : IFormService
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+        var schema = contract.Schema ?? new();
+        var allowAnonymous = contract.AllowAnonymousResponses;
+        var allowMultiple = contract.AllowMultipleResponses;
+        if (contract.EventId.HasValue)
+        {
+            schema = EventIdentity.Ensure(schema);
+            allowAnonymous = true;
+            allowMultiple = true;
+        }
+
+        var validation = FormValidator.ValidateUpsert(allowAnonymous, allowMultiple, schema);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -65,10 +76,10 @@ public class FormService : IFormService
             Id = formId,
             Title = contract.Title,
             Description = contract.Description,
-            Schema = contract.Schema ?? new(),
+            Schema = schema,
             Status = contract.Status,
-            AllowAnonymousResponses = contract.AllowAnonymousResponses,
-            AllowMultipleResponses = contract.AllowMultipleResponses,
+            AllowAnonymousResponses = allowAnonymous,
+            AllowMultipleResponses = allowMultiple,
             RequiresManualReview = contract.RequiresManualReview,
             EventId = contract.EventId
         };
@@ -110,7 +121,18 @@ public class FormService : IFormService
         if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
 
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+        var schema = contract.Schema ?? new();
+        var allowAnonymous = contract.AllowAnonymousResponses;
+        var allowMultiple = contract.AllowMultipleResponses;
+        var eventId = contract.EventId ?? existingForm.EventId;
+        if (eventId.HasValue)
+        {
+            schema = EventIdentity.Ensure(schema);
+            allowAnonymous = true;
+            allowMultiple = true;
+        }
+
+        var validation = FormValidator.ValidateUpsert(allowAnonymous, allowMultiple, schema);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -128,19 +150,19 @@ public class FormService : IFormService
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         string existingSchemaJson = JsonSerializer.Serialize(existingForm.Schema, jsonOptions);
-        string newSchemaJson = JsonSerializer.Serialize(contract.Schema ?? new(), jsonOptions);
+        string newSchemaJson = JsonSerializer.Serialize(schema, jsonOptions);
         bool schemaChanged = existingSchemaJson != newSchemaJson;
 
         existingForm.Title = contract.Title;
         existingForm.Description = contract.Description;
-        existingForm.Schema = contract.Schema ?? new();
+        existingForm.Schema = schema;
         existingForm.Status = contract.Status;
 
-        existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
-        existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
+        existingForm.AllowAnonymousResponses = allowAnonymous;
+        existingForm.AllowMultipleResponses = allowMultiple;
         existingForm.RequiresManualReview = contract.RequiresManualReview;
-        if (contract.EventId.HasValue)
-            existingForm.EventId = contract.EventId;
+        if (eventId.HasValue)
+            existingForm.EventId = eventId;
 
         if (contract.Collaborators != null)
         {
@@ -201,7 +223,7 @@ public class FormService : IFormService
         if (form.Status == FormStatus.Closed)
             return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
-        if (userId == null && !form.AllowAnonymousResponses)
+        if (userId == null && !form.AllowAnonymousResponses && form.EventId is null)
         {
             return new ServiceResult<FormDisplayPayload>(
                 ServiceStatus.Unauthorized,
@@ -422,7 +444,7 @@ public class FormService : IFormService
             form.Id,
             form.Title,
             form.Description,
-            form.Schema,
+            DisplaySchema(form),
             form.Status,
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
@@ -450,7 +472,7 @@ public class FormService : IFormService
             var target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
             if (target == null) return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-            contract = new FormDisplayContract(target.Id, target.Title, target.Description, target.Schema);
+            contract = new FormDisplayContract(target.Id, target.Title, target.Description, DisplaySchema(target), target.EventId);
         }
 
         var payload = new FormDisplayPayload(
@@ -509,13 +531,17 @@ public class FormService : IFormService
                 membership.IsPublished,
                 [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
+    private static List<FormSchemaItem> DisplaySchema(Form form) =>
+        form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
+
     private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null)
     {
         var contract = new FormDisplayContract(
             form.Id,
             form.Title,
             form.Description,
-            form.Schema
+            DisplaySchema(form),
+            form.EventId
         );
 
         return new FormDisplayPayload(contract, step, reviewNote, reviewedAt);

@@ -33,6 +33,7 @@ public class FormResponseService : IFormResponseService
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
+    private readonly ICoreGuestApply _guestApply;
 
     public FormResponseService(
         IFormRepository forms,
@@ -45,7 +46,8 @@ public class FormResponseService : IFormResponseService
         IFormMailNotifier mailNotifier,
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime workflowRuntime,
-        IFormWorkflowInstanceRepository instances)
+        IFormWorkflowInstanceRepository instances,
+        ICoreGuestApply guestApply)
     {
         _forms = forms;
         _responses = responses;
@@ -58,6 +60,7 @@ public class FormResponseService : IFormResponseService
         _currentUserService = currentUserService;
         _workflowRuntime = workflowRuntime;
         _instances = instances;
+        _guestApply = guestApply;
     }
 
     /// <param name="InstanceResponseIds">
@@ -72,7 +75,10 @@ public class FormResponseService : IFormResponseService
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
         if (form.Status != FormStatus.Open) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
-        if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+        if (!form.AllowAnonymousResponses && userId == null && form.EventId is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+
+        var guestTicket = await WriteGuestTicketAsync(form, contract.Responses, cancellationToken);
+        if (guestTicket is not null) return guestTicket;
 
         if (userId.HasValue)
         {
@@ -98,6 +104,23 @@ public class FormResponseService : IFormResponseService
 
         var result = new ResponseSubmitResult(response.Id, LinkedFormId: null, Step: 0);
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
+    }
+
+    private async Task<ServiceResult<ResponseSubmitResult>?> WriteGuestTicketAsync(
+        Form form,
+        List<FormResponseSchemaItem> answers,
+        CancellationToken cancellationToken)
+    {
+        if (form.EventId is not Guid eventId) return null;
+
+        var identity = EventIdentity.Extract(form.Schema, answers);
+        if (identity is null)
+            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
+
+        if (!await _guestApply.ApplyAsync(eventId, identity, cancellationToken))
+            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Başvuru kaydedilemedi.");
+
+        return null;
     }
 
     /// <summary>
