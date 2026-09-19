@@ -16,6 +16,11 @@ public class FormComponentGroupConfiguration : IEntityTypeConfiguration<Componen
         builder.HasKey(cg => cg.Id);
 
         builder.Property(cg => cg.Title).IsRequired().HasMaxLength(100);
+        builder.Property(cg => cg.ArchivedAt).IsRequired(false);
+        builder.Property(cg => cg.ArchivedBy).IsRequired(false);
+
+        builder.HasIndex(cg => new { cg.OwnedBy, cg.ArchivedAt, cg.CreatedAt });
+        builder.HasQueryFilter(cg => cg.ArchivedAt == null);
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 

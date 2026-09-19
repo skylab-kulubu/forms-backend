@@ -92,17 +92,41 @@ public class ComponentGroupService : IComponentGroupService
 
     public async Task<ServiceResult<bool>> DeleteGroupAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var group = await _groups.GetForEditAsync(id, cancellationToken);
+        var group = await _groups.GetForLifecycleEditAsync(id, cancellationToken);
 
         if (group == null || group.OwnedBy != userId)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Grup bulunamadı veya yetkiniz yok.");
 
-        await RevokeShareTokenAsync(id, cancellationToken);
+        if (group.ArchivedAt == null)
+        {
+            await RevokeShareTokenAsync(id, cancellationToken);
 
-        _groups.Remove(group);
-        await _uow.SaveChangesAsync(cancellationToken);
+            group.ArchivedAt = DateTime.UtcNow;
+            group.ArchivedBy = userId;
+            await _uow.SaveChangesAsync(cancellationToken);
+        }
 
-        return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Grup silindi.");
+        return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Grup arşivlendi.");
+    }
+
+    public async Task<ServiceResult<ComponentGroupContract>> RestoreGroupAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var group = await _groups.GetForLifecycleEditAsync(id, cancellationToken);
+
+        if (group == null || group.OwnedBy != userId)
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Grup bulunamadı veya yetkiniz yok.");
+
+        if (group.ArchivedAt != null)
+        {
+            group.ArchivedAt = null;
+            group.ArchivedBy = null;
+            await _uow.SaveChangesAsync(cancellationToken);
+        }
+
+        return new ServiceResult<ComponentGroupContract>(
+            ServiceStatus.Success,
+            Data: MapToContract(group),
+            Message: "Grup geri yüklendi.");
     }
 
     public async Task<ServiceResult<ShareTokenContract>> CreateOrRefreshShareTokenAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default)
@@ -194,5 +218,5 @@ public class ComponentGroupService : IComponentGroupService
     }
 
     private static ComponentGroupContract MapToContract(ComponentGroup group, UserContract? sharedBy = null) =>
-        new(group.Id, group.Title, group.Description, group.Schema, sharedBy);
+        new(group.Id, group.Title, group.Description, group.Schema, sharedBy, group.ArchivedAt, group.ArchivedBy);
 }
