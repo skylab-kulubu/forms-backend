@@ -21,9 +21,20 @@ public sealed class ComponentGroupRepository : IComponentGroupRepository
     public Task<ComponentGroup?> GetForEditAsync(Guid id, CancellationToken ct = default) =>
         _context.ComponentGroups.FirstOrDefaultAsync(g => g.Id == id, ct);
 
+    public Task<ComponentGroup?> GetForLifecycleEditAsync(Guid id, CancellationToken ct = default) =>
+        _context.ComponentGroups.IgnoreQueryFilters().FirstOrDefaultAsync(g => g.Id == id, ct);
+
     public async Task<PagedResult<ComponentGroupContract>> GetUserGroupsAsync(Guid userId, GetComponentGroupsRequest request, CancellationToken ct = default)
     {
-        var query = _context.ComponentGroups.AsNoTracking().Where(g => g.OwnedBy == userId);
+        var query = request.Lifecycle switch
+        {
+            ComponentGroupLifecycleVisibility.Current => _context.ComponentGroups.AsNoTracking(),
+            ComponentGroupLifecycleVisibility.Inactive => _context.ComponentGroups.IgnoreQueryFilters().AsNoTracking().Where(g => g.ArchivedAt != null),
+            ComponentGroupLifecycleVisibility.All => _context.ComponentGroups.IgnoreQueryFilters().AsNoTracking(),
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Lifecycle))
+        };
+
+        query = query.Where(g => g.OwnedBy == userId);
 
         if (!string.IsNullOrWhiteSpace(request.Search))
             query = query.Where(g => EF.Functions.ILike(g.Title, $"%{request.Search.Trim()}%"));
@@ -37,13 +48,11 @@ public sealed class ComponentGroupRepository : IComponentGroupRepository
         var groups = await query
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
-            .Select(g => new ComponentGroupContract(g.Id, g.Title, g.Description, g.Schema, null))
+            .Select(g => new ComponentGroupContract(g.Id, g.Title, g.Description, g.Schema, null, g.ArchivedAt, g.ArchivedBy))
             .ToListAsync(ct);
 
         return new PagedResult<ComponentGroupContract>(groups, totalCount, request.Page, request.PageSize);
     }
 
     public void Add(ComponentGroup group) => _context.ComponentGroups.Add(group);
-
-    public void Remove(ComponentGroup group) => _context.ComponentGroups.Remove(group);
 }

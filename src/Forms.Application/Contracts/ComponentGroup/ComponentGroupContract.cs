@@ -8,7 +8,9 @@ public record ComponentGroupContract(
     string Title,
     string? Description,
     List<FormSchemaItem> Schema,
-    UserContract? SharedBy = null
+    UserContract? SharedBy = null,
+    DateTime? ArchivedAt = null,
+    Guid? ArchivedBy = null
 );
 
 public record ComponentGroupUpsertRequest(
