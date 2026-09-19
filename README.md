@@ -84,7 +84,7 @@ Dynamic form creation and response management service.
 - Manual review workflow (`Pending -> Approved / Declined`)
 - Response archiving
 - Form metrics and answer analytics
-- Reusable component groups
+- Reusable component groups with archive and restore
 - Anonymous response support
 - Single or multiple response control
 - Redis-backed form and response drafts
@@ -280,13 +280,18 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/forms/component-groups` | List component groups |
+| `GET` | `/api/admin/forms/component-groups?lifecycle=current|inactive|all` | List the current user's component groups; defaults to `current` |
 | `GET` | `/api/admin/forms/component-groups/{id}` | Get component-group details |
 | `POST` | `/api/admin/forms/component-groups` | Create a component group |
 | `PUT` | `/api/admin/forms/component-groups/{id}` | Update a component group |
-| `DELETE` | `/api/admin/forms/component-groups/{id}` | Delete a component group |
+| `DELETE` | `/api/admin/forms/component-groups/{id}` | Idempotently archive a component group (`204`) |
+| `POST` | `/api/admin/forms/component-groups/{id}/restore` | Idempotently restore an owned component group |
 | `POST` | `/api/admin/forms/component-groups/{id}/share` | Create or refresh a share token |
 | `POST` | `/api/admin/forms/component-groups/{id}/clone` | Clone a shared component group |
+
+Archived component groups are hidden from ordinary detail, share, clone, and metadata reads. Only the owner can include them through the explicit `inactive` or `all` management filter. Archive metadata is returned as `archivedAt` and `archivedBy`. Archiving revokes the Redis-backed share token; restoring the durable group does not restore that ephemeral token, so the owner must create a new share link.
+
+Component groups currently have neither a parent lifecycle dependency nor a unique business key: titles are intentionally reusable. Restore therefore revalidates ownership but does not invent a title-conflict rule. A future invariant that can genuinely block restoration must return an explicit conflict instead of partially restoring the record.
 
 ## Authentication & Authorization
 
