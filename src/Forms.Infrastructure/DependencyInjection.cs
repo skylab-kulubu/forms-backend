@@ -6,6 +6,7 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
 using Skylab.Forms.Infrastructure.Exports;
 using Skylab.Forms.Infrastructure.Mail;
@@ -21,6 +22,8 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddAccountAccessGate(configuration);
+
         var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING")
             ?? configuration.GetConnectionString("Forms")
             ?? throw new InvalidOperationException("Forms database connection string is not configured.");

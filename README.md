@@ -70,6 +70,41 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 - **JSONB storage** for flexible form and response schemas
 - **Port and Adapter approach** for Redis, identity, mail, and Excel
 
+## Account access gate
+
+Forms can enforce the shared, permanent account-blocking denylist after JwtBearer has
+validated a credential and before any endpoint runs. Anonymous requests do not query
+the gate, so public form display, metadata/share views, and anonymous response
+submission keep working. Supplying a valid credential makes even those optional-auth
+routes subject to the gate.
+
+The gate uses its own named StackExchange.Redis connection
+(`account-access-gate`). It must point at the dedicated persistent/no-eviction access
+Redis deployment; it must never point at `Redis__ConnectionString`, the form/draft
+cache, or merely another logical database on that cache process.
+
+`ACCOUNT_ACCESS_GATE_MODE` is required and accepts only `off` or `enforce`. `enforce`
+also requires all of the following values:
+
+| Variable | Meaning |
+|---|---|
+| `ACCOUNT_ACCESS_REDIS_ENDPOINT` | One `host:port`, not a Redis connection string |
+| `ACCOUNT_ACCESS_REDIS_USERNAME` | Read-only gate ACL user |
+| `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
+| `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
+| `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
+| `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
+| `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
+
+Authenticated blocked subjects receive a generic `401`. A missing/wrong contract,
+malformed marker, timeout, or Redis failure returns `503` with `Cache-Control:
+no-store` and `Retry-After`, without invoking the endpoint. Logs contain only the
+decision and request correlation id, never a subject or digest.
+
+- `GET /health/live` is process-only and never queries Redis.
+- `GET /health/ready` validates the exact access-gate contract through the gate
+  connection and reports non-ready on mismatch or outage.
+
 ## Forms Capabilities
 
 Dynamic form creation and response management service.
