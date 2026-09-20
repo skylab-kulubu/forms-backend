@@ -55,3 +55,4 @@ _ReSharper*/
 # Docker & container tooling overrides
 docker-compose.override.yml
 .docker/
+notes/

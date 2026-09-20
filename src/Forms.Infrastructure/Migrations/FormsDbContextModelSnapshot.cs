@@ -28,6 +28,12 @@ namespace Forms.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ArchivedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -51,6 +57,8 @@ namespace Forms.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OwnedBy", "ArchivedAt", "CreatedAt");
+
                     b.ToTable("ComponentGroup", (string)null);
                 });
 
@@ -71,6 +79,9 @@ namespace Forms.Infrastructure.Migrations
 
                     b.Property<string>("Description")
                         .HasColumnType("text");
+
+                    b.Property<Guid?>("EventId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("LinkedFormId")
                         .HasColumnType("uuid");

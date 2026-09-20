@@ -9,4 +9,6 @@ public class ComponentGroup : BaseEntity
     public string? Description { get; set; }
     public List<FormSchemaItem> Schema { get; set; } = new();
     public Guid OwnedBy { get; set; }
+    public DateTime? ArchivedAt { get; set; }
+    public Guid? ArchivedBy { get; set; }
 } 

@@ -513,7 +513,7 @@ public class FormWorkflowService : IFormWorkflowService
         new(errors.Count == 0, [.. errors.Select(error => new WorkflowValidationErrorContract(error.Code, error.Message, error.NodeKey))]);
 
     private Task<bool> IsPlatformAdminAsync(CancellationToken cancellationToken) =>
-        _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken);
+        _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
 
     private static ServiceResult<T> NotFound<T>() => new(ServiceStatus.NotFound, Message: "Akış bulunamadı.");
 

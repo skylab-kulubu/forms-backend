@@ -20,6 +20,7 @@ public class Form : BaseEntity
     /// </summary>
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
+    public Guid? EventId { get; set; }
 
     // Navigation
     public ICollection<FormCollaborator> Collaborators { get; set; } = new List<FormCollaborator>();

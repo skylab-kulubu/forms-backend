@@ -11,6 +11,7 @@ using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Application.Validators;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 using System.Text.Json;
 
 namespace Skylab.Forms.Application.Services;
@@ -26,6 +27,7 @@ public class FormService : IFormService
     private readonly ICacheService _cache;
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowRuntime _workflowRuntime;
+    private readonly ICoreEventLookup _events;
 
     public FormService(
         IFormRepository forms,
@@ -36,7 +38,8 @@ public class FormService : IFormService
         ICurrentUserService currentUserService,
         ICacheService cache,
         IFormWorkflowRepository workflows,
-        IFormWorkflowRuntime workflowRuntime)
+        IFormWorkflowRuntime workflowRuntime,
+        ICoreEventLookup events)
     {
         _forms = forms;
         _responses = responses;
@@ -47,11 +50,22 @@ public class FormService : IFormService
         _cache = cache;
         _workflows = workflows;
         _workflowRuntime = workflowRuntime;
+        _events = events;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+        var schema = contract.Schema ?? new();
+        var allowAnonymous = contract.AllowAnonymousResponses;
+        var allowMultiple = contract.AllowMultipleResponses;
+        if (contract.EventId.HasValue)
+        {
+            schema = EventIdentity.Ensure(schema);
+            allowAnonymous = true;
+            allowMultiple = true;
+        }
+
+        var validation = FormValidator.ValidateUpsert(allowAnonymous, allowMultiple, schema);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -62,11 +76,12 @@ public class FormService : IFormService
             Id = formId,
             Title = contract.Title,
             Description = contract.Description,
-            Schema = contract.Schema ?? new(),
+            Schema = schema,
             Status = contract.Status,
-            AllowAnonymousResponses = contract.AllowAnonymousResponses,
-            AllowMultipleResponses = contract.AllowMultipleResponses,
-            RequiresManualReview = contract.RequiresManualReview
+            AllowAnonymousResponses = allowAnonymous,
+            AllowMultipleResponses = allowMultiple,
+            RequiresManualReview = contract.RequiresManualReview,
+            EventId = contract.EventId
         };
 
         var collaborators = new List<FormCollaborator>
@@ -93,7 +108,7 @@ public class FormService : IFormService
         var collaboratorIds = newForm.Collaborators.Select(c => c.UserId).ToList();
         var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: MapToContract(newForm, users, CollaboratorRole.Owner));
+        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: await MapToContractAsync(newForm, users, CollaboratorRole.Owner, cancellationToken: cancellationToken));
     }
 
     public async Task<ServiceResult<FormContract>> UpdateFormAsync(Guid formId, FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -106,7 +121,18 @@ public class FormService : IFormService
         if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
 
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, contract.Schema);
+        var schema = contract.Schema ?? new();
+        var allowAnonymous = contract.AllowAnonymousResponses;
+        var allowMultiple = contract.AllowMultipleResponses;
+        var eventId = contract.EventId ?? existingForm.EventId;
+        if (eventId.HasValue)
+        {
+            schema = EventIdentity.Ensure(schema);
+            allowAnonymous = true;
+            allowMultiple = true;
+        }
+
+        var validation = FormValidator.ValidateUpsert(allowAnonymous, allowMultiple, schema);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -124,17 +150,19 @@ public class FormService : IFormService
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         string existingSchemaJson = JsonSerializer.Serialize(existingForm.Schema, jsonOptions);
-        string newSchemaJson = JsonSerializer.Serialize(contract.Schema ?? new(), jsonOptions);
+        string newSchemaJson = JsonSerializer.Serialize(schema, jsonOptions);
         bool schemaChanged = existingSchemaJson != newSchemaJson;
 
         existingForm.Title = contract.Title;
         existingForm.Description = contract.Description;
-        existingForm.Schema = contract.Schema ?? new();
+        existingForm.Schema = schema;
         existingForm.Status = contract.Status;
 
-        existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
-        existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
+        existingForm.AllowAnonymousResponses = allowAnonymous;
+        existingForm.AllowMultipleResponses = allowMultiple;
         existingForm.RequiresManualReview = contract.RequiresManualReview;
+        if (eventId.HasValue)
+            existingForm.EventId = eventId;
 
         if (contract.Collaborators != null)
         {
@@ -161,7 +189,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: MapToContract(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken))));
+            Data: await MapToContractAsync(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken)), cancellationToken));
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -171,7 +199,7 @@ public class FormService : IFormService
         if (form == null) return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
-        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var userRole = collaborator?.Role ?? CollaboratorRole.None;
@@ -181,7 +209,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: MapToContract(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken))));
+            Data: await MapToContractAsync(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken)), cancellationToken));
     }
 
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
@@ -195,7 +223,7 @@ public class FormService : IFormService
         if (form.Status == FormStatus.Closed)
             return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
-        if (userId == null && !form.AllowAnonymousResponses)
+        if (userId == null && !form.AllowAnonymousResponses && form.EventId is null)
         {
             return new ServiceResult<FormDisplayPayload>(
                 ServiceStatus.Unauthorized,
@@ -233,6 +261,12 @@ public class FormService : IFormService
             };
         }
 
+        if (form.EventId is null)
+        {
+            var linked = await _events.FindByFormIdAsync(form.Id, cancellationToken);
+            if (linked is not null) form.EventId = linked.Id;
+        }
+
         return new ServiceResult<FormDisplayPayload>(ServiceStatus.Success, MapToDisplayPayload(form, 0));
     }
 
@@ -260,7 +294,7 @@ public class FormService : IFormService
 
         var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && c.Role != CollaboratorRole.None);
 
-        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormInfoContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var counts = await _responses.GetCountsAsync(id, cancellationToken);
@@ -296,6 +330,8 @@ public class FormService : IFormService
             })
             .ToList();
 
+        items = await AttachEventsAsync(items, cancellationToken);
+
         return new ServiceResult<PagedResult<FormSummaryContract>>(
             ServiceStatus.Success,
             Data: new PagedResult<FormSummaryContract>(items, data.TotalCount, data.Page, data.PageSize));
@@ -326,6 +362,18 @@ public class FormService : IFormService
             );
         }).ToList();
 
+        var byForm = (await _events.FindByFormIdsAsync(forms.Select(f => f.Id), cancellationToken))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var row in raw.Items)
+        {
+            if (byForm.ContainsKey(row.Id) || row.EventId is not Guid eventId) continue;
+            var ev = await _events.FindByIdAsync(eventId, cancellationToken);
+            if (ev is not null) byForm[row.Id] = ev;
+        }
+        forms = forms
+            .Select(f => f with { Event = byForm.TryGetValue(f.Id, out var ev) ? ev : f.Event })
+            .ToList();
+
         return new ServiceResult<PagedResult<FormAllSummaryContract>>(
             ServiceStatus.Success,
             Data: new PagedResult<FormAllSummaryContract>(forms, raw.TotalCount, raw.Page, raw.PageSize)
@@ -355,7 +403,29 @@ public class FormService : IFormService
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Form silindi.");
     }
 
-    private static FormContract MapToContract(Form form, List<UserContract> users, CollaboratorRole userRole = CollaboratorRole.None, FormWorkflowRefContract? workflow = null)
+    private async Task<List<FormSummaryContract>> AttachEventsAsync(
+        List<FormSummaryContract> items,
+        CancellationToken cancellationToken)
+    {
+        var byForm = (await _events.FindByFormIdsAsync(items.Select(form => form.Id), cancellationToken))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var form in items)
+        {
+            if (byForm.ContainsKey(form.Id) || form.EventId is not Guid eventId) continue;
+            var ev = await _events.FindByIdAsync(eventId, cancellationToken);
+            if (ev is not null) byForm[form.Id] = ev;
+        }
+        return items
+            .Select(form => form with { Event = byForm.TryGetValue(form.Id, out var ev) ? ev : form.Event })
+            .ToList();
+    }
+
+    private async Task<FormContract> MapToContractAsync(
+        Form form,
+        List<UserContract> users,
+        CollaboratorRole userRole = CollaboratorRole.None,
+        FormWorkflowRefContract? workflow = null,
+        CancellationToken cancellationToken = default)
     {
         var collaboratorContracts = new List<FormCollaboratorContract>();
 
@@ -371,11 +441,16 @@ public class FormService : IFormService
             }
         }
 
+        var ev = form.EventId is Guid eventId
+            ? await _events.FindByIdAsync(eventId, cancellationToken)
+            : null;
+        ev ??= await _events.FindByFormIdAsync(form.Id, cancellationToken);
+
         return new FormContract(
             form.Id,
             form.Title,
             form.Description,
-            form.Schema,
+            DisplaySchema(form),
             form.Status,
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
@@ -384,7 +459,8 @@ public class FormService : IFormService
             userRole,
             collaboratorContracts,
             form.CreatedAt,
-            form.UpdatedAt
+            form.UpdatedAt,
+            ev
         );
     }
 
@@ -402,7 +478,7 @@ public class FormService : IFormService
             var target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
             if (target == null) return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-            contract = new FormDisplayContract(target.Id, target.Title, target.Description, target.Schema);
+            contract = new FormDisplayContract(target.Id, target.Title, target.Description, DisplaySchema(target), target.EventId);
         }
 
         var payload = new FormDisplayPayload(
@@ -461,13 +537,17 @@ public class FormService : IFormService
                 membership.IsPublished,
                 [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
+    private static List<FormSchemaItem> DisplaySchema(Form form) =>
+        form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
+
     private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null)
     {
         var contract = new FormDisplayContract(
             form.Id,
             form.Title,
             form.Description,
-            form.Schema
+            DisplaySchema(form),
+            form.EventId
         );
 
         return new FormDisplayPayload(contract, step, reviewNote, reviewedAt);

@@ -6,13 +6,13 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
 using Skylab.Forms.Infrastructure.Exports;
 using Skylab.Forms.Infrastructure.Mail;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
 using StackExchange.Redis;
-using Steeltoe.Discovery.HttpClients;
 
 namespace Skylab.Forms.Infrastructure;
 
@@ -22,13 +22,15 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddAccountAccessGate(configuration);
+
         var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING")
             ?? configuration.GetConnectionString("Forms")
             ?? throw new InvalidOperationException("Forms database connection string is not configured.");
 
         var redisConnection = Environment.GetEnvironmentVariable("Redis__ConnectionString")
             ?? configuration["Redis:ConnectionString"]
-            ?? "localhost:6379";
+            ?? "localhost:6379,defaultDatabase=1";
 
         services.AddDbContext<FormsDbContext>(options =>
         {
@@ -55,20 +57,31 @@ public static class DependencyInjection
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, JwtCurrentUserService>();
-        services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://super-skylab");
-        }).AddServiceDiscovery();
 
         services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
         services.AddHttpClient("keycloak");
         services.AddSingleton<IServiceTokenProvider, KeycloakServiceTokenProvider>();
         services.AddTransient<ServiceTokenHandler>();
 
+        services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
+
+        services.AddHttpClient<ICoreEventLookup, CoreEventLookup>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+        });
+
+        services.AddHttpClient<ICoreGuestApply, CoreGuestApply>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+        });
+
         services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
         {
-            client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail/v1/");
-        }).AddServiceDiscovery().AddHttpMessageHandler<ServiceTokenHandler>();
+            client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail:3000/v1/");
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
 
         services.AddSingleton<ChannelMailDispatcher>();
         services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());

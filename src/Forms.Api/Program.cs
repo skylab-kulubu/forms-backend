@@ -1,7 +1,8 @@
+using Skylab.Forms.Api.Auth;
+using Skylab.Forms.Api.AccountAccess;
 using Skylab.Forms.Api.Endpoints;
 using Skylab.Forms.Application;
 using Skylab.Forms.Infrastructure;
-using Steeltoe.Discovery.Eureka;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,9 +18,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddEurekaDiscoveryClient();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddFormsJwtAuthentication(builder.Configuration);
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -27,10 +28,13 @@ var app = builder.Build();
 
 await app.Services.ApplyDatabaseMigrationsAsync();
 
+app.UseFormsJwtAuthentication("AllowFrontend");
+app.UseCors("AllowFrontend");
+app.UseAccountAccessGate();
 app.UseSwagger();
 app.UseSwaggerUI();
-app.UseCors("AllowFrontend");
 
+app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
 app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();

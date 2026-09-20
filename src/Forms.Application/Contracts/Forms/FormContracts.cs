@@ -18,14 +18,16 @@ public record FormContract(
     CollaboratorRole userRole,
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    EventRefContract? Event = null
 );
 
-public record FormDisplayContract(
+    public record FormDisplayContract(
     Guid Id,
     string Title,
     string? Description,
-    List<FormSchemaItem> Schema
+    List<FormSchemaItem> Schema,
+    Guid? EventId = null
 );
 
 public record FormSummaryContract(
@@ -38,7 +40,9 @@ public record FormSummaryContract(
     bool RequiresManualReview,
     FormWorkflowRefContract? Workflow,
     DateTime? UpdatedAt,
-    int ResponseCount
+    int ResponseCount,
+    Guid? EventId,
+    EventRefContract? Event = null
 );
 
 public record FormAllSummaryContract(
@@ -51,7 +55,8 @@ public record FormAllSummaryContract(
     bool RequiresManualReview,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    int ResponseCount
+    int ResponseCount,
+    EventRefContract? Event = null
 );
 
 /// <summary>
@@ -79,4 +84,9 @@ public record FormLockedQuestionContract(
 public record FormMetaContract(
     string Title,
     string? Description
+);
+
+public record EventRefContract(
+    Guid Id,
+    string? Name
 );

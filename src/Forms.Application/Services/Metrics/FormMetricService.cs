@@ -31,7 +31,7 @@ public class FormMetricService : IFormMetricService
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken)
+        if (!await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken)
             && !await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
@@ -58,7 +58,7 @@ public class FormMetricService : IFormMetricService
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun metriklerini görüntüleme yetkiniz yok.");
 
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);

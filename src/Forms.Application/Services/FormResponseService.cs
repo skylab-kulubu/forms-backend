@@ -33,6 +33,8 @@ public class FormResponseService : IFormResponseService
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
+    private readonly ICoreGuestApply _guestApply;
+    private readonly ICoreEventLookup _events;
 
     public FormResponseService(
         IFormRepository forms,
@@ -45,7 +47,9 @@ public class FormResponseService : IFormResponseService
         IFormMailNotifier mailNotifier,
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime workflowRuntime,
-        IFormWorkflowInstanceRepository instances)
+        IFormWorkflowInstanceRepository instances,
+        ICoreGuestApply guestApply,
+        ICoreEventLookup events)
     {
         _forms = forms;
         _responses = responses;
@@ -58,6 +62,8 @@ public class FormResponseService : IFormResponseService
         _currentUserService = currentUserService;
         _workflowRuntime = workflowRuntime;
         _instances = instances;
+        _guestApply = guestApply;
+        _events = events;
     }
 
     /// <param name="InstanceResponseIds">
@@ -72,7 +78,10 @@ public class FormResponseService : IFormResponseService
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
         if (form.Status != FormStatus.Open) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
-        if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+        if (!form.AllowAnonymousResponses && userId == null && form.EventId is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+
+        var guestTicket = await WriteGuestTicketAsync(form, contract.Responses, cancellationToken);
+        if (guestTicket is not null) return guestTicket;
 
         if (userId.HasValue)
         {
@@ -98,6 +107,14 @@ public class FormResponseService : IFormResponseService
 
         var result = new ResponseSubmitResult(response.Id, LinkedFormId: null, Step: 0);
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
+    }
+
+    private async Task<ServiceResult<ResponseSubmitResult>?> WriteGuestTicketAsync(
+        Form form,
+        List<FormResponseSchemaItem> answers,
+        CancellationToken cancellationToken)
+    {
+        return await GuestTicketWriter.WriteAsync(form, answers, _events, _guestApply, cancellationToken);
     }
 
     /// <summary>
@@ -152,7 +169,7 @@ public class FormResponseService : IFormResponseService
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormResponsesListResult>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var paged = await _responses.GetPagedAsync(formId, request, cancellationToken);
@@ -197,7 +214,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<ResponseContract>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken);
+        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
 
         ShareCacheEntry? shareEntry = null;
         if (!canView)
@@ -320,7 +337,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<byte[]>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "dotnet", cancellationToken))
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<byte[]>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını dışa aktarma yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
