@@ -70,6 +70,48 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 - **JSONB storage** for flexible form and response schemas
 - **Port and Adapter approach** for Redis, identity, mail, and Excel
 
+## Account access gate
+
+Forms can enforce the shared, permanent account-blocking denylist after JwtBearer has
+validated a credential and before any endpoint runs. Anonymous requests do not query
+the gate, so public form display, metadata/share views, and anonymous response
+submission keep working. Supplying a valid credential makes even those optional-auth
+routes subject to the gate.
+
+The gate uses its own named StackExchange.Redis connection
+(`account-access-gate`). It must point at the dedicated persistent/no-eviction access
+Redis deployment; it must never point at `Redis__ConnectionString`, the form/draft
+cache, or merely another logical database on that cache process.
+
+`ACCOUNT_ACCESS_GATE_MODE` is required and accepts only `off` or `enforce`. `enforce`
+also requires all of the following values:
+
+| Variable | Meaning |
+|---|---|
+| `ACCOUNT_ACCESS_REDIS_ENDPOINT` | One `host:port`, not a Redis connection string |
+| `ACCOUNT_ACCESS_REDIS_USERNAME` | Read-only gate ACL user |
+| `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
+| `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
+| `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
+| `ACCOUNT_ACCESS_REDIS_CA_CERT_FILE` | Absolute path to the mounted private CA certificate |
+| `ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE` | Absolute path to the mounted Forms client certificate |
+| `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE` | Absolute path to the mounted Forms client private key |
+| `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
+| `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
+
+The three mTLS files are mandatory whenever TLS is enabled. Mount them read-only
+(for example under `/run/secrets/account-access`) and never place private-key PEM
+contents in an environment variable.
+
+Authenticated blocked subjects receive a generic `401`. A missing/wrong contract,
+malformed marker, timeout, or Redis failure returns `503` with `Cache-Control:
+no-store` and `Retry-After`, without invoking the endpoint. Logs contain only the
+decision and request correlation id, never a subject or digest.
+
+- `GET /health/live` is process-only and never queries Redis.
+- `GET /health/ready` validates the exact access-gate contract through the gate
+  connection and reports non-ready on mismatch or outage.
+
 ## Forms Capabilities
 
 Dynamic form creation and response management service.
@@ -295,7 +337,9 @@ Component groups currently have neither a parent lifecycle dependency nor a uniq
 
 ## Authentication & Authorization
 
-- **Current user:** The API parses the forwarded Bearer token to resolve the current user ID and client roles.
+- **Incoming bearer validation:** If an `Authorization` header is present, it must contain exactly one canonical `Bearer <token>` credential. Unsupported schemes, blank/odd formatting, combined or duplicate credentials, unsigned/malformed tokens, and tokens with the wrong issuer, audience, lifetime, or signing key return `401`, including on Swagger and otherwise anonymous endpoints. ASP.NET Core JwtBearer validates accepted credentials through Keycloak discovery/JWKS before any identity claim is used.
+- **Current user:** The API resolves the current user ID and realm/client roles only from the authenticated `HttpContext.User`. Existing `forms`/legacy `dotnet` client-role mapping remains supported after validation.
+- **Anonymous access:** Public form reads, Swagger, anonymous response submission, and credential-free CORS preflight still work when the request has no `Authorization` header. Invalid credentials are never downgraded to anonymous access. Credential validation runs before CORS and docs; a rejected request applies the configured CORS policy before returning its challenge so the allowed frontend can still read the `401`.
 - **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
 - **Service authentication:** SkyMail calls use a Keycloak client-credentials token.
 - **Authorization:** Role-based rules are enforced in the Application services:
@@ -364,6 +408,10 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 |----------|-------------|----------|
 | `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
 | `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
+| `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer; startup rejects every value except `https://e.yildizskylab.com/realms/e-skylab` | No, fixed default |
+| `Authentication__Audience` (Compose: `AUTH_AUDIENCE`) | Incoming-token audience; startup rejects every value except `forms` | No, fixed default |
+| `Authentication__ClockSkewSeconds` (Compose: `AUTH_CLOCK_SKEW_SECONDS`) | Allowed JWT lifetime skew, from 0 to 120 seconds | No, defaults to `30` |
+| `Authentication__MetadataTimeoutSeconds` (Compose: `AUTH_METADATA_TIMEOUT_SECONDS`) | Timeout for Keycloak discovery/JWKS HTTP operations, from 1 to 30 seconds | No, defaults to `5` |
 | `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`) | No, defaults to `http://core:8080` |
 | `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
 | `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
@@ -375,6 +423,8 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
+
+Incoming JWT validation fails closed when the Keycloak discovery document or JWKS cannot be loaded. Before deployment, verify that the Forms container can reach `https://e.yildizskylab.com/realms/e-skylab/.well-known/openid-configuration` and the `jwks_uri` it publishes. The service does not yet expose a readiness endpoint; the shared account-access-gate change will add readiness without changing liveness.
 
 ## Database Migrations
 
