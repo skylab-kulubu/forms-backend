@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Configuration;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure.AccountAccess;
@@ -17,6 +20,9 @@ public sealed class AccountAccessGateOptions
     public string? Password { get; private init; }
     public int Database { get; private init; }
     public bool UseTls { get; private init; }
+    public string? CaCertificateFile { get; private init; }
+    public string? ClientCertificateFile { get; private init; }
+    public string? ClientKeyFile { get; private init; }
     public int OperationTimeoutMilliseconds { get; private init; }
     public int RetryAfterSeconds { get; private init; }
 
@@ -66,6 +72,26 @@ public sealed class AccountAccessGateOptions
             throw new InvalidOperationException("ACCOUNT_ACCESS_REDIS_TLS must be 'true' or 'false'.");
         }
 
+        string? caCertificateFile = null;
+        string? clientCertificateFile = null;
+        string? clientKeyFile = null;
+        if (useTls)
+        {
+            caCertificateFile = RequireAbsoluteFile(
+                configuration,
+                "ACCOUNT_ACCESS_REDIS_CA_CERT_FILE",
+                "CaCertificateFile");
+            clientCertificateFile = RequireAbsoluteFile(
+                configuration,
+                "ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE",
+                "ClientCertificateFile");
+            clientKeyFile = RequireAbsoluteFile(
+                configuration,
+                "ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE",
+                "ClientKeyFile");
+            ValidateTlsMaterial(caCertificateFile, clientCertificateFile, clientKeyFile);
+        }
+
         ParseEndpoint(endpoint);
 
         return new AccountAccessGateOptions
@@ -76,6 +102,9 @@ public sealed class AccountAccessGateOptions
             Password = password,
             Database = database,
             UseTls = useTls,
+            CaCertificateFile = caCertificateFile,
+            ClientCertificateFile = clientCertificateFile,
+            ClientKeyFile = clientKeyFile,
             OperationTimeoutMilliseconds = timeout,
             RetryAfterSeconds = retryAfter
         };
@@ -103,7 +132,75 @@ public sealed class AccountAccessGateOptions
             SyncTimeout = OperationTimeoutMilliseconds
         };
         options.EndPoints.Add(host, port);
+        if (UseTls)
+        {
+            var caCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(CaCertificateFile!));
+            var clientCertificate = X509Certificate2.CreateFromPemFile(
+                ClientCertificateFile!,
+                ClientKeyFile!);
+            options.SslClientAuthenticationOptions = targetHost =>
+            {
+                var chainPolicy = new X509ChainPolicy
+                {
+                    TrustMode = X509ChainTrustMode.CustomRootTrust,
+                    RevocationMode = X509RevocationMode.NoCheck
+                };
+                chainPolicy.CustomTrustStore.Add(caCertificate);
+                return new SslClientAuthenticationOptions
+                {
+                    TargetHost = targetHost,
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                    ClientCertificates = new X509CertificateCollection { clientCertificate },
+                    CertificateChainPolicy = chainPolicy
+                };
+            };
+        }
         return options;
+    }
+
+    private static string RequireAbsoluteFile(
+        IConfiguration configuration,
+        string environmentName,
+        string optionName)
+    {
+        var path = Require(configuration, environmentName, optionName);
+        if (!Path.IsPathFullyQualified(path))
+        {
+            throw new InvalidOperationException($"{environmentName} must be an absolute path.");
+        }
+
+        if (!File.Exists(path))
+        {
+            throw new InvalidOperationException($"{environmentName} must point to a readable file.");
+        }
+
+        return path;
+    }
+
+    private static void ValidateTlsMaterial(
+        string caCertificateFile,
+        string clientCertificateFile,
+        string clientKeyFile)
+    {
+        try
+        {
+            using var caCertificate = X509Certificate2.CreateFromPem(
+                File.ReadAllText(caCertificateFile));
+            using var clientCertificate = X509Certificate2.CreateFromPemFile(
+                clientCertificateFile,
+                clientKeyFile);
+            if (!clientCertificate.HasPrivateKey)
+            {
+                throw new InvalidOperationException(
+                    "ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE must match ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE.");
+            }
+        }
+        catch (Exception exception) when (exception is not InvalidOperationException)
+        {
+            throw new InvalidOperationException(
+                "Account access Redis mTLS files must contain valid PEM certificates and a matching private key.",
+                exception);
+        }
     }
 
     private static string? Read(IConfiguration configuration, string environmentName, string optionName)
