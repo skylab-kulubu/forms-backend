@@ -1,4 +1,5 @@
 using Skylab.Forms.Api.Auth;
+using Skylab.Forms.Api.AccountAccess;
 using Skylab.Forms.Api.Endpoints;
 using Skylab.Forms.Application;
 using Skylab.Forms.Infrastructure;
@@ -29,9 +30,11 @@ await app.Services.ApplyDatabaseMigrationsAsync();
 
 app.UseFormsJwtAuthentication("AllowFrontend");
 app.UseCors("AllowFrontend");
+app.UseAccountAccessGate();
 app.UseSwagger();
 app.UseSwaggerUI();
 
+app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
 app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();
