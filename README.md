@@ -93,8 +93,15 @@ also requires all of the following values:
 | `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
 | `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
 | `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
+| `ACCOUNT_ACCESS_REDIS_CA_CERT_FILE` | Absolute path to the mounted private CA certificate |
+| `ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE` | Absolute path to the mounted Forms client certificate |
+| `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE` | Absolute path to the mounted Forms client private key |
 | `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
 | `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
+
+The three mTLS files are mandatory whenever TLS is enabled. Mount them read-only
+(for example under `/run/secrets/account-access`) and never place private-key PEM
+contents in an environment variable.
 
 Authenticated blocked subjects receive a generic `401`. A missing/wrong contract,
 malformed marker, timeout, or Redis failure returns `503` with `Cache-Control:
