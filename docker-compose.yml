@@ -7,6 +7,10 @@ services:
     environment:
       CONNECTION_STRING: "Host=postgres;Port=5432;Database=forms_db;Username=forms;Password=${FORMS_DB_PASSWORD:-postgres}"
       ALLOWED_ORIGIN: "${ALLOWED_ORIGIN:-http://localhost:5000}"
+      Authentication__Issuer: "${AUTH_ISSUER:-https://e.yildizskylab.com/realms/e-skylab}"
+      Authentication__Audience: "${AUTH_AUDIENCE:-forms}"
+      Authentication__ClockSkewSeconds: "${AUTH_CLOCK_SKEW_SECONDS:-30}"
+      Authentication__MetadataTimeoutSeconds: "${AUTH_METADATA_TIMEOUT_SECONDS:-5}"
       Redis__ConnectionString: "redis:6379,defaultDatabase=1"
       ASPNETCORE_URLS: "http://0.0.0.0:8080"
       Services__Users__BaseUrl: "${CORE_URL:-http://core:8080}"

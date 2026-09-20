@@ -295,7 +295,9 @@ Component groups currently have neither a parent lifecycle dependency nor a uniq
 
 ## Authentication & Authorization
 
-- **Current user:** The API parses the forwarded Bearer token to resolve the current user ID and client roles.
+- **Incoming bearer validation:** If an `Authorization` header is present, it must contain exactly one canonical `Bearer <token>` credential. Unsupported schemes, blank/odd formatting, combined or duplicate credentials, unsigned/malformed tokens, and tokens with the wrong issuer, audience, lifetime, or signing key return `401`, including on Swagger and otherwise anonymous endpoints. ASP.NET Core JwtBearer validates accepted credentials through Keycloak discovery/JWKS before any identity claim is used.
+- **Current user:** The API resolves the current user ID and realm/client roles only from the authenticated `HttpContext.User`. Existing `forms`/legacy `dotnet` client-role mapping remains supported after validation.
+- **Anonymous access:** Public form reads, Swagger, anonymous response submission, and credential-free CORS preflight still work when the request has no `Authorization` header. Invalid credentials are never downgraded to anonymous access. Credential validation runs before CORS and docs; a rejected request applies the configured CORS policy before returning its challenge so the allowed frontend can still read the `401`.
 - **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
 - **Service authentication:** SkyMail calls use a Keycloak client-credentials token.
 - **Authorization:** Role-based rules are enforced in the Application services:
@@ -364,6 +366,10 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 |----------|-------------|----------|
 | `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
 | `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
+| `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer; startup rejects every value except `https://e.yildizskylab.com/realms/e-skylab` | No, fixed default |
+| `Authentication__Audience` (Compose: `AUTH_AUDIENCE`) | Incoming-token audience; startup rejects every value except `forms` | No, fixed default |
+| `Authentication__ClockSkewSeconds` (Compose: `AUTH_CLOCK_SKEW_SECONDS`) | Allowed JWT lifetime skew, from 0 to 120 seconds | No, defaults to `30` |
+| `Authentication__MetadataTimeoutSeconds` (Compose: `AUTH_METADATA_TIMEOUT_SECONDS`) | Timeout for Keycloak discovery/JWKS HTTP operations, from 1 to 30 seconds | No, defaults to `5` |
 | `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`) | No, defaults to `http://core:8080` |
 | `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
 | `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
@@ -375,6 +381,8 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
+
+Incoming JWT validation fails closed when the Keycloak discovery document or JWKS cannot be loaded. Before deployment, verify that the Forms container can reach `https://e.yildizskylab.com/realms/e-skylab/.well-known/openid-configuration` and the `jwks_uri` it publishes. The service does not yet expose a readiness endpoint; the shared account-access-gate change will add readiness without changing liveness.
 
 ## Database Migrations
 
