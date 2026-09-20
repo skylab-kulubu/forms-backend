@@ -1,18 +1,18 @@
 using System.Text.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
-using Microsoft.IdentityModel.JsonWebTokens;
 using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Infrastructure.Auth;
 
-public class JwtCurrentUserService(IHttpContextAccessor httpContextAccessor) : ICurrentUserService
+public sealed class JwtCurrentUserService(IHttpContextAccessor httpContextAccessor) : ICurrentUserService
 {
     public Task<Guid?> GetUserIdAsync(CancellationToken cancellationToken = default)
     {
-        var jwt = ParseToken();
-        if (jwt == null) return Task.FromResult<Guid?>(null);
+        var identity = GetAuthenticatedIdentity();
+        if (identity is null) return Task.FromResult<Guid?>(null);
 
-        if (Guid.TryParse(jwt.Subject, out var userId))
+        if (Guid.TryParse(identity.FindFirst("sub")?.Value, out var userId))
             return Task.FromResult<Guid?>(userId);
 
         return Task.FromResult<Guid?>(null);
@@ -20,8 +20,8 @@ public class JwtCurrentUserService(IHttpContextAccessor httpContextAccessor) : I
 
     public Task<bool> HasRoleAsync(string role, string? client = null, CancellationToken cancellationToken = default)
     {
-        var jwt = ParseToken();
-        if (jwt == null) return Task.FromResult(false);
+        var identity = GetAuthenticatedIdentity();
+        if (identity is null) return Task.FromResult(false);
 
         try
         {
@@ -29,11 +29,11 @@ public class JwtCurrentUserService(IHttpContextAccessor httpContextAccessor) : I
 
             if (client == null)
             {
-                claimValue = jwt.GetClaim("realm_access")?.Value;
+                claimValue = identity.FindFirst("realm_access")?.Value;
             }
             else
             {
-                var resourceAccess = jwt.GetClaim("resource_access")?.Value;
+                var resourceAccess = identity.FindFirst("resource_access")?.Value;
                 if (string.IsNullOrEmpty(resourceAccess)) return Task.FromResult(false);
 
                 using var resourceDoc = JsonDocument.Parse(resourceAccess);
@@ -73,19 +73,9 @@ public class JwtCurrentUserService(IHttpContextAccessor httpContextAccessor) : I
         }
     }
 
-    private JsonWebToken? ParseToken()
+    private ClaimsIdentity? GetAuthenticatedIdentity()
     {
-        var authHeader = httpContextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
-        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
-            return null;
-
-        try
-        {
-            return new JsonWebToken(authHeader["Bearer ".Length..]);
-        }
-        catch
-        {
-            return null;
-        }
+        return httpContextAccessor.HttpContext?.User.Identities
+            .FirstOrDefault(identity => identity.IsAuthenticated);
     }
 }

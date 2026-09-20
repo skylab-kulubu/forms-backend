@@ -33,7 +33,7 @@ jobs:
           if [ "$ref" = production ]; then
             echo "list=${img}:production,${img}:${sha}" >> "$GITHUB_OUTPUT"
           elif [ "$ref" = main ]; then
-            echo "list=${img}:latest,${img}:${sha}" >> "$GITHUB_OUTPUT"
+            echo "list=${img}:latest,${img}:sandbox,${img}:${sha}" >> "$GITHUB_OUTPUT"
           else
             echo "list=${img}:${sha}" >> "$GITHUB_OUTPUT"
           fi
@@ -47,12 +47,19 @@ jobs:
           tags: ${{ steps.tags.outputs.list }}
 
       - name: Notify Dokploy
-        if: github.ref == 'refs/heads/production'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production'
         env:
-          HOOK: ${{ secrets.DOKPLOY_DEPLOY_HOOK }}
+          REF_NAME: ${{ github.ref_name }}
+          SANDBOX_HOOK: ${{ secrets.DOKPLOY_SANDBOX_DEPLOY_HOOK }}
+          PRODUCTION_HOOK: ${{ secrets.DOKPLOY_DEPLOY_HOOK }}
         run: |
+          if [ "$REF_NAME" = main ]; then
+            HOOK="$SANDBOX_HOOK"
+          else
+            HOOK="$PRODUCTION_HOOK"
+          fi
           if [ -z "$HOOK" ]; then
-            echo "DOKPLOY_DEPLOY_HOOK unset; skip"
+            echo "Dokploy hook unset for ${REF_NAME}; skip"
             exit 0
           fi
           curl -fsS -X POST "$HOOK"
