@@ -8,6 +8,7 @@ namespace Skylab.Forms.Api.Auth;
 public static class FormsJwtAuthenticationExtensions
 {
     public const string ExactIssuer = "https://e.yildizskylab.com/realms/e-skylab";
+    public const string ExactSandboxIssuer = "https://e.yildizskylab.com/realms/e-skylab-sandbox";
     public const string ExactAudience = "forms";
 
     public static IServiceCollection AddFormsJwtAuthentication(
@@ -19,10 +20,10 @@ public static class FormsJwtAuthenticationExtensions
         var clockSkewSeconds = configuration.GetValue("Authentication:ClockSkewSeconds", 30);
         var metadataTimeoutSeconds = configuration.GetValue("Authentication:MetadataTimeoutSeconds", 5);
 
-        if (!string.Equals(issuer, ExactIssuer, StringComparison.Ordinal))
+        if (!IsTrustedIssuer(issuer))
         {
             throw new InvalidOperationException(
-                $"Authentication:Issuer must exactly match {ExactIssuer}.");
+                $"Authentication:Issuer must exactly match {ExactIssuer} or {ExactSandboxIssuer}.");
         }
 
         if (!string.Equals(audience, ExactAudience, StringComparison.Ordinal))
@@ -70,6 +71,10 @@ public static class FormsJwtAuthenticationExtensions
 
         return services;
     }
+
+    private static bool IsTrustedIssuer(string issuer) =>
+        string.Equals(issuer, ExactIssuer, StringComparison.Ordinal) ||
+        string.Equals(issuer, ExactSandboxIssuer, StringComparison.Ordinal);
 
     public static IApplicationBuilder UseFormsJwtAuthentication(
         this IApplicationBuilder app,
