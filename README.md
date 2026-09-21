@@ -408,7 +408,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 |----------|-------------|----------|
 | `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
 | `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
-| `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer; startup rejects every value except `https://e.yildizskylab.com/realms/e-skylab` | No, fixed default |
+| `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer. Production uses `https://e.yildizskylab.com/realms/e-skylab`; sandbox must explicitly use `https://e.yildizskylab.com/realms/e-skylab-sandbox`. Every other value is rejected at startup. | No, defaults to production issuer |
 | `Authentication__Audience` (Compose: `AUTH_AUDIENCE`) | Incoming-token audience; startup rejects every value except `forms` | No, fixed default |
 | `Authentication__ClockSkewSeconds` (Compose: `AUTH_CLOCK_SKEW_SECONDS`) | Allowed JWT lifetime skew, from 0 to 120 seconds | No, defaults to `30` |
 | `Authentication__MetadataTimeoutSeconds` (Compose: `AUTH_METADATA_TIMEOUT_SECONDS`) | Timeout for Keycloak discovery/JWKS HTTP operations, from 1 to 30 seconds | No, defaults to `5` |
@@ -424,7 +424,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 
-Incoming JWT validation fails closed when the Keycloak discovery document or JWKS cannot be loaded. Before deployment, verify that the Forms container can reach `https://e.yildizskylab.com/realms/e-skylab/.well-known/openid-configuration` and the `jwks_uri` it publishes. The service does not yet expose a readiness endpoint; the shared account-access-gate change will add readiness without changing liveness.
+Incoming JWT validation fails closed when the configured Keycloak discovery document or JWKS cannot be loaded. Before deployment, verify that the Forms container can reach `${Authentication__Issuer}/.well-known/openid-configuration` and the `jwks_uri` it publishes. Production and sandbox each accept only the issuer explicitly selected for that deployment.
 
 ## Database Migrations
 
