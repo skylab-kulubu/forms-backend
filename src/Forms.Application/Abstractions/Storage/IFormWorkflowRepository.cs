@@ -1,3 +1,5 @@
+using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Workflows;
@@ -31,7 +33,10 @@ public interface IFormWorkflowRepository
     Task<int> GetNextVersionNumberAsync(Guid workflowId, CancellationToken ct = default);
 
     Task<IReadOnlyList<WorkflowVersionProjection>> GetVersionsAsync(Guid workflowId, CancellationToken ct = default);
-    Task<IReadOnlyList<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(Guid ownerUserId, CancellationToken ct = default);
+    Task<PagedResult<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(
+        Guid ownerUserId,
+        GetWorkflowsRequest request,
+        CancellationToken ct = default);
 
     /// <summary>Kullanıcının Owner olduğu, silinmemiş formlar: adım seçicinin kaynağı.</summary>
     Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default);

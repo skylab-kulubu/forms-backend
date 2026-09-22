@@ -21,8 +21,9 @@ public interface IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<List<WorkflowSummaryContract>>> GetOwnedAsync(
+    Task<ServiceResult<PagedResult<WorkflowSummaryContract>>> GetOwnedAsync(
         Guid userId,
+        GetWorkflowsRequest request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<List<WorkflowVersionSummaryContract>>> GetVersionsAsync(

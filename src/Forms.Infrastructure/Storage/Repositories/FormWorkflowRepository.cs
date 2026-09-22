@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
@@ -204,11 +206,29 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 version.Nodes.Count))
             .ToListAsync(ct);
 
-    public async Task<IReadOnlyList<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(Guid ownerUserId, CancellationToken ct = default)
+    public async Task<PagedResult<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(
+        Guid ownerUserId,
+        GetWorkflowsRequest request,
+        CancellationToken ct = default)
     {
-        var rows = await _context.Workflows.AsNoTracking()
-            .Where(workflow => workflow.OwnerUserId == ownerUserId)
-            .OrderByDescending(workflow => workflow.UpdatedAt ?? workflow.CreatedAt)
+        var query = _context.Workflows.AsNoTracking()
+            .Where(workflow => workflow.OwnerUserId == ownerUserId);
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+            query = query.Where(workflow => EF.Functions.ILike(workflow.Name, $"%{request.Search.Trim()}%"));
+
+        var ascending = string.Equals(request.SortDirection, "ascending", StringComparison.OrdinalIgnoreCase);
+
+        var ordered = ascending
+            ? query.OrderBy(workflow => workflow.UpdatedAt ?? workflow.CreatedAt)
+            : query.OrderByDescending(workflow => workflow.UpdatedAt ?? workflow.CreatedAt);
+
+        var totalCount = await query.CountAsync(ct);
+
+        var rows = await ordered
+            .ThenBy(workflow => workflow.Id)
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
             .Select(workflow => new
             {
                 workflow.Id,
@@ -245,7 +265,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             .ToListAsync(ct);
 
         // Satır, yayındaki sürümü anlatır; hiç yayınlanmadıysa taslağı.
-        return [.. rows.Select(row => new WorkflowSummaryProjection(
+        var items = rows.Select(row => new WorkflowSummaryProjection(
             row.Id,
             row.Name,
             row.Status,
@@ -254,7 +274,9 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             row.PublishedVersion.HasValue ? row.PublishedNodeCount : row.DraftNodeCount,
             row.PublishedVersion,
             row.HasDraft,
-            row.UpdatedAt))];
+            row.UpdatedAt)).ToList();
+
+        return new PagedResult<WorkflowSummaryProjection>(items, totalCount, request.Page, request.PageSize);
     }
 
     public async Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default) =>

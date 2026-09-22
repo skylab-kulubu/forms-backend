@@ -9,6 +9,14 @@ public record WorkflowUpsertRequest(
     bool AllowMultipleRuns
 );
 
+/// <summary>Liste sorgusu; sıralama her zaman son güncellemeye göredir.</summary>
+public record GetWorkflowsRequest(
+    int Page = 1,
+    int PageSize = 10,
+    string? Search = null,
+    string SortDirection = "descending"
+);
+
 /// <summary>
 /// Taslak tanımın tamamı. Editör parça güncelleme yapamaz: yarım bir graf hiçbir
 /// zaman kaydedilmesin diye node ve yönlendirme listeleri birlikte gelir.

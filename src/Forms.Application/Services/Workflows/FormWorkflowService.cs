@@ -89,11 +89,13 @@ public class FormWorkflowService : IFormWorkflowService
         return await BuildContractAsync(workflow, cancellationToken);
     }
 
-    public async Task<ServiceResult<List<WorkflowSummaryContract>>> GetOwnedAsync(
+    public async Task<ServiceResult<PagedResult<WorkflowSummaryContract>>> GetOwnedAsync(
         Guid userId,
+        GetWorkflowsRequest request,
         CancellationToken cancellationToken = default)
     {
-        var workflows = await _workflows.GetOwnedWorkflowsAsync(userId, cancellationToken);
+        var page = await _workflows.GetOwnedWorkflowsAsync(userId, request, cancellationToken);
+        var workflows = page.Items;
 
         var startFormIds = workflows
             .Where(workflow => workflow.StartFormId.HasValue)
@@ -116,7 +118,9 @@ public class FormWorkflowService : IFormWorkflowService
                 workflow.UpdatedAt))
             .ToList();
 
-        return new ServiceResult<List<WorkflowSummaryContract>>(ServiceStatus.Success, summaries);
+        return new ServiceResult<PagedResult<WorkflowSummaryContract>>(
+            ServiceStatus.Success,
+            new PagedResult<WorkflowSummaryContract>(summaries, page.TotalCount, page.Page, page.PageSize));
     }
 
     public async Task<ServiceResult<List<WorkflowVersionSummaryContract>>> GetVersionsAsync(

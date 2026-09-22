@@ -13,12 +13,12 @@ public static class WorkflowAdminEndpoints
     {
         var group = routes.MapGroup("api/admin/workflows").WithTags("WorkflowsAdmin");
 
-        group.MapGet("/", async (IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/", async (IFormWorkflowService service, ICurrentUserService userService, [AsParameters] GetWorkflowsRequest request, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışları görmek için giriş yapmalısınız.");
 
-            var result = await service.GetOwnedAsync(userId.Value, ct);
+            var result = await service.GetOwnedAsync(userId.Value, request, ct);
             return result.ToApiResult();
         });
 
