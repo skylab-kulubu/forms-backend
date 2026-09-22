@@ -312,7 +312,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
 | `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched |
-| `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with a reason when they are not |
+| `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |

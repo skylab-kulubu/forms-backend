@@ -223,6 +223,7 @@ public class FormWorkflowService : IFormWorkflowService
                 return new WorkflowAvailableFormContract(
                     form.Id,
                     form.Title,
+                    facts.TryGetValue(form.Id, out var fact) && fact.RequiresManualReview,
                     reason is null,
                     reason,
                     used.Contains(form.Id));

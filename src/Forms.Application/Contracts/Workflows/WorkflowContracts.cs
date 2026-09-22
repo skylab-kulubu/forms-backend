@@ -76,9 +76,14 @@ public record WorkflowFormRefContract(
 /// Uygun değilse sebebin sabit kodu: formClosed, formAnonymous, formNotOwned,
 /// formInAnotherWorkflow, formIsLegacyLinked. Doğrulama kodlarıyla aynı sözlük.
 /// </param>
+/// <param name="RequiresManualReview">
+/// Editör adımı eklediği anda doğru tetikleri (onay/ret ya da gönderim) çizebilsin
+/// diye form detayını beklemeden burada verilir.
+/// </param>
 public record WorkflowAvailableFormContract(
     Guid Id,
     string Title,
+    bool RequiresManualReview,
     bool IsEligible,
     string? Reason,
     bool IsUsedInThisWorkflow
