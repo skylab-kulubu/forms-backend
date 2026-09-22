@@ -21,4 +21,11 @@ public class FormWorkflowNode
     public string NodeKey { get; set; } = string.Empty;
 
     public bool IsStart { get; set; } = false;
+
+    /// <summary>
+    /// Editör tuvalindeki yer, istemci piksel biriminde. Grafın anlamına etkisi yok;
+    /// doğrulama bakmaz, eski tanımlarda boş kalır ve istemci otomatik yerleştirir.
+    /// </summary>
+    public int? PositionX { get; set; }
+    public int? PositionY { get; set; }
 }

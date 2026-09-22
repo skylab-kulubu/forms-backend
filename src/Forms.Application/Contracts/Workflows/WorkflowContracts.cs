@@ -32,13 +32,18 @@ public record WorkflowVersionContract(
 /// <param name="RequiresManualReview">
 /// Adımın formu onay gerektiriyor mu? Editörün hangi tetikleri sunacağını bu belirler.
 /// </param>
+/// <param name="Position">Tuvaldeki yer; eski tanımlarda null gelir, istemci kendi yerleştirir.</param>
 public record WorkflowNodeContract(
     string NodeKey,
     Guid FormId,
     string FormTitle,
     bool RequiresManualReview,
-    bool IsStart
+    bool IsStart,
+    WorkflowNodePositionContract? Position
 );
+
+/// <summary>İstemci piksel biriminde tam sayı koordinat; sunucu dönüştürmez, doğrulamaz.</summary>
+public record WorkflowNodePositionContract(int X, int Y);
 
 public record WorkflowTransitionContract(
     string SourceNodeKey,

@@ -18,10 +18,12 @@ public record WorkflowDefinitionRequest(
     List<WorkflowTransitionRequest> Transitions
 );
 
+/// <param name="Position">İsteğe bağlı; tuval çizmeyen bir istemci göndermeyebilir.</param>
 public record WorkflowNodeRequest(
     string NodeKey,
     Guid FormId,
-    bool IsStart
+    bool IsStart,
+    WorkflowNodePositionContract? Position = null
 );
 
 /// <summary>

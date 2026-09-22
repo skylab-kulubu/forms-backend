@@ -399,7 +399,9 @@ public class FormWorkflowService : IFormWorkflowService
                 WorkflowVersionId = versionId,
                 FormId = node.FormId,
                 NodeKey = key,
-                IsStart = node.IsStart
+                IsStart = node.IsStart,
+                PositionX = node.Position?.X,
+                PositionY = node.Position?.Y
             });
         }
 
@@ -487,7 +489,10 @@ public class FormWorkflowService : IFormWorkflowService
                     node.FormId,
                     found ? header!.Title : "(silinmiş form)",
                     found && header!.RequiresManualReview,
-                    node.IsStart);
+                    node.IsStart,
+                    node.PositionX is { } x && node.PositionY is { } y
+                        ? new WorkflowNodePositionContract(x, y)
+                        : null);
             })
             .ToList();
 
