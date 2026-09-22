@@ -282,7 +282,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/forms/` | List the current user's forms |
+| `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow` |
 | `GET` | `/api/admin/forms/all` | List all forms for service administrators |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `GET` | `/api/admin/forms/{id}` | Get form details |

@@ -102,7 +102,7 @@ public sealed class FormRepository : IFormRepository
         return new PagedResult<FormSummaryContract>(forms, totalCount, request.Page, request.PageSize);
     }
 
-    private static IQueryable<Form> ApplyUserFormsSorting(IQueryable<Form> query, string? sortBy, string? sortDirection, Guid userId)
+    private IQueryable<Form> ApplyUserFormsSorting(IQueryable<Form> query, string? sortBy, string? sortDirection, Guid userId)
     {
         var ascending = string.Equals(sortDirection, "ascending", StringComparison.OrdinalIgnoreCase);
 
@@ -117,6 +117,23 @@ public sealed class FormRepository : IFormRepository
             "userrole" => ascending
                 ? query.OrderBy(f => f.Collaborators.Where(c => c.UserId == userId).Select(c => c.Role).FirstOrDefault())
                 : query.OrderByDescending(f => f.Collaborators.Where(c => c.UserId == userId).Select(c => c.Role).FirstOrDefault()),
+            // Listedeki "Akış" kolonuyla aynı seçim: yayındaki üyelik taslağı bastırır,
+            // arşivlenmişler sayılmaz. Akışta olmayan formlar null olarak sona düşer.
+            "workflow" => ascending
+                ? query.OrderBy(f => _context.WorkflowNodes
+                    .Where(n => n.FormId == f.Id)
+                    .Where(n => n.WorkflowVersion.Status != WorkflowStatus.Archived)
+                    .Where(n => n.WorkflowVersion.Workflow.Status != WorkflowStatus.Archived)
+                    .OrderByDescending(n => n.WorkflowVersion.Status == WorkflowStatus.Published)
+                    .Select(n => n.WorkflowVersion.Workflow.Name)
+                    .FirstOrDefault())
+                : query.OrderByDescending(f => _context.WorkflowNodes
+                    .Where(n => n.FormId == f.Id)
+                    .Where(n => n.WorkflowVersion.Status != WorkflowStatus.Archived)
+                    .Where(n => n.WorkflowVersion.Workflow.Status != WorkflowStatus.Archived)
+                    .OrderByDescending(n => n.WorkflowVersion.Status == WorkflowStatus.Published)
+                    .Select(n => n.WorkflowVersion.Workflow.Name)
+                    .FirstOrDefault()),
             _ => ascending
                 ? query.OrderBy(f => f.UpdatedAt ?? f.CreatedAt)
                 : query.OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt),
