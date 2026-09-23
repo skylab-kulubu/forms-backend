@@ -284,8 +284,8 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow` |
-| `GET` | `/api/admin/forms/all` | List all forms for service administrators |
+| `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow`. `AllowMultiple` and `RequiresManualReview` match a form in a published workflow on the workflow's and the step's settings |
+| `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
 | `PUT` | `/api/admin/forms/{id}` | Update a form |

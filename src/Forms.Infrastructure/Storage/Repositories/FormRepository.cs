@@ -70,11 +70,7 @@ public sealed class FormRepository : IFormRepository
         if (request.AllowAnonymous.HasValue)
             query = query.Where(f => f.AllowAnonymousResponses == request.AllowAnonymous.Value);
 
-        if (request.AllowMultiple.HasValue)
-            query = query.Where(f => f.AllowMultipleResponses == request.AllowMultiple.Value);
-
-        if (request.RequiresManualReview.HasValue)
-            query = query.Where(f => f.RequiresManualReview == request.RequiresManualReview.Value);
+        query = ApplyWorkflowAwareFilters(query, request.AllowMultiple, request.RequiresManualReview);
 
         query = ApplyUserFormsSorting(query, request.SortBy, request.SortDirection, userId);
 
@@ -142,6 +138,34 @@ public sealed class FormRepository : IFormRepository
         return ordered.ThenBy(f => f.Id);
     }
 
+    /// <summary>
+    /// Yayındaki bir akışın adımı olan formda geçerli olan, formun kendi ayarı değil
+    /// akışın tekrar ayarı ve adımın onay ayarıdır; süzme de onlara bakar. Yalnız
+    /// taslakta yer alan form hâlâ tek başına çalıştığı için kendi ayarıyla süzülür.
+    /// </summary>
+    private IQueryable<Form> ApplyWorkflowAwareFilters(IQueryable<Form> query, bool? allowMultiple, bool? requiresManualReview)
+    {
+        var liveNodes = _context.WorkflowNodes
+            .Where(n => n.WorkflowVersion.Status == WorkflowStatus.Published)
+            .Where(n => n.WorkflowVersion.Workflow.Status != WorkflowStatus.Archived);
+
+        if (allowMultiple is { } multiple)
+        {
+            query = query.Where(f =>
+                liveNodes.Any(n => n.FormId == f.Id && n.WorkflowVersion.Workflow.AllowMultipleRuns == multiple)
+                || (!liveNodes.Any(n => n.FormId == f.Id) && f.AllowMultipleResponses == multiple));
+        }
+
+        if (requiresManualReview is { } review)
+        {
+            query = query.Where(f =>
+                liveNodes.Any(n => n.FormId == f.Id && n.RequiresManualReview == review)
+                || (!liveNodes.Any(n => n.FormId == f.Id) && f.RequiresManualReview == review));
+        }
+
+        return query;
+    }
+
     public async Task<PagedResult<FormAllSummaryProjection>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken ct = default)
     {
         var query = _context.Forms.AsNoTracking()
@@ -153,11 +177,7 @@ public sealed class FormRepository : IFormRepository
         if (request.AllowAnonymous.HasValue)
             query = query.Where(f => f.AllowAnonymousResponses == request.AllowAnonymous.Value);
 
-        if (request.AllowMultiple.HasValue)
-            query = query.Where(f => f.AllowMultipleResponses == request.AllowMultiple.Value);
-
-        if (request.RequiresManualReview.HasValue)
-            query = query.Where(f => f.RequiresManualReview == request.RequiresManualReview.Value);
+        query = ApplyWorkflowAwareFilters(query, request.AllowMultiple, request.RequiresManualReview);
 
         query = request.SortDirection?.ToLower() == "ascending"
             ? query.OrderBy(f => f.UpdatedAt ?? f.CreatedAt)

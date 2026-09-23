@@ -345,6 +345,9 @@ public class FormService : IFormService
         var users = await _userService.GetUsersAsync(ownerIds, cancellationToken);
         var userMap = users.ToDictionary(u => u.Id);
 
+        var memberships = await _workflows.GetFormMembershipsAsync(
+            [.. raw.Items.Select(form => form.Id)], cancellationToken);
+
         var forms = raw.Items.Select(f =>
         {
             userMap.TryGetValue(f.OwnerUserId, out var owner);
@@ -356,6 +359,7 @@ public class FormService : IFormService
                 f.AllowAnonymousResponses,
                 f.AllowMultipleResponses,
                 f.RequiresManualReview,
+                memberships.TryGetValue(f.Id, out var membership) ? ToWorkflowRef(membership) : null,
                 f.CreatedAt,
                 f.UpdatedAt,
                 f.ResponseCount

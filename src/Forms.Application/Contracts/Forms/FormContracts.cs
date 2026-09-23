@@ -53,6 +53,7 @@ public record FormAllSummaryContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     bool RequiresManualReview,
+    FormWorkflowRefContract? Workflow,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     int ResponseCount,
