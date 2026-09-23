@@ -78,12 +78,15 @@ public interface IFormWorkflowRepository
 }
 
 /// <param name="IsPublished">Üyelik yayında mı? Kilitler yalnız yayındayken geçerlidir.</param>
+/// <param name="RequiresManualReview">Üyeliğin bildirildiği sürümdeki adımın onay ayarı.</param>
 /// <param name="LockedQuestions">Yönlendirme koşullarının dayandığı sorular ve değerler.</param>
 public sealed record WorkflowFormMembership(
     Guid WorkflowId,
     string WorkflowName,
     bool IsStart,
     bool IsPublished,
+    bool AllowMultipleRuns,
+    bool RequiresManualReview,
     IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions);
 
 /// <summary>

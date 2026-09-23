@@ -59,23 +59,16 @@ public record FormAllSummaryContract(
     EventRefContract? Event = null
 );
 
-/// <summary>
-/// Formun hangi akışta yer aldığı. Akışta değilse null. Yayınlanmış bir akışta yer
-/// alıyorsa LockedQuestions, yönlendirmenin dayandığı soruları ve o soruların
-/// değiştirilemeyecek seçenek adlarını verir.
-/// </summary>
 public record FormWorkflowRefContract(
     Guid Id,
     string Name,
     bool IsStart,
     bool IsPublished,
+    bool AllowMultipleRuns,
+    bool RequiresManualReview,
     List<FormLockedQuestionContract> LockedQuestions
 );
 
-/// <param name="Values">
-/// Koşulun karşılaştırdığı seçenek adları. Cevaplar seçeneğin görünen adıyla
-/// saklandığı için bu adları değiştirmek yönlendirmeyi sessizce bozar.
-/// </param>
 public record FormLockedQuestionContract(
     string Id,
     List<string> Values

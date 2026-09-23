@@ -532,6 +532,8 @@ public class FormService : IFormService
                 membership.WorkflowName,
                 membership.IsStart,
                 membership.IsPublished,
+                membership.AllowMultipleRuns,
+                membership.RequiresManualReview,
                 [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
     private static List<FormSchemaItem> DisplaySchema(Form form) =>

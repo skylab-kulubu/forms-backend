@@ -65,10 +65,12 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.FormId,
                 node.NodeKey,
                 node.IsStart,
+                node.RequiresManualReview,
                 node.WorkflowVersionId,
                 IsPublished = node.WorkflowVersion.Status == WorkflowStatus.Published,
                 node.WorkflowVersion.WorkflowId,
-                WorkflowName = node.WorkflowVersion.Workflow.Name
+                WorkflowName = node.WorkflowVersion.Workflow.Name,
+                node.WorkflowVersion.Workflow.AllowMultipleRuns
             })
             .ToListAsync(ct);
 
@@ -96,6 +98,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 entry.Value.WorkflowName,
                 entry.Value.IsStart,
                 entry.Value.IsPublished,
+                entry.Value.AllowMultipleRuns,
+                entry.Value.RequiresManualReview,
                 entry.Value.IsPublished && lockedByNodeKey.TryGetValue(entry.Value.NodeKey, out var locked)
                     ? [.. locked.Select(question => new WorkflowLockedQuestion(question.Key, question.Value))]
                     : []));
