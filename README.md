@@ -325,7 +325,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection` |
+| `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |

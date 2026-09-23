@@ -10,11 +10,13 @@ public record WorkflowUpsertRequest(
 );
 
 /// <summary>Liste sorgusu; sıralama her zaman son güncellemeye göredir.</summary>
+/// <param name="ShowArchived">Arşivlenmiş akışlar yalnız açıkça istenince listelenir.</param>
 public record GetWorkflowsRequest(
     int Page = 1,
     int PageSize = 10,
     string? Search = null,
-    string SortDirection = "descending"
+    string SortDirection = "descending",
+    bool ShowArchived = false
 );
 
 /// <param name="Intake">Boş gelen istek reddedilir; eksik bir alan akışı sessizce yeniden açmasın.</param>

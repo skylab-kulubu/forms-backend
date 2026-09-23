@@ -221,6 +221,9 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
         var query = _context.Workflows.AsNoTracking()
             .Where(workflow => workflow.OwnerUserId == ownerUserId);
 
+        if (!request.ShowArchived)
+            query = query.Where(workflow => workflow.Status != WorkflowStatus.Archived);
+
         if (!string.IsNullOrWhiteSpace(request.Search))
             query = query.Where(workflow => EF.Functions.ILike(workflow.Name, $"%{request.Search.Trim()}%"));
 
