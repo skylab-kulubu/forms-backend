@@ -34,7 +34,13 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
         var instance = await _context.WorkflowInstances.AsNoTracking()
             .Where(candidate => candidate.WorkflowId == workflowId && candidate.UserId == userId)
             .OrderByDescending(candidate => candidate.StartedAt)
-            .Select(candidate => new { candidate.Id, candidate.Status, candidate.Outcome })
+            .Select(candidate => new
+            {
+                candidate.Id,
+                candidate.Status,
+                candidate.Outcome,
+                LastSequence = candidate.Steps.Max(step => (int?)step.Sequence) ?? 0
+            })
             .FirstOrDefaultAsync(ct);
 
         if (instance is null) return null;
@@ -47,7 +53,13 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .Select(step => new { step.Response!.ReviewNote, step.Response.ReviewedAt })
             .FirstOrDefaultAsync(ct);
 
-        return new WorkflowRunSummary(instance.Id, instance.Status, instance.Outcome, review?.ReviewNote, review?.ReviewedAt);
+        return new WorkflowRunSummary(
+            instance.Id,
+            instance.Status,
+            instance.Outcome,
+            instance.LastSequence,
+            review?.ReviewNote,
+            review?.ReviewedAt);
     }
 
     public Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default) =>

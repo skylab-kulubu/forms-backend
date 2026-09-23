@@ -311,7 +311,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 ? WorkflowActionState.Declined
                 : WorkflowActionState.Completed;
 
-        var outcome = new WorkflowStepOutcome(run.InstanceId, state, 0, null, startFormId, run.ReviewNote, run.ReviewedAt);
+        var outcome = new WorkflowStepOutcome(run.InstanceId, state, run.LastSequence, null, startFormId, run.ReviewNote, run.ReviewedAt);
 
         return Result(outcome, state == WorkflowActionState.Declined
             ? "Başvurunuz reddedilmiştir."

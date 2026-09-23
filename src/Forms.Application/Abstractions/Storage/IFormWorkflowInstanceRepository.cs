@@ -58,9 +58,11 @@ public sealed record ResponseWorkflowStepProjection(
     Guid? ResponseId,
     FormResponseStatus? Status);
 
+/// <param name="LastSequence">Başvurunun ulaştığı son adımın sıra numarası.</param>
 public sealed record WorkflowRunSummary(
     Guid InstanceId,
     WorkflowInstanceStatus Status,
     WorkflowInstanceOutcome Outcome,
+    int LastSequence,
     string? ReviewNote,
     DateTime? ReviewedAt);
