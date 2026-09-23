@@ -17,6 +17,9 @@ public record GetWorkflowsRequest(
     string SortDirection = "descending"
 );
 
+/// <param name="Intake">Boş gelen istek reddedilir; eksik bir alan akışı sessizce yeniden açmasın.</param>
+public record WorkflowIntakeRequest(WorkflowIntake? Intake);
+
 /// <summary>
 /// Taslak tanımın tamamı. Editör parça güncelleme yapamaz: yarım bir graf hiçbir
 /// zaman kaydedilmesin diye node ve yönlendirme listeleri birlikte gelir.

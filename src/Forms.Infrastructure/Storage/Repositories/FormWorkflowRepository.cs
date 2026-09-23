@@ -32,6 +32,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.NodeKey,
                 node.IsStart,
                 node.WorkflowVersion.Workflow.AllowMultipleRuns,
+                node.WorkflowVersion.Workflow.Intake,
                 node.WorkflowVersion.Nodes.Count,
                 node.WorkflowVersion.Nodes.Where(start => start.IsStart).Select(start => start.FormId).FirstOrDefault()))
             .FirstOrDefaultAsync(ct);
@@ -70,7 +71,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 IsPublished = node.WorkflowVersion.Status == WorkflowStatus.Published,
                 node.WorkflowVersion.WorkflowId,
                 WorkflowName = node.WorkflowVersion.Workflow.Name,
-                node.WorkflowVersion.Workflow.AllowMultipleRuns
+                node.WorkflowVersion.Workflow.AllowMultipleRuns,
+                node.WorkflowVersion.Workflow.Intake
             })
             .ToListAsync(ct);
 
@@ -99,6 +101,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 entry.Value.IsStart,
                 entry.Value.IsPublished,
                 entry.Value.AllowMultipleRuns,
+                entry.Value.Intake,
                 entry.Value.RequiresManualReview,
                 entry.Value.IsPublished && lockedByNodeKey.TryGetValue(entry.Value.NodeKey, out var locked)
                     ? [.. locked.Select(question => new WorkflowLockedQuestion(question.Key, question.Value))]
@@ -239,6 +242,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 workflow.Name,
                 workflow.Status,
                 workflow.AllowMultipleRuns,
+                workflow.Intake,
                 PublishedVersion = workflow.Versions
                     .Where(version => version.Status == WorkflowStatus.Published)
                     .Select(version => (int?)version.Version)
@@ -274,6 +278,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             row.Name,
             row.Status,
             row.AllowMultipleRuns,
+            row.Intake,
             row.PublishedVersion.HasValue ? row.PublishedStartFormId : row.DraftStartFormId,
             row.PublishedVersion.HasValue ? row.PublishedNodeCount : row.DraftNodeCount,
             row.PublishedVersion,

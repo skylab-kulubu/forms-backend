@@ -12,17 +12,20 @@ namespace Skylab.Forms.Application.Services.Workflows;
 public class FormWorkflowService : IFormWorkflowService
 {
     private readonly IFormWorkflowRepository _workflows;
+    private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormsUnitOfWork _uow;
     private readonly IExternalUserService _userService;
     private readonly ICurrentUserService _currentUserService;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
+        IFormWorkflowInstanceRepository instances,
         IFormsUnitOfWork uow,
         IExternalUserService userService,
         ICurrentUserService currentUserService)
     {
         _workflows = workflows;
+        _instances = instances;
         _uow = uow;
         _userService = userService;
         _currentUserService = currentUserService;
@@ -75,6 +78,29 @@ public class FormWorkflowService : IFormWorkflowService
         return await BuildContractAsync(workflow, cancellationToken);
     }
 
+    public async Task<ServiceResult<WorkflowContract>> UpdateIntakeAsync(
+        Guid workflowId,
+        WorkflowIntakeRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = await _workflows.GetForEditAsync(workflowId, cancellationToken);
+        if (workflow is null) return NotFound<WorkflowContract>();
+        if (workflow.OwnerUserId != userId) return NotOwner<WorkflowContract>();
+
+        if (workflow.Status == WorkflowStatus.Archived)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akış yeniden açılamaz.");
+
+        if (request.Intake is not { } intake || !Enum.IsDefined(intake))
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Geçersiz başvuru durumu.");
+
+        workflow.Intake = intake;
+
+        await _uow.SaveChangesAsync(cancellationToken);
+
+        return await BuildContractAsync(workflow, cancellationToken);
+    }
+
     public async Task<ServiceResult<WorkflowContract>> GetAsync(
         Guid workflowId,
         Guid userId,
@@ -111,6 +137,7 @@ public class FormWorkflowService : IFormWorkflowService
                 workflow.Name,
                 workflow.Status,
                 workflow.AllowMultipleRuns,
+                workflow.Intake,
                 ToFormRef(workflow.StartFormId, headers),
                 workflow.NodeCount,
                 workflow.PublishedVersion,
@@ -348,10 +375,11 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow.OwnerUserId != userId) return NotOwner<bool>();
 
         workflow.Status = WorkflowStatus.Archived;
+        workflow.Intake = WorkflowIntake.Closed;
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular etkilenmedi.");
+        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular durduruldu.");
     }
 
     /// <summary>
@@ -481,6 +509,8 @@ public class FormWorkflowService : IFormWorkflowService
             workflow.Description,
             workflow.Status,
             workflow.AllowMultipleRuns,
+            workflow.Intake,
+            await _instances.CountActiveAsync(workflow.Id, cancellationToken),
             owner,
             ToVersionContract(draft, headers),
             ToVersionContract(published, headers),

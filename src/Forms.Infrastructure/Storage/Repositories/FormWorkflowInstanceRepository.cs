@@ -18,6 +18,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
     public Task<FormWorkflowInstance?> GetActiveByFormAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
         _context.WorkflowInstances
             .Include(instance => instance.Steps)
+            .Include(instance => instance.Workflow)
             .Where(instance => instance.UserId == userId && instance.Status == WorkflowInstanceStatus.Active)
             .Where(instance => _context.WorkflowNodes
                 .Any(node => node.WorkflowVersionId == instance.WorkflowVersionId && node.FormId == formId))
@@ -61,6 +62,10 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             review?.ReviewNote,
             review?.ReviewedAt);
     }
+
+    public Task<int> CountActiveAsync(Guid workflowId, CancellationToken ct = default) =>
+        _context.WorkflowInstances.AsNoTracking()
+            .CountAsync(instance => instance.WorkflowId == workflowId && instance.Status == WorkflowInstanceStatus.Active, ct);
 
     public Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default) =>
         _context.WorkflowSteps.AsNoTracking()

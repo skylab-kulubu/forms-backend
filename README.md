@@ -142,7 +142,7 @@ Dynamic form creation and response management service.
 | `Responses` | User responses, review information, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
-| `Workflows` | Workflow header: name, owner, and repeat-run setting |
+| `Workflows` | Workflow header: name, owner, repeat-run setting, and intake |
 | `WorkflowVersions` | One frozen graph per version, in draft, published, or archived state |
 | `WorkflowNodes` | The forms a version chains, which one starts the flow, and whether each step needs review |
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
@@ -165,7 +165,7 @@ Form 1 ───────────────┤                         
 
 | Entity | Holds |
 |--------|-------|
-| `FormWorkflow` | Name, owner, and whether one user may run the flow more than once |
+| `FormWorkflow` | Name, owner, whether one user may run the flow more than once, and whom it lets in |
 | `FormWorkflowVersion` | One frozen copy of the graph, in `Draft`, `Published`, or `Archived` |
 | `FormWorkflowNode` | One step: the form it shows, its `NodeKey`, whether it starts the flow |
 | `FormWorkflowTransition` | One route out of a node: trigger, optional condition, priority, target |
@@ -229,6 +229,22 @@ A step with no `CompletedAt` is the step the application is waiting on. When tha
 
 Opening the workflow's **start form** resumes an application at whatever step it reached. Opening another node's form directly is refused, so a shared link cannot skip a step or enter a branch that was never chosen.
 
+### Intake
+
+`FormWorkflow.Intake` decides who may still move through a workflow. It lives on the workflow rather than on a version, so a change takes effect at once without publishing and also reaches applications bound to older versions.
+
+| Value | New applications | Running applications |
+|-------|------------------|----------------------|
+| `Open` (0) | Start as usual | Continue |
+| `NewRunsClosed` (1) | Refused with `newRunsClosed` | Continue |
+| `Closed` (2) | Refused with `workflowClosed` | Stopped with `workflowClosed` at the next form to fill in |
+
+Displaying or submitting a refused form returns `410` with `reason`, `stage`, and `startFormId` in `data`. `stage` is `0` for someone who has not started and the current step's sequence for a stopped application, which is how the client tells the two apart. A refused submission saves nothing.
+
+The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes.
+
+Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change.
+
 ### What the database enforces
 
 These are constraints rather than checks in code, so a race cannot get past them.
@@ -257,7 +273,7 @@ The forms themselves must also hold up: each must exist, be open, reject anonymo
 
 ### Forms used by a published workflow
 
-Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, open the form to anonymous answers, close it, or delete it.
+Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, open the form to anonymous answers, close it, or delete it. A workflow is stopped through its intake, not by closing its forms one by one.
 
 The review setting is not locked because a step carries its own. The form's value applies only when the form is used on its own, and it is the default for a step added without one. Turning review on in a new version leaves running applications alone, since each stays on the version it started on.
 
@@ -311,14 +327,15 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 |--------|----------|-------------|
 | `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection` |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
-| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions |
+| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
+| `PUT` | `/api/admin/workflows/{id}/intake` | Set the intake (`0` open, `1` closed to new applications, `2` closed) from a body such as `{ "intake": 1 }` |
 | `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting |
 | `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
-| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow, leaving running applications alone |
+| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications |
 
 ### Component Groups - Admin
 

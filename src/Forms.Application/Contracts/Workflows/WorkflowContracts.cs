@@ -4,6 +4,7 @@ using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Contracts.Workflows;
 
+/// <param name="ActiveRunCount">Devam eden başvuru sayısı; kapatma onayı bunu gösterir.</param>
 /// <param name="Draft">Düzenlenebilir sürüm; yoksa editör yayındakinden başlar.</param>
 public record WorkflowContract(
     Guid Id,
@@ -11,6 +12,8 @@ public record WorkflowContract(
     string? Description,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
+    int ActiveRunCount,
     UserContract Owner,
     WorkflowVersionContract? Draft,
     WorkflowVersionContract? Published,
@@ -61,6 +64,7 @@ public record WorkflowSummaryContract(
     string Name,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     WorkflowFormRefContract? StartForm,
     int NodeCount,
     int? PublishedVersion,

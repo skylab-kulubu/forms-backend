@@ -6,6 +6,7 @@ namespace Skylab.Forms.Application.Contracts;
 /// <param name="Step">Legacy bağlı form akışının 1..5 aşaması; akış motorunda 0.</param>
 /// <param name="State">Akış motoru işlemiyorsa null.</param>
 /// <param name="Stage">Başvurunun kaçıncı adımında olduğu; grafikten değil adımdan gelir.</param>
+/// <param name="Reason">Akış kapalıysa sebebin kodu: newRunsClosed ya da workflowClosed.</param>
 public record FormDisplayPayload(
     FormDisplayContract? Form,
     int Step,
@@ -14,5 +15,6 @@ public record FormDisplayPayload(
     Guid? InstanceId = null,
     WorkflowActionState? State = null,
     int Stage = 0,
-    Guid? StartFormId = null
+    Guid? StartFormId = null,
+    string? Reason = null
 );

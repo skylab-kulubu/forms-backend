@@ -55,6 +55,7 @@ public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);
 /// <param name="LinkedFormId">Legacy bağlı form akışının hedefi; akış motorunda null.</param>
 /// <param name="Step">Legacy 1..5 aşaması; akış motorunda 0.</param>
 /// <param name="StartFormId">Başvuruyu kaldığı yerden sürdüren form.</param>
+/// <param name="Reason">Akış kapalıysa sebebin kodu: newRunsClosed ya da workflowClosed.</param>
 public record ResponseSubmitResult(
     Guid? ResponseId,
     Guid? LinkedFormId,
@@ -63,7 +64,8 @@ public record ResponseSubmitResult(
     WorkflowActionState? State = null,
     int Stage = 0,
     Guid? NextFormId = null,
-    Guid? StartFormId = null
+    Guid? StartFormId = null,
+    string? Reason = null
 );
 
 public record ResponseSummaryContract(

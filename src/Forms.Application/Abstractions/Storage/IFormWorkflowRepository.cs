@@ -86,6 +86,7 @@ public sealed record WorkflowFormMembership(
     bool IsStart,
     bool IsPublished,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     bool RequiresManualReview,
     IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions);
 
@@ -108,6 +109,7 @@ public sealed record WorkflowNodeLocation(
     string NodeKey,
     bool IsStart,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     int NodeCount,
     Guid StartFormId);
 
@@ -129,6 +131,7 @@ public sealed record WorkflowSummaryProjection(
     string Name,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     Guid? StartFormId,
     int NodeCount,
     int? PublishedVersion,

@@ -9,7 +9,8 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>
     /// Kullanıcının bu formu içeren aktif başvurusu. Arama form üzerinden yapılır
     /// çünkü başvuru, yayındaki tanımdan daha eski bir version'a bağlı olabilir.
-    /// Yazma için izlenen (tracked) varlık döner.
+    /// Yazma için izlenen (tracked) varlık döner; akışın güncel kabul durumu
+    /// okunabilsin diye Workflow da yüklenir.
     /// </summary>
     Task<FormWorkflowInstance?> GetActiveByFormAsync(Guid formId, Guid userId, CancellationToken ct = default);
 
@@ -22,6 +23,8 @@ public interface IFormWorkflowInstanceRepository
     /// inceleme notunu karşılar.
     /// </summary>
     Task<WorkflowRunSummary?> GetLastRunAsync(Guid workflowId, Guid userId, CancellationToken ct = default);
+
+    Task<int> CountActiveAsync(Guid workflowId, CancellationToken ct = default);
 
     /// <summary>Cevap, rotası henüz belirlenmemiş bir adıma mı bağlı?</summary>
     Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default);

@@ -66,6 +66,7 @@ public record FormWorkflowRefContract(
     bool IsStart,
     bool IsPublished,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     bool RequiresManualReview,
     List<FormLockedQuestionContract> LockedQuestions
 );

@@ -57,13 +57,26 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 isTwoStepFlow);
         }
 
+        // Cevabı olan ama kapanmamış adım, incelemeyi bekleyen adımdır.
+        if (openStep.ResponseId is not null)
+        {
+            return Result(
+                new WorkflowStepOutcome(instance.Id, WorkflowActionState.AwaitingReview, openStep.Sequence, null, startFormId),
+                "Form cevabınız inceleniyor, lütfen bekleyiniz.",
+                isTwoStepFlow);
+        }
+
+        // İnceleme kapalı akışta da sürdüğü için bekleyen adım durmuş sayılmaz;
+        // durdurma yalnız doldurulacak formu kapsar.
+        if (instance.Workflow.Intake == WorkflowIntake.Closed)
+            return IntakeClosed(WorkflowIntake.Closed, instance.Id, openStep.Sequence, startFormId, isTwoStepFlow);
+
         var openNode = definition.Nodes.First(candidate => candidate.Id == openStep.NodeId);
 
-        // Cevabı olan ama kapanmamış adım, incelemeyi bekleyen adımdır.
-        return openStep.ResponseId is null
-            ? Result(new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId, startFormId), null, isTwoStepFlow)
-            : Result(new WorkflowStepOutcome(instance.Id, WorkflowActionState.AwaitingReview, openStep.Sequence, null, startFormId),
-                "Form cevabınız inceleniyor, lütfen bekleyiniz.", isTwoStepFlow);
+        return Result(
+            new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId, startFormId),
+            null,
+            isTwoStepFlow);
     }
 
     public async Task<ServiceResult<WorkflowStepOutcome>> SubmitAsync(
@@ -97,6 +110,9 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                     ServiceStatus.NotAcceptable,
                     Message: "Bu akışı daha önce tamamladınız.");
             }
+
+            if (location.Intake != WorkflowIntake.Open)
+                return IntakeClosed(location.Intake, null, 0, location.StartFormId, location.NodeCount == 2);
 
             definition = await _workflows.GetDefinitionAsync(location.WorkflowVersionId, cancellationToken);
             if (definition is null) return DefinitionUnavailable();
@@ -143,6 +159,16 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 return new ServiceResult<WorkflowStepOutcome>(
                     ServiceStatus.NotAcceptable,
                     Message: "Bu adımı zaten cevapladınız.");
+            }
+
+            if (instance.Workflow.Intake == WorkflowIntake.Closed)
+            {
+                return IntakeClosed(
+                    WorkflowIntake.Closed,
+                    instance.Id,
+                    openStep.Sequence,
+                    definition.Nodes.First(candidate => candidate.IsStart).FormId,
+                    definition.Nodes.Count == 2);
             }
 
             step = openStep;
@@ -297,7 +323,11 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 isTwoStepFlow);
         }
 
+        // Sonuçlanmış başvuru kabul durumundan önce gelir: akış kapansa da sonucu görünsün.
         if (lastRun is not null && !location.AllowMultipleRuns) return ClosedRun(lastRun, isTwoStepFlow, location.StartFormId);
+
+        if (location.Intake != WorkflowIntake.Open)
+            return IntakeClosed(location.Intake, null, 0, location.StartFormId, isTwoStepFlow);
 
         return Result(new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId, location.StartFormId), null, isTwoStepFlow);
     }
@@ -316,6 +346,31 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         return Result(outcome, state == WorkflowActionState.Declined
             ? "Başvurunuz reddedilmiştir."
             : MessageFor(outcome), isTwoStepFlow);
+    }
+
+    /// <summary>Akış kapalıyken dönen yanıt; stage sıfırsa kullanıcı henüz başlamamıştır.</summary>
+    private static ServiceResult<WorkflowStepOutcome> IntakeClosed(
+        WorkflowIntake intake,
+        Guid? instanceId,
+        int stage,
+        Guid startFormId,
+        bool isTwoStepFlow)
+    {
+        var newRunsOnly = intake == WorkflowIntake.NewRunsClosed;
+
+        var outcome = new WorkflowStepOutcome(
+            instanceId,
+            WorkflowActionState.Closed,
+            stage,
+            null,
+            startFormId,
+            Reason: newRunsOnly ? WorkflowClosedReason.NewRunsClosed : WorkflowClosedReason.WorkflowClosed);
+
+        var message = newRunsOnly
+            ? "Bu akış yeni başvurulara kapatıldı."
+            : stage > 0 ? "Akış kapatıldığı için başvurunuz durduruldu." : "Bu akış kapatıldı.";
+
+        return Result(outcome, message, isTwoStepFlow);
     }
 
     /// <summary>
@@ -452,6 +507,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             WorkflowActionState.Declined => ServiceStatus.Declined,
             WorkflowActionState.Faulted => ServiceStatus.ConfigurationError,
             WorkflowActionState.RequiresPreviousStep => ServiceStatus.RequiresParentApproval,
+            WorkflowActionState.Closed => ServiceStatus.NotAvailable,
             _ => ServiceStatus.Success
         }, outcome, message);
 

@@ -493,7 +493,8 @@ public class FormService : IFormService
             outcome.InstanceId,
             outcome.State,
             outcome.Stage,
-            outcome.StartFormId);
+            outcome.StartFormId,
+            outcome.Reason);
 
         return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
     }
@@ -537,6 +538,7 @@ public class FormService : IFormService
                 membership.IsStart,
                 membership.IsPublished,
                 membership.AllowMultipleRuns,
+                membership.Intake,
                 membership.RequiresManualReview,
                 [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
