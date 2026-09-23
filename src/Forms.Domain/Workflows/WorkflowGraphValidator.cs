@@ -59,7 +59,7 @@ public static class WorkflowGraphValidator
                 node.NodeKey));
         }
 
-        ValidateTriggerGroups(transitions, nodesById, formsByFormId, errors);
+        ValidateTriggerGroups(transitions, nodesById, errors);
         ValidateConditions(transitions, nodesById, nodesByKey, formsByFormId, graph, errors);
 
         return errors;
@@ -193,15 +193,13 @@ public static class WorkflowGraphValidator
     private static void ValidateTriggerGroups(
         IReadOnlyList<FormWorkflowTransition> transitions,
         IReadOnlyDictionary<Guid, FormWorkflowNode> nodesById,
-        IReadOnlyDictionary<Guid, WorkflowNodeForm> formsByFormId,
         List<WorkflowValidationError> errors)
     {
         foreach (var group in transitions.GroupBy(transition => new { transition.SourceNodeId, transition.Trigger }))
         {
             var node = nodesById[group.Key.SourceNodeId];
-            var form = formsByFormId.TryGetValue(node.FormId, out var found) ? found : WorkflowNodeForm.Missing;
 
-            if (form.Exists) ValidateTrigger(group.Key.Trigger, node, form, errors);
+            ValidateTrigger(group.Key.Trigger, node, errors);
 
             var defaultRoutes = group.Where(transition => transition.IsDefaultRoute).ToList();
             var conditionals = group.Where(transition => !transition.IsDefaultRoute).ToList();
@@ -241,10 +239,9 @@ public static class WorkflowGraphValidator
     private static void ValidateTrigger(
         WorkflowTransitionTrigger trigger,
         FormWorkflowNode node,
-        WorkflowNodeForm form,
         List<WorkflowValidationError> errors)
     {
-        var triggerIsAllowed = form.RequiresManualReview
+        var triggerIsAllowed = node.RequiresManualReview
             ? trigger is WorkflowTransitionTrigger.ResponseApproved or WorkflowTransitionTrigger.ResponseDeclined
             : trigger is WorkflowTransitionTrigger.ResponseSubmitted;
 
@@ -252,7 +249,7 @@ public static class WorkflowGraphValidator
 
         errors.Add(new WorkflowValidationError(
             "triggerNotAllowed",
-            form.RequiresManualReview
+            node.RequiresManualReview
                 ? $"'{node.NodeKey}' adımı onay gerektiriyor; yönlendirme yalnızca onay veya red sonrasına bağlanabilir."
                 : $"'{node.NodeKey}' adımı onay gerektirmiyor; yönlendirme yalnızca cevap gönderimine bağlanabilir.",
             node.NodeKey));

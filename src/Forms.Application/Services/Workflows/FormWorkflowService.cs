@@ -176,7 +176,17 @@ public class FormWorkflowService : IFormWorkflowService
             _workflows.Add(draft);
         }
 
-        var build = BuildGraph(draft.Id, request);
+        var unsetReviewFormIds = request.Nodes
+            .Where(node => node.RequiresManualReview is null)
+            .Select(node => node.FormId)
+            .Distinct()
+            .ToList();
+
+        var defaults = unsetReviewFormIds.Count == 0
+            ? new Dictionary<Guid, WorkflowFormHeader>()
+            : await _workflows.GetFormHeadersAsync(unsetReviewFormIds, cancellationToken);
+
+        var build = BuildGraph(draft.Id, request, defaults);
         if (build.Error is not null)
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: build.Error);
 
@@ -227,7 +237,7 @@ public class FormWorkflowService : IFormWorkflowService
                 return new WorkflowAvailableFormContract(
                     form.Id,
                     form.Title,
-                    facts.TryGetValue(form.Id, out var fact) && fact.RequiresManualReview,
+                    form.RequiresManualReview,
                     reason is null,
                     reason,
                     used.Contains(form.Id));
@@ -387,7 +397,8 @@ public class FormWorkflowService : IFormWorkflowService
 
     private static (List<FormWorkflowNode> Nodes, List<FormWorkflowTransition> Transitions, string? Error) BuildGraph(
         Guid versionId,
-        WorkflowDefinitionRequest request)
+        WorkflowDefinitionRequest request,
+        IReadOnlyDictionary<Guid, WorkflowFormHeader> defaults)
     {
         var nodes = new List<FormWorkflowNode>();
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -405,6 +416,8 @@ public class FormWorkflowService : IFormWorkflowService
                 FormId = node.FormId,
                 NodeKey = key,
                 IsStart = node.IsStart,
+                RequiresManualReview = node.RequiresManualReview
+                    ?? (defaults.TryGetValue(node.FormId, out var header) && header.RequiresManualReview),
                 PositionX = node.Position?.X,
                 PositionY = node.Position?.Y
             });
@@ -487,13 +500,11 @@ public class FormWorkflowService : IFormWorkflowService
         var nodes = version.Nodes
             .Select(node =>
             {
-                var found = headers.TryGetValue(node.FormId, out var header);
-
                 return new WorkflowNodeContract(
                     node.NodeKey,
                     node.FormId,
-                    found ? header!.Title : "(silinmiş form)",
-                    found && header!.RequiresManualReview,
+                    headers.TryGetValue(node.FormId, out var header) ? header.Title : "(silinmiş form)",
+                    node.RequiresManualReview,
                     node.IsStart,
                     node.PositionX is { } x && node.PositionY is { } y
                         ? new WorkflowNodePositionContract(x, y)

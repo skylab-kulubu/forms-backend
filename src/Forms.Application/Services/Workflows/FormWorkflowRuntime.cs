@@ -148,10 +148,13 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             step = openStep;
         }
 
+        // Cevap formun kendi ayarıyla kurulmuş gelir; akış içinde adımın ayarı geçerlidir.
+        response.Status = node.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict;
+
         _responses.Add(response);
         step.ResponseId = response.Id;
 
-        if (form.RequiresManualReview)
+        if (node.RequiresManualReview)
         {
             // Adım açık kalır: rota kararı inceleme sonucuna bırakılır.
             await _uow.SaveChangesAsync(cancellationToken);

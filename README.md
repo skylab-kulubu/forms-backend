@@ -144,7 +144,7 @@ Dynamic form creation and response management service.
 | `ComponentGroup` | Reusable form component templates |
 | `Workflows` | Workflow header: name, owner, and repeat-run setting |
 | `WorkflowVersions` | One frozen graph per version, in draft, published, or archived state |
-| `WorkflowNodes` | The forms a version chains, and which one starts the flow |
+| `WorkflowNodes` | The forms a version chains, which one starts the flow, and whether each step needs review |
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on |
 | `WorkflowSteps` | Each position in a run, with its response and the route chosen out of it |
@@ -182,7 +182,7 @@ Steps are addressed by **`NodeKey`**, not by id. Node ids are regenerated for ev
 | `ResponseApproved` (1) | A reviewer approves the answer |
 | `ResponseDeclined` (2) | A reviewer declines the answer |
 
-A node's form decides which triggers are legal: a form that requires review may only route on approval or decline, and a form that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once.
+A node's own review setting decides which triggers are legal: a step that requires review may only route on approval or decline, and a step that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once.
 
 Within one trigger, transitions are evaluated by ascending `Priority` and the first matching condition wins. **A transition with no condition is the default route** and is always evaluated last, whatever its priority. A trigger with no transitions at all ends the flow, so a terminal step needs no configuration.
 
@@ -257,7 +257,9 @@ The forms themselves must also hold up: each must exist, be open, reject anonymo
 
 ### Forms used by a published workflow
 
-Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, change the review setting, open the form to anonymous answers, close it, or delete it.
+Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, open the form to anonymous answers, close it, or delete it.
+
+The review setting is not locked because a step carries its own. The form's value applies only when the form is used on its own, and it is the default for a step added without one. Turning review on in a new version leaves running applications alone, since each stays on the version it started on.
 
 One lock the backend cannot enforce: **the option labels a condition compares against**. Answers are stored as the option's visible text and the backend never reads the option list out of a question's `props`, so renaming an option silently stops the condition from matching. The form contract reports those labels so the editor can protect them.
 
@@ -311,7 +313,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
-| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched |
+| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting |
 | `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |

@@ -7,11 +7,10 @@ namespace Skylab.Forms.Domain.Workflows;
 public sealed record WorkflowNodeForm(
     bool Exists,
     bool IsOpen,
-    bool RequiresManualReview,
     bool AllowAnonymousResponses,
     bool WorkflowOwnerIsFormOwner,
     IReadOnlyCollection<string> QuestionIds)
 {
     public static readonly WorkflowNodeForm Missing =
-        new(false, false, false, false, false, Array.Empty<string>());
+        new(false, false, false, false, Array.Empty<string>());
 }

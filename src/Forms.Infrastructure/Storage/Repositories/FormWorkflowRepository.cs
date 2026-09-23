@@ -283,7 +283,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
         await _context.Forms.AsNoTracking()
             .Where(form => form.Collaborators.Any(c => c.UserId == ownerUserId && c.Role == CollaboratorRole.Owner))
             .OrderByDescending(form => form.UpdatedAt ?? form.CreatedAt)
-            .Select(form => new WorkflowCandidateForm(form.Id, form.Title))
+            .Select(form => new WorkflowCandidateForm(form.Id, form.Title, form.RequiresManualReview))
             .ToListAsync(ct);
 
     public async Task<IReadOnlyDictionary<Guid, WorkflowNodeForm>> GetNodeFormsAsync(
@@ -299,7 +299,6 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             {
                 form.Id,
                 form.Status,
-                form.RequiresManualReview,
                 form.AllowAnonymousResponses,
                 form.Schema,
                 IsOwner = form.Collaborators.Any(c => c.UserId == ownerUserId && c.Role == CollaboratorRole.Owner)
@@ -311,7 +310,6 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             form => new WorkflowNodeForm(
                 Exists: form.Status != FormStatus.Deleted,
                 IsOpen: form.Status == FormStatus.Open,
-                RequiresManualReview: form.RequiresManualReview,
                 AllowAnonymousResponses: form.AllowAnonymousResponses,
                 WorkflowOwnerIsFormOwner: form.IsOwner,
                 QuestionIds: [.. form.Schema.Select(item => item.Id)]));

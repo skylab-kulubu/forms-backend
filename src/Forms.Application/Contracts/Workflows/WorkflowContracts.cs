@@ -30,7 +30,8 @@ public record WorkflowVersionContract(
 );
 
 /// <param name="RequiresManualReview">
-/// Adımın formu onay gerektiriyor mu? Editörün hangi tetikleri sunacağını bu belirler.
+/// Adım onay gerektiriyor mu? Formun kendi ayarından bağımsızdır; editörün hangi
+/// tetikleri sunacağını bu belirler.
 /// </param>
 /// <param name="Position">Tuvaldeki yer; eski tanımlarda null gelir, istemci kendi yerleştirir.</param>
 public record WorkflowNodeContract(
@@ -77,8 +78,8 @@ public record WorkflowFormRefContract(
 /// formInAnotherWorkflow, formIsLegacyLinked. Doğrulama kodlarıyla aynı sözlük.
 /// </param>
 /// <param name="RequiresManualReview">
-/// Editör adımı eklediği anda doğru tetikleri (onay/ret ya da gönderim) çizebilsin
-/// diye form detayını beklemeden burada verilir.
+/// Formun kendi ayarı. Editör bunu yeni eklenen adımın varsayılanı olarak kullanır;
+/// adım eklendikten sonra kendi ayarını taşır.
 /// </param>
 public record WorkflowAvailableFormContract(
     Guid Id,

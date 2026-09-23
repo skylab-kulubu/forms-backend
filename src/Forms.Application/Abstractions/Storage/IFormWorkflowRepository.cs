@@ -47,7 +47,7 @@ public interface IFormWorkflowRepository
         Guid ownerUserId,
         CancellationToken ct = default);
 
-    /// <summary>Adım kartlarının ihtiyaç duyduğu form başlığı ve onay ayarı.</summary>
+    /// <summary>Adım kartlarının ihtiyaç duyduğu form başlığı ve formun kendi onay ayarı.</summary>
     Task<IReadOnlyDictionary<Guid, WorkflowFormHeader>> GetFormHeadersAsync(
         IReadOnlyCollection<Guid> formIds,
         CancellationToken ct = default);
@@ -132,6 +132,9 @@ public sealed record WorkflowSummaryProjection(
     bool HasUnpublishedChanges,
     DateTime? UpdatedAt);
 
-public sealed record WorkflowCandidateForm(Guid Id, string Title);
+public sealed record WorkflowCandidateForm(Guid Id, string Title, bool RequiresManualReview);
 
+/// <param name="RequiresManualReview">
+/// Formun kendi ayarı; yalnız onay ayarı gönderilmeyen yeni adımın varsayılanıdır.
+/// </param>
 public sealed record WorkflowFormHeader(string Title, bool RequiresManualReview);

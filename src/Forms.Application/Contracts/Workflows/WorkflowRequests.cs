@@ -27,11 +27,13 @@ public record WorkflowDefinitionRequest(
 );
 
 /// <param name="Position">İsteğe bağlı; tuval çizmeyen bir istemci göndermeyebilir.</param>
+/// <param name="RequiresManualReview">Boş gelirse adım, formun kendi onay ayarıyla kaydedilir.</param>
 public record WorkflowNodeRequest(
     string NodeKey,
     Guid FormId,
     bool IsStart,
-    WorkflowNodePositionContract? Position = null
+    WorkflowNodePositionContract? Position = null,
+    bool? RequiresManualReview = null
 );
 
 /// <summary>

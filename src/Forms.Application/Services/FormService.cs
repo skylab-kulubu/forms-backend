@@ -503,9 +503,6 @@ public class FormService : IFormService
         if (contract.Status != FormStatus.Open)
             return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; kapatılamaz.";
 
-        if (contract.RequiresManualReview != existingForm.RequiresManualReview)
-            return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; onay ayarı değiştirilemez.";
-
         if (contract.AllowAnonymousResponses)
             return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; anonim yanıtlara açılamaz.";
 

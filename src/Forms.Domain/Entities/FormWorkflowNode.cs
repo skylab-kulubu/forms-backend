@@ -23,6 +23,13 @@ public class FormWorkflowNode
     public bool IsStart { get; set; } = false;
 
     /// <summary>
+    /// Akış içindeki cevabın incelemeye düşüp düşmeyeceği. Formun kendi ayarı yalnız
+    /// form tek başına kullanılırken geçerlidir; ayar sürüme ait olduğu için devam
+    /// eden başvurular başladıkları sürümün değeriyle ilerler.
+    /// </summary>
+    public bool RequiresManualReview { get; set; } = false;
+
+    /// <summary>
     /// Editör tuvalindeki yer, istemci piksel biriminde. Grafın anlamına etkisi yok;
     /// doğrulama bakmaz, eski tanımlarda boş kalır ve istemci otomatik yerleştirir.
     /// </summary>
