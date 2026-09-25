@@ -9,8 +9,10 @@ public enum ServiceStatus
     Unauthorized = 401,
     NotAuthorized = 403,
     NotFound = 404,
+    Conflict = 409,
     NotAvailable = 410,
-    
+    ServiceUnavailable = 503,
+
     PendingApproval = 600,
     Approved = 601,
     Declined = 602,

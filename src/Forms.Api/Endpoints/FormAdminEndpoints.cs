@@ -7,6 +7,8 @@ using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Application.Contracts.ShortLinks;
+using Skylab.Forms.Application.Services.ShortLinks;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -148,6 +150,54 @@ public static class FormAdminEndpoints
 
             var result = await service.GetAnswerAnalyticsAsync(id, userId.Value, ct);
             return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/short-link", async (Guid id, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Kısa linki görmek için giriş yapmalısınız.");
+
+            var result = await service.GetAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/short-link", async (Guid id, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Formu paylaşmak için giriş yapmalısınız.");
+
+            var result = await service.EnsureAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPatch("/{id:guid}/short-link", async (Guid id, [FromBody] ShortLinkRenameRequest request, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Kısa adı değiştirmek için giriş yapmalısınız.");
+
+            var result = await service.RenameAsync(id, userId.Value, request.Alias, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/short-link/availability", async (Guid id, [FromQuery] string alias, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Giriş yapmalısınız.");
+
+            var result = await service.CheckAliasAsync(id, userId.Value, alias, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/short-link/qr", async (Guid id, [FromQuery] string? format, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Giriş yapmalısınız.");
+
+            var svg = string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase);
+            var result = await service.GetQrAsync(id, userId.Value, svg, ct);
+            if (result.Status.IsFailure() || result.Data is null) return result.ToApiResult();
+
+            return Results.File(result.Data.Content, result.Data.ContentType, result.Data.FileName);
         });
 
         group.MapGet("/responses/{id:guid}", async (Guid id, [FromQuery] string? token, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>

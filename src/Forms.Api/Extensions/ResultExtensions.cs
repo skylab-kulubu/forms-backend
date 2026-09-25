@@ -16,7 +16,9 @@ public static class ResultExtensions
         var (statusCode, fallback) = result.Status switch
         {
             ServiceStatus.NotFound => (404, "Kayıt bulunamadı."),
+            ServiceStatus.Conflict => (409, "Bu kayıt başka bir yerde kullanılıyor."),
             ServiceStatus.NotAvailable => (410, "Kayıt artık mevcut değil."),
+            ServiceStatus.ServiceUnavailable => (503, "Bağlı servis şu an yanıt vermiyor."),
             ServiceStatus.Unauthorized => (401, "Giriş yapmalısınız."),
             ServiceStatus.NotAuthorized => (403, "Bu işlem için yetkiniz yok."),
             ServiceStatus.NotAcceptable => (400, "Veriler yanlış veya eksik."),
