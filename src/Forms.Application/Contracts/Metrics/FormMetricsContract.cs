@@ -10,8 +10,13 @@ public record FormMetricsContract(
     double HourlyTrendPercentage,
     SourceBreakdownContract SourceBreakdown,
     List<TrendItemContract> DailyTrend,
-    List<TrendItemContract> HourlyTrend
+    List<TrendItemContract> HourlyTrend,
+    List<ChannelMetricContract>? Channels = null
 );
+
+/// <param name="Source">Normalize edilmiş utm_source; etiketsiz gelenler için null.</param>
+/// <param name="Clicks">Kısa linkin core'daki açılışları; core'a ulaşılamadıysa null.</param>
+public record ChannelMetricContract(string? Source, int Responses, int? Clicks);
 
 public record ServiceMetricsContract(
     int TotalForms,

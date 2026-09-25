@@ -1,4 +1,5 @@
 using Skylab.Forms.Application.Abstractions;
+using Skylab.Forms.Application.Attribution;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Caching;
@@ -13,17 +14,23 @@ public class FormMetricService : IFormMetricService
     // (a request that reads the DB just before a concurrent write repopulates the old snapshot).
     private static readonly TimeSpan AnalyticsCacheTtl = TimeSpan.FromSeconds(60);
 
+    // Core tıklamaları 90 gün saklıyor; yanıtlar da aynı pencereden sayılır ki dönüşüm tutarlı olsun.
+    private const int ChannelWindowDays = 90;
+    private static readonly TimeSpan LinkStatsCacheTtl = TimeSpan.FromMinutes(2);
+
     private readonly IFormRepository _forms;
     private readonly IFormMetricsRepository _metrics;
     private readonly ICurrentUserService _currentUserService;
     private readonly ICacheService _cache;
+    private readonly ICoreShortLinks _links;
 
-    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUserService currentUserService, ICacheService cache)
+    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUserService currentUserService, ICacheService cache, ICoreShortLinks links)
     {
         _forms = forms;
         _metrics = metrics;
         _currentUserService = currentUserService;
         _cache = cache;
+        _links = links;
     }
 
     public async Task<ServiceResult<FormAnswerAnalyticsContract>> GetAnswerAnalyticsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
@@ -62,6 +69,7 @@ public class FormMetricService : IFormMetricService
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun metriklerini görüntüleme yetkiniz yok.");
 
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);
+        var channels = await BuildChannelsAsync(formId, cancellationToken);
 
         var emptyDailyTrend = Enumerable.Range(0, 7).Select(offset =>
         {
@@ -81,7 +89,8 @@ public class FormMetricService : IFormMetricService
                 HourlyTrendPercentage: 0,
                 SourceBreakdown: new SourceBreakdownContract(0, 0),
                 DailyTrend: emptyDailyTrend,
-                HourlyTrend: new List<TrendItemContract>()
+                HourlyTrend: new List<TrendItemContract>(),
+                Channels: channels
             );
             return new ServiceResult<FormMetricsContract>(ServiceStatus.Success, Data: emptyMetrics);
         }
@@ -127,10 +136,58 @@ public class FormMetricService : IFormMetricService
             CalculateTrendPercentageChange(hourlyTrend),
             new SourceBreakdownContract(basicStats.Registered, basicStats.Anonymous),
             dailyTrend,
-            hourlyTrend
+            hourlyTrend,
+            channels
         );
 
         return new ServiceResult<FormMetricsContract>(ServiceStatus.Success, Data: result);
+    }
+
+    /// <summary>
+    /// Kanal başına yanıt (forms) ve tıklama (core) sayısı. Etiketsiz satırın kaynağı null ve
+    /// sonda durur; core'a ulaşılamazsa tıklamalar null döner, yanıtlar yine gelir.
+    /// </summary>
+    private async Task<List<ChannelMetricContract>> BuildChannelsAsync(Guid formId, CancellationToken cancellationToken)
+    {
+        var since = DateTime.UtcNow.AddDays(-ChannelWindowDays);
+        var responses = await _metrics.GetResponseSourceCountsAsync(formId, since, cancellationToken);
+        var stats = await GetLinkStatsAsync(formId, cancellationToken);
+
+        var rows = new Dictionary<string, (int Responses, int Clicks)>(StringComparer.Ordinal);
+        foreach (var item in responses)
+        {
+            var key = AttributionNormalizer.NormalizeSource(item.Source) ?? string.Empty;
+            var current = rows.GetValueOrDefault(key);
+            rows[key] = (current.Responses + item.Count, current.Clicks);
+        }
+        foreach (var item in stats?.Sources ?? [])
+        {
+            var key = AttributionNormalizer.NormalizeSource(item.Source) ?? string.Empty;
+            var current = rows.GetValueOrDefault(key);
+            rows[key] = (current.Responses, current.Clicks + item.Count);
+        }
+
+        return rows
+            .Select(row => new ChannelMetricContract(
+                row.Key.Length == 0 ? null : row.Key,
+                row.Value.Responses,
+                stats is null ? null : row.Value.Clicks))
+            .OrderBy(channel => channel.Source is null)
+            .ThenByDescending(channel => channel.Responses)
+            .ThenByDescending(channel => channel.Clicks ?? 0)
+            .ThenBy(channel => channel.Source, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private async Task<CoreLinkStats?> GetLinkStatsAsync(Guid formId, CancellationToken cancellationToken)
+    {
+        var cacheKey = FormCacheKeys.LinkStats(formId);
+        var cached = await _cache.TryGetAsync<CoreLinkStats>(cacheKey, cancellationToken);
+        if (cached != null) return cached;
+
+        var stats = await _links.GetStatsAsync(formId, cancellationToken);
+        if (stats != null) await _cache.TrySetAsync(cacheKey, stats, LinkStatsCacheTtl, cancellationToken);
+        return stats;
     }
 
     public async Task<ServiceResult<ServiceMetricsContract>> GetServiceMetricsAsync(Guid userId, CancellationToken cancellationToken = default)

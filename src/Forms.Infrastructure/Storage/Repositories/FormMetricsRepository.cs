@@ -51,6 +51,13 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
             .Select(g => new HourlyResponseCount(g.Key.Date, g.Key.Hour, g.Count()))
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<ResponseSourceCount>> GetResponseSourceCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default) =>
+        await _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId && !r.IsArchived && r.SubmittedAt >= sinceTime)
+            .GroupBy(r => r.Attribution!.Source)
+            .Select(g => new ResponseSourceCount(g.Key, g.Count()))
+            .ToListAsync(ct);
+
     public Task<int> GetTotalFormsCountAsync(CancellationToken ct = default) =>
         _context.Forms.AsNoTracking().CountAsync(ct);
 
