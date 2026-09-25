@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Skylab.Forms.Application.Abstractions;
+using Skylab.Forms.Application.Attribution;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Contracts.Exports;
@@ -95,7 +96,7 @@ public class FormResponseService : IFormResponseService
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
 
         _responses.Add(response);
         await _uow.SaveChangesAsync(cancellationToken);
@@ -127,7 +128,7 @@ public class FormResponseService : IFormResponseService
         Guid userId,
         CancellationToken cancellationToken)
     {
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
         var workflow = await _workflowRuntime.SubmitAsync(form, response, userId, cancellationToken);
 
         if (workflow.Data is { State: WorkflowActionState.NotInWorkflow }) return null;
@@ -349,7 +350,9 @@ public class FormResponseService : IFormResponseService
             "Kullanıcı ID",
             "Gönderim Tarihi",
             "Durum",
-            "İncelenme Notu"
+            "İncelenme Notu",
+            "Kaynak",
+            "Kampanya"
         };
 
         foreach (var schemaItem in form.Schema)
@@ -368,7 +371,9 @@ public class FormResponseService : IFormResponseService
                 response.UserId?.ToString() ?? "Anonim",
                 response.SubmittedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm"),
                 response.Status.ToString(),
-                response.ReviewNote ?? ""
+                response.ReviewNote ?? "",
+                response.Attribution?.Source ?? "",
+                response.Attribution?.Campaign ?? ""
             };
 
             foreach (var schemaItem in form.Schema)
@@ -388,7 +393,7 @@ public class FormResponseService : IFormResponseService
         return _excelService.GenerateExcel(exportRequest);
     }
 
-    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId)
+    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution)
     {
         var responseData = new List<FormResponseSchemaItem>();
 
@@ -415,7 +420,8 @@ public class FormResponseService : IFormResponseService
             Data = responseData,
             TimeSpent = timeSpent,
             Status = form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict,
-            SubmittedAt = DateTime.UtcNow
+            SubmittedAt = DateTime.UtcNow,
+            Attribution = AttributionNormalizer.Normalize(attribution)
         };
     }
 
@@ -436,7 +442,8 @@ public class FormResponseService : IFormResponseService
             response.SubmittedAt,
             response.ReviewedAt,
             response.ArchivedAt,
-            sharedByUser
+            sharedByUser,
+            response.Attribution
         );
     }
 

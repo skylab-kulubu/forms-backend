@@ -20,7 +20,8 @@ public record ResponseContract(
     DateTime SubmittedAt,
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
-    UserContract? SharedBy = null
+    UserContract? SharedBy = null,
+    ResponseAttribution? Attribution = null
 );
 
 /// <summary>
