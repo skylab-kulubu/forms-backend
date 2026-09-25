@@ -4,6 +4,7 @@ using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Contracts.Draft;
 using Skylab.Forms.Domain.Entities;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services;
 
@@ -27,21 +28,66 @@ public class FormDraftService : IFormDraftService
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var key = $"forms:draft:response:{formId}:{userId}";
-        await _cache.SetAsync(key, draft, ResponseDraftTtl, ct);
+
+        if (!HasAnswers(draft.Responses))
+        {
+            await _cache.RemoveAsync(key, ct);
+            return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
+        }
+
+        var stored = new ResponseDraftContract(draft.Responses, draft.TimeSpent, DateTime.UtcNow);
+        await _cache.SetAsync(key, stored, ResponseDraftTtl, ct);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
     }
-    public async Task<ServiceResult<ResponseDraftRequest?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
+    public async Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
         var key = $"forms:draft:response:{formId}:{userId}";
 
-        var draft = await _cache.GetAsync<ResponseDraftRequest>(key, ResponseDraftTtl, ct);
+        var draft = await _cache.GetAsync<ResponseDraftContract>(key, ResponseDraftTtl, ct);
+
+        if (draft != null && !HasAnswers(draft.Responses))
+        {
+            await _cache.RemoveAsync(key, ct);
+            draft = null;
+        }
 
         if (draft == null)
-            return new ServiceResult<ResponseDraftRequest?>(ServiceStatus.NotFound, Message: "Yanıt taslağı bulunamadı.");
+            return new ServiceResult<ResponseDraftContract?>(ServiceStatus.NotFound, Message: "Yanıt taslağı bulunamadı.");
 
-        return new ServiceResult<ResponseDraftRequest?>(ServiceStatus.Success, Data: draft);
+        return new ServiceResult<ResponseDraftContract?>(ServiceStatus.Success, Data: draft);
     }
+
+    /// <summary>
+    /// Taslak cevapları istemcinin JSON olarak yazdığı değerlerdir; boş metin, liste,
+    /// nesne ve kapalı anahtar (false) cevap sayılmaz. JSON olmayan eski düz metin cevaptır.
+    /// </summary>
+    private static bool HasAnswers(IEnumerable<FormResponseSchemaItem>? responses) =>
+        responses?.Any(item => !IsBlankAnswer(item.Answer)) == true;
+
+    private static bool IsBlankAnswer(string? answer)
+    {
+        if (string.IsNullOrWhiteSpace(answer)) return true;
+
+        try
+        {
+            using var document = JsonDocument.Parse(answer);
+            return IsBlank(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsBlank(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.False => true,
+        JsonValueKind.String => string.IsNullOrWhiteSpace(element.GetString()),
+        JsonValueKind.Array => element.EnumerateArray().All(IsBlank),
+        JsonValueKind.Object => element.EnumerateObject().All(property => IsBlank(property.Value)),
+        _ => false
+    };
     public async Task<ServiceResult<bool>> DeleteResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
         var key = $"forms:draft:response:{formId}:{userId}";

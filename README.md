@@ -290,8 +290,8 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 | `GET` | `/api/forms/{id}` | Get a form for display |
 | `GET` | `/api/forms/{id}/meta` | Get public form metadata |
 | `POST` | `/api/forms/responses` | Submit a response |
-| `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft |
-| `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft |
+| `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft; a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
+| `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft with its `savedAt`; a stored draft with only blank answers is deleted and answers 404 |
 | `DELETE` | `/api/forms/responses/draft/{formId}` | Delete an authenticated user's response draft |
 | `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata |
 | `GET` | `/api/forms/responses/{id}/meta` | Get shared response metadata |

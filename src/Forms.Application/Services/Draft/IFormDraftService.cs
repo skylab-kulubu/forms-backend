@@ -5,7 +5,7 @@ namespace Skylab.Forms.Application.Services;
 public interface IFormDraftService
 {
     Task<ServiceResult<bool>> SaveResponseDraftAsync(Guid formId, Guid userId, ResponseDraftRequest draft, CancellationToken ct = default);
-    Task<ServiceResult<ResponseDraftRequest?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);
+    Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<ServiceResult<bool>> DeleteResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<ServiceResult<bool>> ClearResponseDraftsAsync(Guid formId, CancellationToken ct = default);
 
