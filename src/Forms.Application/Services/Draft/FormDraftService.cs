@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
@@ -15,6 +16,7 @@ public class FormDraftService : IFormDraftService
 
     private static readonly TimeSpan ResponseDraftTtl = TimeSpan.FromHours(168);
     private static readonly TimeSpan FormDraftTtl = TimeSpan.FromHours(168);
+    private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public FormDraftService(ICacheService cache, IFormRepository forms)
     {
@@ -125,25 +127,34 @@ public class FormDraftService : IFormDraftService
 
         var form = await _forms.GetByIdAsync(formId, ct);
         if (form != null && IsDraftIdenticalToForm(draftRequest.Data, form))
+        {
+            await _cache.RemoveAsync(key, ct);
             return new ServiceResult<FormDraftContract?>(ServiceStatus.NotFound, Message: "Form taslağı bulunamadı.");
+        }
 
         return new ServiceResult<FormDraftContract?>(ServiceStatus.Success, Data: draftRequest.Data);
     }
 
+    /// <summary>
+    /// Editör etkinlik formunu kimlik alanları eklenmiş şemayla açar; taslak da onunla kıyaslanır.
+    /// jsonb anahtar sırasını değiştirdiği için şemalar metin olarak değil, ağaç olarak karşılaştırılır.
+    /// </summary>
     private static bool IsDraftIdenticalToForm(FormDraftContract draft, Form form)
     {
         if (draft.Title != form.Title) return false;
-        if (draft.Description != form.Description) return false;
+        if ((draft.Description ?? "") != (form.Description ?? "")) return false;
         if (draft.AllowAnonymousResponses != form.AllowAnonymousResponses) return false;
         if (draft.AllowMultipleResponses != form.AllowMultipleResponses) return false;
         if (draft.RequiresManualReview != form.RequiresManualReview) return false;
         if (draft.Status != form.Status) return false;
 
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        var draftSchema = JsonSerializer.Serialize(draft.Schema, opts);
-        var formSchema = JsonSerializer.Serialize(form.Schema, opts);
-        return draftSchema == formSchema;
+        var formSchema = form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
+
+        return JsonNode.DeepEquals(ToJsonNode(draft.Schema), ToJsonNode(formSchema));
     }
+
+    private static JsonNode? ToJsonNode(IReadOnlyList<FormSchemaItem>? schema) =>
+        JsonNode.Parse(JsonSerializer.Serialize(schema, CamelCase));
 
     public async Task<ServiceResult<bool>> DeleteFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {

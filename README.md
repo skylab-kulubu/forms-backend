@@ -307,7 +307,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 | `PUT` | `/api/admin/forms/{id}` | Update a form |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
-| `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft |
+| `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing the schema the editor loads (with event identity fields) regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses |
