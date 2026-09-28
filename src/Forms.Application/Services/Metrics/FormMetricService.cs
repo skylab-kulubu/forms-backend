@@ -153,25 +153,26 @@ public class FormMetricService : IFormMetricService
         var responses = await _metrics.GetResponseSourceCountsAsync(formId, since, cancellationToken);
         var stats = await GetLinkStatsAsync(formId, cancellationToken);
 
-        var rows = new Dictionary<string, (int Responses, int Clicks)>(StringComparer.Ordinal);
+        var rows = new Dictionary<string, (int Responses, int Clicks, int Scans)>(StringComparer.Ordinal);
         foreach (var item in responses)
         {
             var key = AttributionNormalizer.NormalizeSource(item.Source) ?? string.Empty;
             var current = rows.GetValueOrDefault(key);
-            rows[key] = (current.Responses + item.Count, current.Clicks);
+            rows[key] = (current.Responses + item.Count, current.Clicks, current.Scans);
         }
         foreach (var item in stats?.Sources ?? [])
         {
             var key = AttributionNormalizer.NormalizeSource(item.Source) ?? string.Empty;
             var current = rows.GetValueOrDefault(key);
-            rows[key] = (current.Responses, current.Clicks + item.Count);
+            rows[key] = (current.Responses, current.Clicks + item.Count, current.Scans + item.Scans);
         }
 
         return rows
             .Select(row => new ChannelMetricContract(
                 row.Key.Length == 0 ? null : row.Key,
                 row.Value.Responses,
-                stats is null ? null : row.Value.Clicks))
+                stats is null ? null : row.Value.Clicks,
+                stats is null ? null : row.Value.Scans))
             .OrderBy(channel => channel.Source is null)
             .ThenByDescending(channel => channel.Responses)
             .ThenByDescending(channel => channel.Clicks ?? 0)

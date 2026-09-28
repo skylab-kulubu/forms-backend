@@ -352,6 +352,7 @@ public class FormResponseService : IFormResponseService
             "Durum",
             "İncelenme Notu",
             "Kaynak",
+            "Ortam",
             "Kampanya"
         };
 
@@ -373,6 +374,7 @@ public class FormResponseService : IFormResponseService
                 response.Status.ToString(),
                 response.ReviewNote ?? "",
                 response.Attribution?.Source ?? "",
+                response.Attribution?.Medium ?? "",
                 response.Attribution?.Campaign ?? ""
             };
 

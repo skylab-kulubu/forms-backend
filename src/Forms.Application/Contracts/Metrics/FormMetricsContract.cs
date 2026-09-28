@@ -16,7 +16,8 @@ public record FormMetricsContract(
 
 /// <param name="Source">Normalize edilmiş utm_source; etiketsiz gelenler için null.</param>
 /// <param name="Clicks">Kısa linkin core'daki açılışları; core'a ulaşılamadıysa null.</param>
-public record ChannelMetricContract(string? Source, int Responses, int? Clicks);
+/// <param name="Scans">Açılışların QR okutmasıyla gelen kısmı; core'a ulaşılamadıysa null.</param>
+public record ChannelMetricContract(string? Source, int Responses, int? Clicks, int? Scans = null);
 
 public record ServiceMetricsContract(
     int TotalForms,

@@ -50,6 +50,7 @@ public sealed record CoreLinkResult(CoreLinkStatus Status, CoreLink? Link = null
 
 public sealed record CoreAliasAvailability(string Alias, bool Available, string? Reason);
 
-public sealed record CoreSourceCount(string Source, int Count);
+/// <param name="Scans">Açılışların QR okutmasıyla gelen kısmı.</param>
+public sealed record CoreSourceCount(string Source, int Count, int Scans = 0);
 
 public sealed record CoreLinkStats(DateTime Since, int Total, List<CoreSourceCount> Sources);
