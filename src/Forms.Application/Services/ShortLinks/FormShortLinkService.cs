@@ -1,5 +1,6 @@
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Attribution;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.ShortLinks;
 using Skylab.Forms.Application.ShortLinks;
@@ -69,7 +70,7 @@ public class FormShortLinkService : IFormShortLinkService
         return new ServiceResult<AliasAvailabilityContract>(ServiceStatus.Success, Data: new AliasAvailabilityContract(answer.Alias, answer.Available, answer.Reason));
     }
 
-    public async Task<ServiceResult<QrImageContract>> GetQrAsync(Guid formId, Guid userId, bool svg, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<QrImageContract>> GetQrAsync(Guid formId, Guid userId, bool svg, string? source = null, string? campaign = null, string? content = null, CancellationToken cancellationToken = default)
     {
         var access = await AuthorizeAsync(formId, userId, requiresEdit: false, cancellationToken);
         if (access.Denied is not null) return new ServiceResult<QrImageContract>(access.Denied.Value, Message: access.Message);
@@ -78,13 +79,22 @@ public class FormShortLinkService : IFormShortLinkService
         if (link.Status == CoreLinkStatus.NotFound || link.Link is null)
             return new ServiceResult<QrImageContract>(link.Status == CoreLinkStatus.NotFound ? ServiceStatus.NotFound : ServiceStatus.ServiceUnavailable, Message: "Bu formun kısa linki yok.");
 
-        var image = await _links.GetQrAsync(link.Link.Alias, svg, 1024, cancellationToken);
+        var channel = AttributionNormalizer.NormalizeSource(source);
+        if (channel == QrSource) channel = null;
+        var contentTag = AttributionNormalizer.NormalizeTag(content);
+        var tags = new CoreQrTags(channel ?? QrSource, channel is null ? null : QrMedium, AttributionNormalizer.NormalizeTag(campaign), contentTag);
+
+        var image = await _links.GetQrAsync(link.Link.Alias, svg, 1024, tags, cancellationToken);
         if (image is null)
             return new ServiceResult<QrImageContract>(ServiceStatus.ServiceUnavailable, Message: "QR oluşturulamadı.");
 
-        var fileName = $"{link.Link.Alias}-qr.{(svg ? "svg" : "png")}";
+        var name = string.Join('-', new[] { link.Link.Alias, channel, QrSource, contentTag }.Where(part => !string.IsNullOrEmpty(part)));
+        var fileName = $"{name}.{(svg ? "svg" : "png")}";
         return new ServiceResult<QrImageContract>(ServiceStatus.Success, Data: new QrImageContract(image.Content, image.ContentType, fileName));
     }
+
+    private const string QrSource = "qr";
+    private const string QrMedium = "qr";
 
     private async Task<(Form? Form, ServiceStatus? Denied, string? Message)> AuthorizeAsync(Guid formId, Guid userId, bool requiresEdit, CancellationToken cancellationToken)
     {

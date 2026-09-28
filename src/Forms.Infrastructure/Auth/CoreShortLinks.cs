@@ -49,12 +49,16 @@ public sealed class CoreShortLinks : ICoreShortLinks
         }
     }
 
-    public async Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CancellationToken ct = default)
+    public async Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CoreQrTags tags, CancellationToken ct = default)
     {
-        var query = svg ? "format=svg" : $"size={size}";
+        var query = new List<string> { "logo=1", svg ? "format=svg" : $"size={size}" };
+        foreach (var (key, value) in new[] { ("utm_source", tags.Source), ("utm_medium", tags.Medium), ("utm_campaign", tags.Campaign), ("utm_content", tags.Content) })
+        {
+            if (!string.IsNullOrEmpty(value)) query.Add($"{key}={Uri.EscapeDataString(value)}");
+        }
         try
         {
-            using var response = await _httpClient.GetAsync($"/v1/go/{Uri.EscapeDataString(alias)}/qr?logo=1&utm_source=qr&{query}", ct);
+            using var response = await _httpClient.GetAsync($"/v1/go/{Uri.EscapeDataString(alias)}/qr?{string.Join('&', query)}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsByteArrayAsync(ct);
             var contentType = response.Content.Headers.ContentType?.MediaType ?? (svg ? "image/svg+xml" : "image/png");

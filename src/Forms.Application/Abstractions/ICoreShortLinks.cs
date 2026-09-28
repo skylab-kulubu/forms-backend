@@ -15,11 +15,14 @@ public interface ICoreShortLinks
     Task<CoreAliasAvailability?> CheckAliasAsync(string alias, CancellationToken ct = default);
     Task<CoreLinkStats?> GetStatsAsync(Guid formId, CancellationToken ct = default);
 
-    /// <summary>Kısa linkin QR'ı; ortada kulüp logosu, taramalar utm_source=qr ile sayılır.</summary>
-    Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CancellationToken ct = default);
+    /// <summary>Kısa linkin QR'ı; ortada kulüp logosu, koda <paramref name="tags"/> gömülür.</summary>
+    Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CoreQrTags tags, CancellationToken ct = default);
 }
 
 public sealed record CoreQrImage(byte[] Content, string ContentType);
+
+/// <summary>QR'ın taşıyacağı utm etiketleri; boş olanlar koda yazılmaz.</summary>
+public sealed record CoreQrTags(string Source, string? Medium, string? Campaign, string? Content);
 
 public enum CoreLinkStatus
 {

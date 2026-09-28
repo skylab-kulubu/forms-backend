@@ -17,8 +17,11 @@ public static class AttributionNormalizer
         ["insta"] = "instagram",
         ["wa"] = "whatsapp",
         ["wp"] = "whatsapp",
+        ["in"] = "linkedin",
         ["li"] = "linkedin",
+        ["yt"] = "youtube",
         ["twitter"] = "x",
+        ["ma"] = "email",
         ["mail"] = "email",
         ["e-mail"] = "email",
         ["e-posta"] = "email",
@@ -31,6 +34,7 @@ public static class AttributionNormalizer
     {
         ["instagram"] = "social",
         ["linkedin"] = "social",
+        ["youtube"] = "social",
         ["x"] = "social",
         ["whatsapp"] = "messaging",
         ["email"] = "email",
@@ -68,6 +72,8 @@ public static class AttributionNormalizer
         if (source is null) return null;
         return SourceAliases.TryGetValue(source, out var canonical) ? canonical : source;
     }
+
+    public static string? NormalizeTag(string? raw) => Clean(raw);
 
     private static string? Clean(string? raw)
     {

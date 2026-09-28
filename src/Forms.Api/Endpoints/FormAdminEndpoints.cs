@@ -188,13 +188,13 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/short-link/qr", async (Guid id, [FromQuery] string? format, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/short-link/qr", async (Guid id, [FromQuery] string? format, [FromQuery] string? source, [FromQuery] string? campaign, [FromQuery] string? content, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Giriş yapmalısınız.");
 
             var svg = string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase);
-            var result = await service.GetQrAsync(id, userId.Value, svg, ct);
+            var result = await service.GetQrAsync(id, userId.Value, svg, source, campaign, content, ct);
             if (result.Status.IsFailure() || result.Data is null) return result.ToApiResult();
 
             return Results.File(result.Data.Content, result.Data.ContentType, result.Data.FileName);
