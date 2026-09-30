@@ -257,7 +257,7 @@ public class FormService : IFormService
                 FormResponseStatus.Declined => new ServiceResult<FormDisplayPayload>(
                     ServiceStatus.Declined, answered, "Başvurunuz reddedilmiştir."),
                 _ => new ServiceResult<FormDisplayPayload>(
-                    ServiceStatus.Success, answered, "Bu formu daha önce doldurdunuz.")
+                    ServiceStatus.Created, answered, "Bu formu daha önce doldurdunuz.")
             };
         }
 
