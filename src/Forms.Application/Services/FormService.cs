@@ -494,7 +494,8 @@ public class FormService : IFormService
             outcome.State,
             outcome.Stage,
             outcome.StartFormId,
-            outcome.Reason);
+            outcome.Reason,
+            outcome.Journey);
 
         return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
     }

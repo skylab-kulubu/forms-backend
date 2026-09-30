@@ -38,6 +38,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .Select(candidate => new
             {
                 candidate.Id,
+                candidate.WorkflowVersionId,
                 candidate.Status,
                 candidate.Outcome,
                 LastSequence = candidate.Steps.Max(step => (int?)step.Sequence) ?? 0
@@ -56,6 +57,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
 
         return new WorkflowRunSummary(
             instance.Id,
+            instance.WorkflowVersionId,
             instance.Status,
             instance.Outcome,
             instance.LastSequence,
@@ -83,6 +85,22 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
 
         return [.. rows.Select(row => new WorkflowStepAnswers(row.NodeKey, row.Data))];
     }
+
+    public async Task<IReadOnlyList<WorkflowJourneyStepFact>> GetJourneyStepsAsync(Guid instanceId, CancellationToken ct = default) =>
+        await _context.WorkflowSteps.AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(step => step.WorkflowInstanceId == instanceId)
+            .OrderBy(step => step.Sequence)
+            .Select(step => new WorkflowJourneyStepFact(
+                step.Sequence,
+                step.NodeId,
+                step.Node.FormId,
+                step.CompletedAt == null,
+                step.Response == null ? null : (FormResponseStatus?)step.Response.Status,
+                step.Response == null ? null : (DateTime?)step.Response.SubmittedAt,
+                step.Response == null ? null : step.Response.ReviewedAt,
+                step.Response == null ? null : step.Response.ReviewNote))
+            .ToListAsync(ct);
 
     public async Task<ResponseWorkflowProjection?> GetContextByResponseAsync(Guid responseId, CancellationToken ct = default)
     {

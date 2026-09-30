@@ -229,6 +229,34 @@ A step with no `CompletedAt` is the step the application is waiting on. When tha
 
 Opening the workflow's **start form** resumes an application at whatever step it reached. Opening another node's form directly is refused, so a shared link cannot skip a step or enter a branch that was never chosen.
 
+### Application journey
+
+The public payloads describe the whole application so the client can show where the applicant stands. `GET /api/forms/{id}` and `POST /api/forms/responses` carry a `workflow` block in `data` whenever the form belongs to a published workflow:
+
+```json
+"workflow": {
+  "title": "Ekip Başvurusu 2026",
+  "maxSteps": 3,
+  "route": [
+    { "stage": 1, "formTitle": "Ön Başvuru", "status": "submitted", "requiresManualReview": false, "certain": true, "submittedAt": "2026-09-12T14:32:00Z" },
+    { "stage": 2, "formTitle": "Teknik Görüşme Formu", "status": "current", "requiresManualReview": true, "certain": true },
+    { "stage": 3, "formTitle": "Üyelik Bilgileri", "status": "upcoming", "requiresManualReview": false, "certain": true }
+  ]
+}
+```
+
+`route` has three parts: the steps the application already took, read from its own steps with `submittedAt`, `reviewedAt` and `reviewNote`; the step it is waiting on; and the steps it is expected to take next. Expected steps follow the approval route of a reviewed step and the submission route of any other, taking the default route where several exist. **None of them is promised**: `certain` turns `false` as soon as a route depends on an answer, and an upcoming step whose form depends on the answer has `formTitle: null`. `maxSteps` is the longest route still possible from the current step across every trigger, so the client can draw the remaining steps without inventing a total.
+
+| `status` | Meaning |
+|----------|---------|
+| `submitted` | Answered on a step without review |
+| `approved` / `declined` | Reviewed; `reviewedAt` and `reviewNote` are set |
+| `inReview` | Answered and waiting for review |
+| `current` | The form the applicant fills in next |
+| `upcoming` | Expected later; see `certain` |
+
+A finished application has no upcoming steps, and a refused submission carries no `workflow` block.
+
 ### Intake
 
 `FormWorkflow.Intake` decides who may still move through a workflow. It lives on the workflow rather than on a version, so a change takes effect at once without publishing and also reaches applications bound to older versions.

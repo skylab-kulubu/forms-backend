@@ -111,7 +111,8 @@ public sealed record WorkflowNodeLocation(
     bool AllowMultipleRuns,
     WorkflowIntake Intake,
     int NodeCount,
-    Guid StartFormId);
+    Guid StartFormId,
+    string WorkflowName);
 
 public sealed record WorkflowDefinition(
     Guid WorkflowId,

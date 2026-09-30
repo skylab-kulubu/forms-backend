@@ -152,7 +152,8 @@ public class FormResponseService : IFormResponseService
             outcome.Stage,
             outcome.FormId,
             outcome.StartFormId,
-            outcome.Reason);
+            outcome.Reason,
+            outcome.Journey);
 
         return new ServiceResult<ResponseSubmitResult>(workflow.Status, result, workflow.Message);
     }

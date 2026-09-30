@@ -66,7 +66,8 @@ public record ResponseSubmitResult(
     int Stage = 0,
     Guid? NextFormId = null,
     Guid? StartFormId = null,
-    string? Reason = null
+    string? Reason = null,
+    WorkflowJourneyContract? Workflow = null
 );
 
 public record ResponseSummaryContract(
