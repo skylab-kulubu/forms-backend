@@ -374,4 +374,6 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
     public void RemoveRange(IEnumerable<FormWorkflowNode> nodes) => _context.WorkflowNodes.RemoveRange(nodes);
 
     public void RemoveRange(IEnumerable<FormWorkflowTransition> transitions) => _context.WorkflowTransitions.RemoveRange(transitions);
+
+    public void Remove(FormWorkflowVersion version) => _context.WorkflowVersions.Remove(version);
 }

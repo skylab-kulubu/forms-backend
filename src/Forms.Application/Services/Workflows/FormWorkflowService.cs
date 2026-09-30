@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Common;
@@ -189,6 +190,7 @@ public class FormWorkflowService : IFormWorkflowService
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akış düzenlenemez.");
 
         var draft = await _workflows.GetVersionForEditAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
+        var isNewDraft = draft is null;
 
         if (draft is null)
         {
@@ -199,8 +201,6 @@ public class FormWorkflowService : IFormWorkflowService
                 Version = await _workflows.GetNextVersionNumberAsync(workflowId, cancellationToken),
                 Status = WorkflowStatus.Draft
             };
-
-            _workflows.Add(draft);
         }
 
         var unsetReviewFormIds = request.Nodes
@@ -216,6 +216,24 @@ public class FormWorkflowService : IFormWorkflowService
         var build = BuildGraph(draft.Id, request, defaults);
         if (build.Error is not null)
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: build.Error);
+
+        var published = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Published, cancellationToken);
+
+        if (published is not null && HasSameGraph(build.Nodes, build.Transitions, published))
+        {
+            if (!isNewDraft)
+            {
+                _workflows.RemoveRange(draft.Transitions.ToList());
+                _workflows.RemoveRange(draft.Nodes.ToList());
+                _workflows.Remove(draft);
+
+                await _uow.SaveChangesAsync(cancellationToken);
+            }
+
+            return await BuildContractAsync(workflow, cancellationToken);
+        }
+
+        if (isNewDraft) _workflows.Add(draft);
 
         // Silme ve ekleme tek kayıt işleminde gönderilirse EF ekleme komutlarını
         // önce yazabilir ve node anahtarı üzerindeki tekil indeks ihlal edilir.
@@ -478,6 +496,42 @@ public class FormWorkflowService : IFormWorkflowService
 
         return (nodes, transitions, null);
     }
+
+    private static bool HasSameGraph(
+        IReadOnlyCollection<FormWorkflowNode> nodes,
+        IReadOnlyCollection<FormWorkflowTransition> transitions,
+        FormWorkflowVersion version) =>
+        NodeShapes(nodes).SequenceEqual(NodeShapes(version.Nodes))
+        && TransitionShapes(nodes, transitions).SequenceEqual(TransitionShapes(version.Nodes, version.Transitions));
+
+    private static List<NodeShape> NodeShapes(IEnumerable<FormWorkflowNode> nodes) =>
+        nodes
+            .Select(node => new NodeShape(node.NodeKey, node.FormId, node.IsStart, node.RequiresManualReview, node.PositionX, node.PositionY))
+            .OrderBy(shape => shape.Key, StringComparer.Ordinal)
+            .ToList();
+
+    private static List<TransitionShape> TransitionShapes(IEnumerable<FormWorkflowNode> nodes, IEnumerable<FormWorkflowTransition> transitions)
+    {
+        var keysById = nodes.ToDictionary(node => node.Id, node => node.NodeKey);
+
+        return transitions
+            .Select(transition => new TransitionShape(
+                keysById[transition.SourceNodeId],
+                transition.TargetNodeId is { } targetId ? keysById[targetId] : null,
+                transition.Trigger,
+                transition.Priority,
+                JsonSerializer.Serialize(transition.Condition)))
+            .OrderBy(shape => shape.Source, StringComparer.Ordinal)
+            .ThenBy(shape => shape.Trigger)
+            .ThenBy(shape => shape.Priority)
+            .ThenBy(shape => shape.Target, StringComparer.Ordinal)
+            .ThenBy(shape => shape.Condition, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private sealed record NodeShape(string Key, Guid FormId, bool IsStart, bool RequiresManualReview, int? X, int? Y);
+
+    private sealed record TransitionShape(string Source, string? Target, WorkflowTransitionTrigger Trigger, int Priority, string Condition);
 
     private async Task<ServiceResult<WorkflowContract>> BuildContractAsync(FormWorkflow workflow, CancellationToken cancellationToken)
     {

@@ -75,6 +75,7 @@ public interface IFormWorkflowRepository
     void AddRange(IEnumerable<FormWorkflowTransition> transitions);
     void RemoveRange(IEnumerable<FormWorkflowNode> nodes);
     void RemoveRange(IEnumerable<FormWorkflowTransition> transitions);
+    void Remove(FormWorkflowVersion version);
 }
 
 /// <param name="IsPublished">Üyelik yayında mı? Kilitler yalnız yayındayken geçerlidir.</param>
