@@ -257,6 +257,8 @@ The public payloads describe the whole application so the client can show where 
 
 A finished application has no upcoming steps, and a refused submission carries no `workflow` block.
 
+Forms used on their own get the smaller part of the same information. The display payload's `form.requiresManualReview` tells the client whether an answer goes to review; answered states (`201`, `600`, `601`, `602`) add `formTitle` and `submittedAt`; `401` and `410` add `formTitle`, so every status screen can name the form. A signed-in user who already answered a form that takes one response gets `201` or the review status, never the form again.
+
 ### Intake
 
 `FormWorkflow.Intake` decides who may still move through a workflow. It lives on the workflow rather than on a version, so a change takes effect at once without publishing and also reaches applications bound to older versions.

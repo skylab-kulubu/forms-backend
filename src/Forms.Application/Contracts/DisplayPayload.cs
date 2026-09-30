@@ -17,5 +17,7 @@ public record FormDisplayPayload(
     int Stage = 0,
     Guid? StartFormId = null,
     string? Reason = null,
-    WorkflowJourneyContract? Workflow = null
+    WorkflowJourneyContract? Workflow = null,
+    string? FormTitle = null,
+    DateTime? SubmittedAt = null
 );

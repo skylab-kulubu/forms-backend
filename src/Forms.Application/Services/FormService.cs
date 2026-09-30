@@ -221,13 +221,14 @@ public class FormService : IFormService
 
         // Kapalı form "yok" değildir: istemci bunu ayrı bir ekranla karşılayabilsin.
         if (form.Status == FormStatus.Closed)
-            return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
+            return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, new FormDisplayPayload(null, 0, FormTitle: form.Title), "Bu form şu anda yanıt kabul etmiyor.");
 
         if (userId == null && !form.AllowAnonymousResponses && form.EventId is null)
         {
             return new ServiceResult<FormDisplayPayload>(
                 ServiceStatus.Unauthorized,
-                Message: "Bu formu görüntülemek için giriş yapmalısınız."
+                new FormDisplayPayload(null, 0, FormTitle: form.Title),
+                "Bu formu görüntülemek için giriş yapmalısınız."
             );
         }
 
@@ -237,7 +238,7 @@ public class FormService : IFormService
 
             // Veri yoksa hata vardır; ikisi de akış yoluna aittir.
             if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
-                return await MapWorkflowDisplayAsync(workflow, cancellationToken);
+                return await MapWorkflowDisplayAsync(workflow, form.Title, cancellationToken);
         }
 
         var latestResponse = userId.HasValue
@@ -246,7 +247,7 @@ public class FormService : IFormService
 
         if (latestResponse is not null && !form.AllowMultipleResponses)
         {
-            var answered = new FormDisplayPayload(null, 0, latestResponse.ReviewNote, latestResponse.ReviewedAt);
+            var answered = new FormDisplayPayload(null, 0, latestResponse.ReviewNote, latestResponse.ReviewedAt, FormTitle: form.Title, SubmittedAt: latestResponse.SubmittedAt);
 
             return latestResponse.Status switch
             {
@@ -470,6 +471,7 @@ public class FormService : IFormService
 
     private async Task<ServiceResult<FormDisplayPayload>> MapWorkflowDisplayAsync(
         ServiceResult<WorkflowStepOutcome> workflow,
+        string formTitle,
         CancellationToken cancellationToken)
     {
         if (workflow.Data is not { } outcome)
@@ -482,7 +484,8 @@ public class FormService : IFormService
             var target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
             if (target == null) return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-            contract = new FormDisplayContract(target.Id, target.Title, target.Description, DisplaySchema(target), target.EventId);
+            var requiresManualReview = outcome.Journey?.Route.FirstOrDefault(step => step.Status == WorkflowJourneyStatus.Current)?.RequiresManualReview ?? false;
+            contract = new FormDisplayContract(target.Id, target.Title, target.Description, DisplaySchema(target), target.EventId, requiresManualReview);
         }
 
         var payload = new FormDisplayPayload(
@@ -495,7 +498,8 @@ public class FormService : IFormService
             outcome.Stage,
             outcome.StartFormId,
             outcome.Reason,
-            outcome.Journey);
+            outcome.Journey,
+            formTitle);
 
         return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
     }
@@ -553,7 +557,8 @@ public class FormService : IFormService
             form.Title,
             form.Description,
             DisplaySchema(form),
-            form.EventId
+            form.EventId,
+            form.RequiresManualReview
         );
 
         return new FormDisplayPayload(contract, step, reviewNote, reviewedAt);

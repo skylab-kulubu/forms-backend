@@ -27,7 +27,8 @@ public record FormContract(
     string Title,
     string? Description,
     List<FormSchemaItem> Schema,
-    Guid? EventId = null
+    Guid? EventId = null,
+    bool RequiresManualReview = false
 );
 
 public record FormSummaryContract(
