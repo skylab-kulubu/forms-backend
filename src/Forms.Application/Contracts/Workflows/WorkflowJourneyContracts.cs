@@ -15,6 +15,12 @@ public sealed record WorkflowJourneyStepContract(
     DateTime? ReviewedAt = null,
     string? ReviewNote = null);
 
+public sealed record WorkflowLastRunContract(
+    WorkflowActionState State,
+    string? ReviewNote,
+    DateTime? ReviewedAt,
+    WorkflowJourneyContract? Workflow);
+
 public static class WorkflowJourneyStatus
 {
     public const string Submitted = "submitted";

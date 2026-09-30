@@ -19,5 +19,6 @@ public record FormDisplayPayload(
     string? Reason = null,
     WorkflowJourneyContract? Workflow = null,
     string? FormTitle = null,
-    DateTime? SubmittedAt = null
+    DateTime? SubmittedAt = null,
+    WorkflowLastRunContract? LastRun = null
 );

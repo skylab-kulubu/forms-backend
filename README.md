@@ -257,6 +257,26 @@ The public payloads describe the whole application so the client can show where 
 
 A finished application has no upcoming steps, and a refused submission carries no `workflow` block.
 
+A workflow that lets people apply again keeps the **last result** in view. When the applicant's previous application ended (completed or declined) and intake is open, the start form's display payload adds `lastRun`, so the client can show how it ended before opening the new form:
+
+```json
+"lastRun": {
+  "state": 4,
+  "reviewNote": "Bu dönem yazılım ekibinde yer kalmadı.",
+  "reviewedAt": "2026-09-24T16:20:00Z",
+  "workflow": {
+    "title": "Ekip Başvurusu 2026",
+    "maxSteps": 2,
+    "route": [
+      { "stage": 1, "formTitle": "Ön Başvuru", "status": "submitted", "requiresManualReview": false, "certain": true, "submittedAt": "2026-09-12T14:32:00Z" },
+      { "stage": 2, "formTitle": "Teknik Görüşme Formu", "status": "declined", "requiresManualReview": true, "certain": true, "submittedAt": "2026-09-20T10:05:00Z", "reviewedAt": "2026-09-24T16:20:00Z", "reviewNote": "Bu dönem yazılım ekibinde yer kalmadı." }
+    ]
+  }
+}
+```
+
+`state` is `3` for a completed application and `4` for a declined one, and `workflow` is that application's own journey. A faulted application adds nothing, so it never stands between the applicant and a new start.
+
 Forms used on their own get the smaller part of the same information. The display payload's `form.requiresManualReview` tells the client whether an answer goes to review; answered states (`201`, `600`, `601`, `602`) add `formTitle` and `submittedAt`; `401` and `410` add `formTitle`, so every status screen can name the form. A signed-in user who already answered a form that takes one response gets `201` or the review status, never the form again.
 
 ### Intake
@@ -271,7 +291,7 @@ Forms used on their own get the smaller part of the same information. The displa
 
 Displaying or submitting a refused form returns `410` with `reason`, `stage`, and `startFormId` in `data`. `stage` is `0` for someone who has not started and the current step's sequence for a stopped application, which is how the client tells the two apart. A refused submission saves nothing.
 
-The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes.
+The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes; one who may run it again gets the form with `lastRun` while intake is open (see [Application journey](#application-journey)).
 
 Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change.
 

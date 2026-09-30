@@ -337,7 +337,21 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         if (location.Intake != WorkflowIntake.Open)
             return IntakeClosed(location.Intake, null, 0, location.StartFormId, isTwoStepFlow, await StartJourneyAsync(location, cancellationToken));
 
-        return Result(new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId, location.StartFormId, Journey: await StartJourneyAsync(location, cancellationToken)), null, isTwoStepFlow);
+        var outcome = new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId, location.StartFormId, Journey: await StartJourneyAsync(location, cancellationToken));
+
+        if (lastRun is { Status: WorkflowInstanceStatus.Completed or WorkflowInstanceStatus.Terminated })
+        {
+            outcome = outcome with
+            {
+                LastRun = new WorkflowLastRunContract(
+                    lastRun.Outcome == WorkflowInstanceOutcome.Declined ? WorkflowActionState.Declined : WorkflowActionState.Completed,
+                    lastRun.ReviewNote,
+                    lastRun.ReviewedAt,
+                    await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken))
+            };
+        }
+
+        return Result(outcome, null, isTwoStepFlow);
     }
 
     /// <summary>Sonuçlanmış bir başvuruyu, kullanıcıya gösterilecek inceleme notuyla bildirir.</summary>

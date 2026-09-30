@@ -499,7 +499,8 @@ public class FormService : IFormService
             outcome.StartFormId,
             outcome.Reason,
             outcome.Journey,
-            formTitle);
+            formTitle,
+            LastRun: outcome.LastRun);
 
         return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
     }

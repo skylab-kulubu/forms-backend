@@ -59,7 +59,8 @@ public sealed record WorkflowStepOutcome(
     DateTime? ReviewedAt = null,
     bool IsLegacyTwoStepFlow = false,
     string? Reason = null,
-    WorkflowJourneyContract? Journey = null)
+    WorkflowJourneyContract? Journey = null,
+    WorkflowLastRunContract? LastRun = null)
 {
     public static readonly WorkflowStepOutcome NotInWorkflow =
         new(null, WorkflowActionState.NotInWorkflow, 0, null);
