@@ -266,6 +266,10 @@ public class FormResponseService : IFormResponseService
         if (response.IsArchived)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş yanıtlar üzerinde değişiklik yapılamaz.");
 
+        // Kolon sınırını aşan not kayıtta 22001 ile patlar; istek 500 olur ve durum değişmez.
+        if (contract.Note?.Length > FormResponse.ReviewNoteMaxLength)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Açıklama en fazla {FormResponse.ReviewNoteMaxLength} karakter olabilir.");
+
         // Akış içindeki bir cevapta durum ve rota birlikte yazılır; ikisini ayırmak
         // onaylanmış ama ilerlememiş bir başvuru bırakırdı.
         var workflow = await _workflowRuntime.ReviewAsync(response, contract.NewStatus, reviewerId, contract.Note, cancellationToken);

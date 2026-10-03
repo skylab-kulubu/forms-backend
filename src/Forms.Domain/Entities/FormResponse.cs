@@ -5,6 +5,9 @@ namespace Skylab.Forms.Domain.Entities;
 
 public class FormResponse
 {
+    /// <summary>Responses.ReviewNote kolonunun uzunluğu (varchar(500)).</summary>
+    public const int ReviewNoteMaxLength = 500;
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid FormId { get; set; }
     public Form Form { get; set; } = null!;
