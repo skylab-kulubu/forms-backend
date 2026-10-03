@@ -3,6 +3,7 @@ using System.Text.Json;
 using Skylab.Forms.Infrastructure.Auth.Contracts;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions;
+using Skylab.Forms.Domain.Common;
 
 namespace Skylab.Forms.Infrastructure.Auth;
 
@@ -19,6 +20,9 @@ public class ExternalUserService : IExternalUserService
 
     public async Task<UserContract?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        if (userId == DeletedUser.Id)
+            return new UserContract(userId, null, DeletedUser.DisplayName, null);
+
         try
         {
             var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", _jsonOptions, cancellationToken);
@@ -45,11 +49,18 @@ public class ExternalUserService : IExternalUserService
         return [.. users.OfType<UserContract>()];
     }
 
+    /// <summary>
+    /// Core silinen ve silinmesi süren kişiyi active dışı bir status ve boş adresle döner; böyle biri
+    /// adressiz "Silinmiş kullanıcı" olur, ona posta gitmez.
+    /// </summary>
     private static UserContract MapToContract(ExternalUserResponse user)
     {
+        if (user.Status is not null && user.Status != "active")
+            return new UserContract(user.Id, null, DeletedUser.DisplayName, null);
+
         return new UserContract(
             user.Id,
-            user.Email,
+            string.IsNullOrWhiteSpace(user.Email) ? null : user.Email,
             $"{user.FirstName} {user.LastName}".Trim(),
             user.ProfilePictureUrl,
             user.FirstName?.Trim()

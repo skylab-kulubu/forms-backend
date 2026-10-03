@@ -39,7 +39,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (response.Guest is { } guest && !await CanSendGuestCopyAsync(form, response, guest, ct)) return;
 
         var recipient = await GetRespondentAsync(response, ct);
-        if (recipient?.Email is null) return;
+        if (string.IsNullOrWhiteSpace(recipient?.Email)) return;
 
         var answers = response.Data
             .Select(d => (object)new Dictionary<string, object?>
@@ -73,7 +73,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (status is null) return;
 
         var recipient = await GetRespondentAsync(response, ct);
-        if (recipient?.Email is null) return;
+        if (string.IsNullOrWhiteSpace(recipient?.Email)) return;
 
         var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
@@ -98,7 +98,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (!CanNotifyAttempts) return;
 
         var recipient = await _userService.GetUserAsync(userId, ct);
-        if (recipient?.Email is null) return;
+        if (string.IsNullOrWhiteSpace(recipient?.Email)) return;
 
         var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
