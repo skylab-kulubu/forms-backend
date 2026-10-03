@@ -3,6 +3,7 @@ using System.Text.Json;
 using Skylab.Forms.Infrastructure.Auth.Contracts;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions;
+using Skylab.Forms.Domain.Common;
 
 namespace Skylab.Forms.Infrastructure.Auth;
 
@@ -19,6 +20,10 @@ public class ExternalUserService : IExternalUserService
 
     public async Task<UserContract?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        // Silinmiş kullanıcının yer tutucusu için core'a sorulmaz.
+        if (userId == DeletedUser.Id)
+            return DeletedUserContract(userId);
+
         try
         {
             var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", _jsonOptions, cancellationToken);
@@ -51,8 +56,18 @@ public class ExternalUserService : IExternalUserService
         return users;
     }
 
+    /// <summary>
+    /// Silinen ya da silinmesi süren kişi için core yalnız sabit adı döner (status
+    /// deleted|deletion_pending). Adresi boş tutulur: ona posta gitmez.
+    /// </summary>
+    private static UserContract DeletedUserContract(Guid userId) =>
+        new(userId, null, DeletedUser.DisplayName, null);
+
     private static UserContract MapToContract(ExternalUserResponse user)
     {
+        if (user.Status is "deleted" or "deletion_pending")
+            return DeletedUserContract(user.Id);
+
         return new UserContract(
             user.Id,
             user.Email,
