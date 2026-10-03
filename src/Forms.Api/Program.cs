@@ -28,6 +28,7 @@ var app = builder.Build();
 
 await app.Services.ApplyDatabaseMigrationsAsync();
 
+app.UseInternalEndpointGuard();
 app.UseFormsJwtAuthentication("AllowFrontend");
 app.UseCors("AllowFrontend");
 app.UseAccountAccessGate();
@@ -38,5 +39,6 @@ app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
 app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();
+app.MapInternalEndpoints();
 
 app.Run();

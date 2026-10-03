@@ -22,8 +22,8 @@ namespace Skylab.Forms.Application.Services;
 public class FormResponseService : IFormResponseService
 {
     private static readonly TimeSpan ShareTokenLifetime = TimeSpan.FromHours(1);
-    private const string TokenKeyPrefix = "response:share:token:";
-    private const string ResponseKeyPrefix = "response:share:response:";
+    private const string TokenKeyPrefix = FormCacheKeys.ResponseShareTokenPrefix;
+    private const string ResponseKeyPrefix = FormCacheKeys.ResponseShareResponsePrefix;
 
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
