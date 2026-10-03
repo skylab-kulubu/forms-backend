@@ -27,7 +27,6 @@ public class SkyMailClient : ISkyMailService
 
             if (!response.IsSuccessStatusCode)
             {
-                // Hata gövdesi alıcı adresini alıntılayabilir; yalnız durum yazılır.
                 _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateId})", (int)response.StatusCode, request.TemplateId);
                 return false;
             }

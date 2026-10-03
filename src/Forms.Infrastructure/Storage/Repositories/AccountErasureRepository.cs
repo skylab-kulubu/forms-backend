@@ -10,14 +10,8 @@ using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
-/// <summary>
-/// Hesap silmenin veritabanı tarafı. Sorgu filtreleri kapalıdır: silinmiş formlar ve arşivli
-/// şablonlar da dahil. Kişinin kimliği, adresleri ve adı yalnız parametre olarak gider.
-/// </summary>
 public sealed class AccountErasureRepository(FormsDbContext context) : IAccountErasureRepository
 {
-    // İ/I/ı lower()'dan önce eşlenir, sonuç veritabanının yerel ayarına bağlı kalmaz.
-    // NormalizeName ile aynı kuraldır; ikisi birlikte değişir.
     private const string TurkishFrom = "İIıŞĞÇÖÜÂÎÛşğçöüâîû";
     private const string TurkishTo = "iiisgcouaiusgcouaiu";
 
@@ -41,7 +35,6 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
         var now = DateTime.UtcNow;
         var counts = new Dictionary<string, long>();
 
-        // Misafir yanıtı, cevaplarından biri kişinin adreslerinden birine eşitse kişinindir.
         var guestIds = command.Emails.Count == 0 ? [] : await context.Database.SqlQueryRaw<Guid>("""
             SELECT r."Id" AS "Value" FROM "Responses" r
             WHERE r."UserId" IS NULL AND EXISTS (
@@ -49,7 +42,6 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
                 WHERE lower(btrim(item ->> 'answer')) = ANY (@emails))
             """, new NpgsqlParameter("emails", command.Emails.ToArray())).ToListAsync(ct);
 
-        // Tam ad, kişinin etkinlik kimliği soran formlardaki cevaplarından okunur; tek kelime aranmaz.
         var identities = await context.Responses.IgnoreQueryFilters().AsNoTracking()
             .Where(r => r.UserId == subject || guestIds.Contains(r.Id))
             .Select(r => new { r.Form.Schema, r.Data })
@@ -72,11 +64,9 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
             .SetProperty(r => r.Data, new List<FormResponseSchemaItem>())
             .SetProperty(r => r.ReviewNote, (string?)null), ct);
 
-        // Taslak kopyası kişinin cevaplarıdır ve (form, kişi) başına tek deneme olabilir; olaylar da gider.
         counts["attempts_deleted"] = await context.Attempts.IgnoreQueryFilters()
             .Where(a => a.UserId == command.SubjectId).ExecuteDeleteAsync(ct);
 
-        // Başkalarının cevaplarında ve notlarında kişiyi anan metin bütünüyle silinir.
         counts["answers_cleared"] = 0;
         counts["review_notes_cleared"] = 0;
         if (patterns.Length > 0 || names.Length > 0)
@@ -104,12 +94,10 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
             await context.AttemptEvents.IgnoreQueryFilters().Where(e => e.ActorUserId == subject)
                 .ExecuteUpdateAsync(s => s.SetProperty(e => e.ActorUserId, deleted), ct);
 
-        // Owner satırı Silinmiş kullanıcıya geçer: her formun tek sahibi kalır, kimse kendiliğinden sahip olmaz.
         var collaborators = context.Collaborators.IgnoreQueryFilters().Where(c => c.UserId == command.SubjectId);
         counts["collaborators_deleted"] = await collaborators.Where(c => c.Role != CollaboratorRole.Owner).ExecuteDeleteAsync(ct);
         counts["form_owners_replaced"] = await collaborators.ExecuteUpdateAsync(s => s.SetProperty(c => c.UserId, DeletedUser.Id), ct);
 
-        // Açık başvuru biter ve açık adımı kapanır; böylece yer tutucunun aktif başvurusu olmaz.
         var runs = context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.UserId == command.SubjectId);
         await context.WorkflowSteps.IgnoreQueryFilters()
             .Where(s => s.CompletedAt == null && s.WorkflowInstance.UserId == command.SubjectId && s.WorkflowInstance.Status == WorkflowInstanceStatus.Active)
@@ -123,7 +111,6 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
         return counts;
     }
 
-    /// <summary>Metin bir adresi (adres sınırlarıyla) ya da düzleştirilmiş tam adı içeriyor mu.</summary>
     private static string Mentions(string text) => $"""
         ({text} IS NOT NULL AND (
             EXISTS (SELECT 1 FROM unnest(@patterns) p WHERE lower({text}) ~ p)
@@ -134,7 +121,6 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
     private static string ClearNotes(string table, string column) =>
         $"""UPDATE "{table}" SET "{column}" = NULL WHERE {Mentions($"\"{column}\"")}""";
 
-    /// <summary>jsonb cevap dizisinde kişiyi anan cevapları "" yapar; boşalan cevap sayısını döner.</summary>
     private static string ClearAnswers(string table, string column) => $$"""
         WITH hit AS (
             SELECT t."Id", count(*) AS answers
@@ -153,10 +139,6 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
         SELECT coalesce(sum(answers), 0)::bigint AS "Value" FROM cleared
         """;
 
-    /// <summary>
-    /// Adresin kendisi; önünde ya da arkasında adres karakteri olmamalı: "vali@x.com" ve
-    /// "ali@x.com.tr" içinde ali@x.com bulunmaz, "&lt;ali@x.com&gt;" ve cümle sonunda bulunur.
-    /// </summary>
     internal static string EmailPattern(string email) =>
         "(?<![[:alnum:]._%+'-])" +
         string.Concat(email.Select(c => char.IsLetterOrDigit(c) ? c.ToString() : "\\" + c)) +

@@ -19,13 +19,11 @@ public sealed class AccountErasureService(
 
     public async Task<AccountErasureReceipt> EraseAsync(AccountErasureCommand command, CancellationToken ct = default)
     {
-        // Redis transaction'a girmez, bu yüzden önce silinir; tekrarında silinecek bir şey kalmaz.
         var drafts = await DeleteDraftsAsync(command.SubjectId, ct);
         var shareLinks = await DeleteShareLinksAsync(command.SubjectId, ct);
 
         var receipt = await unitOfWork.ExecuteInTransactionAsync(async token =>
         {
-            // Aynı komutun eşzamanlı ikinci çağrısı burada bekler, sonra ilkinin makbuzunu bulur.
             await erasures.LockAsync(command.RequestId, token);
             var existing = await erasures.FindReceiptAsync(command.RequestId, token);
             if (existing is not null) return existing;
@@ -46,14 +44,12 @@ public sealed class AccountErasureService(
             return created;
         }, ct);
 
-        // Önbellekteki form analizleri silinen cevapları içerebilir; sonraki okumada yeniden hesaplanır.
         try { await cache.RemoveByPrefixAsync(FormCacheKeys.AnalyticsPrefix, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { }
 
         return receipt;
     }
 
-    /// <summary>FormDraftService'in forms:draft:response|form:{formId}:{userId} anahtarları.</summary>
     private async Task<long> DeleteDraftsAsync(Guid userId, CancellationToken ct)
     {
         long deleted = 0;
@@ -68,7 +64,6 @@ public sealed class AccountErasureService(
         return deleted;
     }
 
-    /// <summary>Kişinin açtığı yanıt paylaşım bağlantıları ve onları gösteren yanıt anahtarları.</summary>
     private async Task<long> DeleteShareLinksAsync(Guid userId, CancellationToken ct)
     {
         long deleted = 0;

@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Skylab.Forms.Infrastructure.Storage.Configurations;
 
-/// <summary>Tablo ve kolon adları core'un sözleşmesinden gelir (docs/account-erasure-command.md §3).</summary>
 public class AccountErasureReceiptConfiguration : IEntityTypeConfiguration<AccountErasureReceipt>
 {
     public void Configure(EntityTypeBuilder<AccountErasureReceipt> builder)
