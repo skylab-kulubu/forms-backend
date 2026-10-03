@@ -73,6 +73,10 @@ public interface IFormWorkflowRuntime
         List<FormResponseSchemaItem> answers,
         CancellationToken cancellationToken = default);
 
+    Task<Guid?> GetNextFormByStepAsync(
+        Guid stepId,
+        CancellationToken cancellationToken = default);
+
     Task<WorkflowJourneyContract?> GetJourneyByStepAsync(
         Guid stepId,
         CancellationToken cancellationToken = default);

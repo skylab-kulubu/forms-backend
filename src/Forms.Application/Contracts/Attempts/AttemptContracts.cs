@@ -35,7 +35,8 @@ public record FormAttemptDisplayContract(
     FormAttemptExtensionContract? LastExtension,
     bool ClosedByTeam,
     bool HadDraft,
-    IReadOnlyList<string>? Deliverables = null
+    IReadOnlyList<string>? Deliverables = null,
+    Guid? NextFormId = null
 );
 
 public record FormAttemptStartResult(FormAttemptDisplayContract Attempt, DateTime ServerNow, Guid? InstanceId);

@@ -226,6 +226,21 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             : new WorkflowAttemptPreview(false, PreviewTrigger(definition, node, WorkflowTransitionTrigger.ResponseSubmitted, context), onTimeout);
     }
 
+    public async Task<Guid?> GetNextFormByStepAsync(
+        Guid stepId,
+        CancellationToken cancellationToken = default)
+    {
+        var step = await _instances.GetStepForEditAsync(stepId, cancellationToken);
+        if (step is null || step.WorkflowInstance.Status != WorkflowInstanceStatus.Active) return null;
+
+        var open = FindOpenStep(step.WorkflowInstance);
+        if (open is null || open.Id == stepId) return null;
+
+        var definition = await _workflows.GetDefinitionAsync(step.WorkflowInstance.WorkflowVersionId, cancellationToken);
+
+        return definition?.Nodes.FirstOrDefault(node => node.Id == open.NodeId)?.FormId;
+    }
+
     public async Task<WorkflowJourneyContract?> GetJourneyByStepAsync(
         Guid stepId,
         CancellationToken cancellationToken = default)

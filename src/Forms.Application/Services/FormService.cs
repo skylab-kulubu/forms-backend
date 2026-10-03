@@ -337,6 +337,8 @@ public class FormService : IFormService
         {
             var journey = await _workflowRuntime.GetJourneyByStepAsync(stepId, cancellationToken);
             if (journey is not null) payload = payload with { Workflow = journey, State = payload.State ?? WorkflowActionState.ShowForm };
+
+            contract = contract with { NextFormId = await _workflowRuntime.GetNextFormByStepAsync(stepId, cancellationToken) };
         }
 
         if (contract.State != FormAttemptState.Running && payload.Form is { } shown)
