@@ -143,8 +143,9 @@ no mail goes to it).
 |---|---|---|
 | The person's responses (`UserId`) | `UserId` → Silinmiş kullanıcı, `Data` → `[]`, `ReviewNote` → null. Form, status, dates and time spent stay | `responses_redacted` |
 | Guest responses with an answer equal to one of the addresses (case and surrounding spaces ignored) | `Data` → `[]`, `ReviewNote` → null | `guest_responses_redacted` |
-| Other responses' answers and attempt draft snapshots that contain an address or the person's full name | That answer → `""`; the rest stays | `answers_cleared` |
-| Review notes and attempt event notes that contain an address or the full name | → null | `review_notes_cleared` |
+| File answers in the redacted responses | Only the reference goes; core erases the person's uploads | `answer_files_unlinked` |
+| Other responses' answers and attempt draft snapshots that mention an address or the person's full name | That answer → `""`; the rest stays | `answers_cleared` |
+| Review notes and attempt event notes that mention an address or the full name | → null | `review_notes_cleared` |
 | `ReviewedBy`, `ArchivedBy`, template `OwnedBy`/`ArchivedBy`, workflow `OwnerUserId`, attempt event `ActorUserId` | → Silinmiş kullanıcı | `actor_columns_replaced` |
 | Collaborator rows other than Owner | Deleted | `collaborators_deleted` |
 | Owner rows | → Silinmiş kullanıcı (each form keeps one owner; nobody is made owner) | `form_owners_replaced` |
@@ -154,9 +155,24 @@ no mail goes to it).
 | Redis response and form drafts | Deleted before the transaction | `drafts_deleted` |
 | Response share links the person created or that point at their responses | Deleted before the transaction | `share_links_deleted` |
 
-The full name comes from the first and last name answers of the person's own responses
-(the event identity fields); single words are never searched. Deleted forms and archived
-templates are included. Redis counts are those of the run that wrote the receipt.
+How a mention is found:
+
+- **Address:** the address itself, case-insensitive, with no address character directly
+  before or after it, so `ali@x.com` is not found inside `vali@x.com` or `ali@x.com.tr`.
+- **Full name:** best effort. It is read from the person's own responses on forms that ask
+  for first name, last name and e-mail (the event identity fields), so a person who never
+  answered such a form has no name to search. Single words are never searched. Both sides
+  are normalised the same way in C# and SQL: `İ I ı` → `i` before lowercasing, `ş ğ ç ö ü â î û`
+  → ASCII, whitespace collapsed. Because the Turkish letters are mapped explicitly, the match
+  does not depend on the database locale for them; other letters follow Postgres `lower()`
+  under the database's `LC_CTYPE`.
+
+Deleted forms and archived templates are included. The work runs on a server-side 90-second
+budget, not on the request: if core gives up after its 15-second timeout the work still
+commits, and core's next attempt gets the stored `200`. `drafts_deleted` and
+`share_links_deleted` are lower bounds: Redis is cleaned before the transaction, and a run
+that failed after cleaning it is not counted. Cached form analytics are dropped after the
+erasure.
 
 ## Forms Capabilities
 

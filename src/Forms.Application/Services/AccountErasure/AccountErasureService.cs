@@ -27,7 +27,19 @@ public sealed class AccountErasureService(IAccountErasureRepository erasures, IC
             ["share_links_deleted"] = await DeleteShareLinksAsync(command.SubjectId, responseIds, ct)
         };
 
-        return await erasures.EraseAsync(new AccountErasureWork(command, FullNames(responses), cacheCounts), ct);
+        var receipt = await erasures.EraseAsync(new AccountErasureWork(command, FullNames(responses), cacheCounts), ct);
+
+        // Önbellekteki form analizleri silinen cevapları içerebilir; bir sonraki okumada
+        // yeniden hesaplanır. Silme commit edildiği için bu adım başarısız olsa da cevap 200'dür.
+        try
+        {
+            await cache.RemoveByPrefixAsync(FormCacheKeys.AnalyticsPrefix, ct);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+        }
+
+        return receipt;
     }
 
     /// <summary>

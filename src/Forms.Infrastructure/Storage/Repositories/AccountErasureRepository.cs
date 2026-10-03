@@ -33,10 +33,54 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
               AND lower(btrim(item.answer ->> 'answer')) = ANY (@emails))
         """;
 
-    // Bir metin, kişinin adreslerinden ya da tam adlarından birini içeriyor mu.
-    private static string MentionsSubject(string text) => $"""
-        EXISTS (SELECT 1 FROM unnest(@terms) term WHERE strpos(lower({text}), lower(term)) > 0)
+    // Türkçe harfler ASCII'ye, büyük harf küçüğe, boşluklar tek boşluğa iner. İ/I/ı lower()'dan
+    // önce eşlenir: lower('İ') veritabanının yerel ayarına göre değişebilir. NormalizeName'in
+    // SQL karşılığıdır; ikisi birlikte değişir.
+    private static string NormalizedText(string text) => $"""
+        regexp_replace(lower(translate({text}, '{TurkishFrom}', '{TurkishTo}')), '\s+', ' ', 'g')
         """;
+
+    private const string TurkishFrom = "İIıŞĞÇÖÜÂÎÛşğçöüâîû";
+    private const string TurkishTo = "iiisgcouaiusgcouaiu";
+
+    // Bir metin kişinin adreslerinden birini (adres sınırlarıyla) ya da tam adlarından
+    // birini (düzleştirilmiş, alt dize) içeriyor mu.
+    private static string MentionsSubject(string text) => $"""
+        (EXISTS (SELECT 1 FROM unnest(@email_patterns) pattern WHERE lower({text}) ~ pattern)
+         OR EXISTS (SELECT 1 FROM unnest(@names) name WHERE strpos({NormalizedText(text)}, name) > 0))
+        """;
+
+    private sealed record MatchTerms(string[] EmailPatterns, string[] Names)
+    {
+        public bool IsEmpty => EmailPatterns.Length == 0 && Names.Length == 0;
+
+        public static MatchTerms For(AccountErasureWork work) => new(
+            work.Command.Emails.Select(EmailPattern).ToArray(),
+            work.Names.Select(NormalizeName).Where(name => name.Contains(' ')).Distinct(StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// Adresin kendisi; hemen önünde ya da arkasında adres karakteri olmamalı: ali@x.com,
+    /// "vali@x.com" ya da "ali@x.com.tr" içinde bulunmaz; "<ali@x.com>" ve cümle sonundaki
+    /// "ali@x.com." içinde bulunur. Postgres ARE: harf/rakam olmayan her karakter kaçışlanır.
+    /// </summary>
+    internal static string EmailPattern(string email)
+    {
+        var escaped = string.Concat(email.Select(character =>
+            char.IsLetterOrDigit(character) ? character.ToString() : "\\" + character));
+        return $"(?<![[:alnum:]._%+'-]){escaped}(?![[:alnum:]_%+'@-]|\\.[[:alnum:]])";
+    }
+
+    /// <summary>NormalizedText'in C# karşılığı.</summary>
+    internal static string NormalizeName(string name)
+    {
+        var mapped = new string(name.Select(character =>
+        {
+            var index = TurkishFrom.IndexOf(character);
+            return index >= 0 ? TurkishTo[index] : character;
+        }).ToArray()).ToLowerInvariant();
+        return string.Join(' ', mapped.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
 
     // Bir jsonb cevap dizisinde kişiyi anan cevapları boşaltır, kaç cevap boşaldığını döner.
     private static string ClearMentioningAnswers(string table, string column) => $$"""
@@ -86,7 +130,7 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
                 JOIN "Forms" f ON f."Id" = r."FormId"
                 WHERE r."UserId" = @subject OR ({GuestResponseOfSubject})
                 """, connection);
-            AddSubjectParameters(select, command, []);
+            AddSubjectParameters(select, command, new MatchTerms([], []));
 
             var responses = new List<AccountErasureSubjectResponse>();
             await using var reader = await select.ExecuteReaderAsync(ct);
@@ -133,7 +177,7 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
             foreach (var (key, value) in work.CacheCounts)
                 counts[key] = value;
 
-            var terms = work.Command.Emails.Concat(work.Names).ToArray();
+            var terms = MatchTerms.For(work);
 
             async Task Run(string key, string sql)
             {
@@ -141,6 +185,17 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
                     command => AddSubjectParameters(command, work.Command, terms), token);
                 counts[key] = counts.GetValueOrDefault(key) + changed;
             }
+
+            // Silinecek yanıtlardaki dosya cevapları. Dosyanın kendisi core'dadır; kişinin
+            // yüklediğini core siler, Forms yalnız referansı bırakır.
+            counts["answer_files_unlinked"] = await ScalarAsync(connection, dbTransaction, $"""
+                SELECT count(*)::bigint
+                FROM "Responses" r
+                CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(r."Data") = 'array' THEN r."Data" ELSE '[]'::jsonb END) item(answer)
+                WHERE (r."UserId" = @subject OR ({GuestResponseOfSubject}))
+                  AND item.answer ->> 'type' = 'file'
+                  AND coalesce(item.answer ->> 'answer', '') <> ''
+                """, command => AddSubjectParameters(command, work.Command, terms), token);
 
             // Kişinin kendi yanıtları: kayıt, form, tarih ve durum kalır; cevaplar ve
             // inceleme notu silinir, yanıtlayan Silinmiş kullanıcı olur.
@@ -163,7 +218,7 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
 
             // Başkalarının yanıtlarında ve deneme taslaklarında kişiyi anan cevap
             // bütünüyle silinir; öbür cevaplar kalır. Sayı, silinen cevap sayısıdır.
-            if (terms.Length > 0)
+            if (!terms.IsEmpty)
             {
                 counts["answers_cleared"] =
                     await ScalarAsync(connection, dbTransaction, ClearMentioningAnswers("Responses", "Data"),
@@ -261,12 +316,13 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
         }, ct);
     }
 
-    private static void AddSubjectParameters(NpgsqlCommand command, AccountErasureCommand erasure, string[] terms)
+    private static void AddSubjectParameters(NpgsqlCommand command, AccountErasureCommand erasure, MatchTerms terms)
     {
         command.Parameters.Add(new NpgsqlParameter("subject", NpgsqlDbType.Uuid) { Value = erasure.SubjectId });
         command.Parameters.Add(new NpgsqlParameter("deleted", NpgsqlDbType.Uuid) { Value = DeletedUser.Id });
         command.Parameters.Add(new NpgsqlParameter("emails", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = erasure.Emails.ToArray() });
-        command.Parameters.Add(new NpgsqlParameter("terms", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = terms });
+        command.Parameters.Add(new NpgsqlParameter("email_patterns", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = terms.EmailPatterns });
+        command.Parameters.Add(new NpgsqlParameter("names", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = terms.Names });
         command.Parameters.Add(new NpgsqlParameter("owner", NpgsqlDbType.Integer) { Value = (int)CollaboratorRole.Owner });
         command.Parameters.Add(new NpgsqlParameter("active", NpgsqlDbType.Integer) { Value = (int)WorkflowInstanceStatus.Active });
         command.Parameters.Add(new NpgsqlParameter("terminated", NpgsqlDbType.Integer) { Value = (int)WorkflowInstanceStatus.Terminated });

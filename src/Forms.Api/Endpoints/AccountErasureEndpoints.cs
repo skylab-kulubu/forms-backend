@@ -23,6 +23,7 @@ public static class AccountErasureEndpoints
     // Core Retry-After'ı 30 sn ile 15 dk arasına sıkıştırır.
     private const int RetryAfterSeconds = 30;
     private const int GateOffRetryAfterSeconds = 300;
+    private static readonly TimeSpan ErasureWorkTimeout = TimeSpan.FromSeconds(90);
 
     public static IEndpointRouteBuilder MapAccountErasureEndpoints(this IEndpointRouteBuilder routes)
     {
@@ -99,7 +100,12 @@ public static class AccountErasureEndpoints
                     return;
             }
 
-            receipt = await erasures.EraseAsync(command, ct);
+            // İş, isteğin iptaline bağlanmaz: core 15 sn'de vazgeçse de yapılan iş commit
+            // edilir ve core'un sonraki denemesi kayıtlı 200'ü alır. Üst sınır sunucunun.
+            using (var work = new CancellationTokenSource(ErasureWorkTimeout))
+            {
+                receipt = await erasures.EraseAsync(command, work.Token);
+            }
 
             logger.LogInformation(
                 "Account erasure {RequestId} completed: {Counts}",
