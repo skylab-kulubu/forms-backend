@@ -22,8 +22,8 @@ namespace Skylab.Forms.Application.Services;
 public class FormResponseService : IFormResponseService
 {
     private static readonly TimeSpan ShareTokenLifetime = TimeSpan.FromHours(1);
-    private const string TokenKeyPrefix = "response:share:token:";
-    private const string ResponseKeyPrefix = "response:share:response:";
+    private const string TokenKeyPrefix = FormCacheKeys.ResponseShareTokenPrefix;
+    private const string ResponseKeyPrefix = FormCacheKeys.ResponseShareResponsePrefix;
 
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
@@ -74,12 +74,6 @@ public class FormResponseService : IFormResponseService
         _guestApply = guestApply;
         _events = events;
     }
-
-    /// <param name="InstanceResponseIds">
-    /// Paylasim, cevabin ait oldugu basvurunun butun adimlarini kapsar: inceleyen
-    /// baslangictan itibaren tum cevaplari gorebilsin.
-    /// </param>
-    private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
     public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
     {
@@ -290,13 +284,13 @@ public class FormResponseService : IFormResponseService
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
         var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
 
-        ShareCacheEntry? shareEntry = null;
+        ResponseShareEntry? shareEntry = null;
         if (!canView)
         {
             if (string.IsNullOrEmpty(token))
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
-            shareEntry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+            shareEntry = await _cache.GetAsync<ResponseShareEntry>(TokenKeyPrefix + token, ct: cancellationToken);
             if (shareEntry == null || (shareEntry.ResponseId != responseId && !shareEntry.InstanceResponseIds.Contains(responseId)))
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Paylaşım bağlantısı geçersiz veya süresi dolmuş.");
         }
@@ -577,7 +571,7 @@ public class FormResponseService : IFormResponseService
         var existingToken = await _cache.GetAsync<string>(ResponseKeyPrefix + responseId, ct: cancellationToken);
         var token = existingToken ?? GenerateToken();
 
-        var entry = new ShareCacheEntry(responseId, relatedResponseIds, userId);
+        var entry = new ResponseShareEntry(responseId, relatedResponseIds, userId);
         var expiresAt = DateTime.UtcNow.Add(ShareTokenLifetime);
 
         await _cache.SetAsync(TokenKeyPrefix + token, entry, ShareTokenLifetime, cancellationToken);
@@ -604,7 +598,7 @@ public class FormResponseService : IFormResponseService
         if (string.IsNullOrEmpty(token))
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Aktif paylaşım yok.");
 
-        var entry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+        var entry = await _cache.GetAsync<ResponseShareEntry>(TokenKeyPrefix + token, ct: cancellationToken);
 
         await _cache.RemoveAsync(TokenKeyPrefix + token, cancellationToken);
         await _cache.RemoveAsync(ResponseKeyPrefix + (entry?.ResponseId ?? responseId), cancellationToken);
@@ -620,7 +614,7 @@ public class FormResponseService : IFormResponseService
         if (string.IsNullOrEmpty(token))
             return new ServiceResult<ResponseMetaContract>(ServiceStatus.NotFound);
 
-        var entry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+        var entry = await _cache.GetAsync<ResponseShareEntry>(TokenKeyPrefix + token, ct: cancellationToken);
         if (entry == null || (entry.ResponseId != responseId && !entry.InstanceResponseIds.Contains(responseId)))
             return new ServiceResult<ResponseMetaContract>(ServiceStatus.NotFound);
 

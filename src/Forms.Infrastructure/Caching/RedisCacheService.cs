@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using StackExchange.Redis;
 using System.Text.Json;
 using Skylab.Forms.Application.Abstractions;
@@ -44,6 +45,19 @@ public class RedisCacheService : ICacheService
     public async Task<bool> ExistsAsync(string key, CancellationToken ct)
     {
         return await _db.KeyExistsAsync(key);
+    }
+
+    public async IAsyncEnumerable<string> ScanKeysAsync(string pattern, [EnumeratorCancellation] CancellationToken ct)
+    {
+        var server = _redis.GetServer(_redis.GetEndPoints().First());
+        await foreach (var key in server.KeysAsync(_db.Database, pattern, pageSize: 500).WithCancellation(ct))
+            yield return key.ToString();
+    }
+
+    public async Task<long> RemoveManyAsync(IReadOnlyCollection<string> keys, CancellationToken ct)
+    {
+        if (keys.Count == 0) return 0;
+        return await _db.KeyDeleteAsync(keys.Select(key => (RedisKey)key).ToArray());
     }
 
     public async Task<bool> AcquireLockAsync(string key, TimeSpan ttl, CancellationToken ct)

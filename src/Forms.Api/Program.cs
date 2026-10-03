@@ -1,4 +1,5 @@
 using Skylab.Forms.Api.Auth;
+using Skylab.Forms.Api.AccountErasure;
 using Skylab.Forms.Api.AccountAccess;
 using Skylab.Forms.Api.Endpoints;
 using Skylab.Forms.Application;
@@ -28,6 +29,7 @@ var app = builder.Build();
 
 await app.Services.ApplyDatabaseMigrationsAsync();
 
+app.UseInternalRouteGuard();
 app.UseFormsJwtAuthentication("AllowFrontend");
 app.UseCors("AllowFrontend");
 app.UseAccountAccessGate();
@@ -38,5 +40,6 @@ app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
 app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();
+app.MapAccountErasureEndpoints();
 
 app.Run();

@@ -112,6 +112,52 @@ decision and request correlation id, never a subject or digest.
 - `GET /health/ready` validates the exact access-gate contract through the gate
   connection and reports non-ready on mismatch or outage.
 
+## Account erasure
+
+Core sends Forms one Erasure command per account deletion (ADR-0051). The contract is
+core's [`docs/account-erasure-command.md`](https://github.com/skylab-kulubu/core-backend/blob/main/docs/account-erasure-command.md).
+
+`PUT /internal/v1/account-erasures/{request_id}` with
+`{"request_id","subject_id","emails"}` (at most 4 KB, 0–3 addresses, no other field).
+
+- **Network:** called over the internal Docker network. A request carrying
+  `X-Forwarded-*`, `Forwarded` or `X-Real-Ip` (Traefik) gets `404` before the token is read.
+  The route is not in Swagger.
+- **Token:** the usual JwtBearer checks (`aud` ∋ `forms`), plus `azp` exactly
+  `core-erasure` and `skyforms:account:erase` in `resource_access.forms.roles`; otherwise
+  `403 erasure_forbidden`.
+- **Blocked subject:** the subject's marker must be in the account access Redis; otherwise
+  `409 subject_not_blocked`. With the gate unreadable `503`, with `ACCOUNT_ACCESS_GATE_MODE=off`
+  `503 subject_block_unverifiable` (`Retry-After: 300`): Forms cannot prove the person asked.
+- **Idempotent:** the work and a receipt in `account_erasure_receipts` (request id, time,
+  counts; no subject, no address) are written in one transaction under an advisory lock on
+  the request id. A repeat returns the stored `200` byte for byte.
+- **Logs:** the request id and a fixed code only; never the body, the subject, an address or a name.
+
+What happens to the person's data. `Silinmiş kullanıcı` is the fixed id
+`00000000-0000-4000-8000-000000000000`; user lookups return that name for it without asking
+core, and also when core reports a user as `deleted` or `deletion_pending` (no address, so
+no mail goes to it).
+
+| Data | Action | `counts` key |
+|---|---|---|
+| The person's responses (`UserId`) | `UserId` → Silinmiş kullanıcı, `Data` → `[]`, `ReviewNote` → null. Form, status, dates and time spent stay | `responses_redacted` |
+| Guest responses with an answer equal to one of the addresses (case and surrounding spaces ignored) | `Data` → `[]`, `ReviewNote` → null | `guest_responses_redacted` |
+| Other responses' answers and attempt draft snapshots that contain an address or the person's full name | That answer → `""`; the rest stays | `answers_cleared` |
+| Review notes and attempt event notes that contain an address or the full name | → null | `review_notes_cleared` |
+| `ReviewedBy`, `ArchivedBy`, template `OwnedBy`/`ArchivedBy`, workflow `OwnerUserId`, attempt event `ActorUserId` | → Silinmiş kullanıcı | `actor_columns_replaced` |
+| Collaborator rows other than Owner | Deleted | `collaborators_deleted` |
+| Owner rows | → Silinmiş kullanıcı (each form keeps one owner; nobody is made owner) | `form_owners_replaced` |
+| Active workflow runs | Terminated with no outcome, the open step closed | `workflow_runs_cancelled` |
+| All workflow runs | `UserId` → Silinmiş kullanıcı | `workflow_runs_detached` |
+| The person's timed-form attempts and their events | Deleted (the response stays) | `attempts_deleted` |
+| Redis response and form drafts | Deleted before the transaction | `drafts_deleted` |
+| Response share links the person created or that point at their responses | Deleted before the transaction | `share_links_deleted` |
+
+The full name comes from the first and last name answers of the person's own responses
+(the event identity fields); single words are never searched. Deleted forms and archived
+templates are included. Redis counts are those of the run that wrote the receipt.
+
 ## Forms Capabilities
 
 Dynamic form creation and response management service.
