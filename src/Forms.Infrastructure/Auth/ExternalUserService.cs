@@ -57,20 +57,21 @@ public class ExternalUserService : IExternalUserService
     }
 
     /// <summary>
-    /// Silinen ya da silinmesi süren kişi için core yalnız sabit adı döner (status
-    /// deleted|deletion_pending). Adresi boş tutulur: ona posta gitmez.
+    /// Silinen ya da silinmesi süren kişi için core yalnız sabit adı ve boş adres döner
+    /// (status deleted|deletion_pending). Etkin olmayan her durum böyle sayılır ve adres
+    /// boş tutulur: ona posta gitmez.
     /// </summary>
     private static UserContract DeletedUserContract(Guid userId) =>
         new(userId, null, DeletedUser.DisplayName, null);
 
     private static UserContract MapToContract(ExternalUserResponse user)
     {
-        if (user.Status is "deleted" or "deletion_pending")
+        if (user.Status is not null && user.Status != "active")
             return DeletedUserContract(user.Id);
 
         return new UserContract(
             user.Id,
-            user.Email,
+            string.IsNullOrWhiteSpace(user.Email) ? null : user.Email,
             $"{user.FirstName} {user.LastName}".Trim(),
             user.ProfilePictureUrl
         );

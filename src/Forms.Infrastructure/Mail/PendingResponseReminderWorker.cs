@@ -76,7 +76,7 @@ public class PendingResponseReminderWorker : BackgroundService
         }
 
         var reviewers = (await userService.GetUsersAsync(byReviewer.Keys, ct))
-            .Where(u => u.Email is not null)
+            .Where(u => !string.IsNullOrWhiteSpace(u.Email))
             .ToDictionary(u => u.Id);
 
         foreach (var (reviewerId, forms) in byReviewer)
