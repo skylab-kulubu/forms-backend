@@ -55,7 +55,7 @@ public class MailWorker : BackgroundService
                 await Task.Delay(RetryDelay, ct);
         }
 
-        _logger.LogError("Mail {MaxAttempts} denemede gönderilemedi (template {TemplateId}, alıcı {Recipient})",
-            MaxAttempts, request.TemplateId, request.RecipientEmail);
+        _logger.LogError("Mail {MaxAttempts} denemede gönderilemedi (template {TemplateId})",
+            MaxAttempts, request.TemplateId);
     }
 }

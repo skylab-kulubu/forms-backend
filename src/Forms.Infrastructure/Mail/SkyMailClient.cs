@@ -36,8 +36,7 @@ public class SkyMailClient : ISkyMailService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "skymail /mail_tasks/single isteğinde hata (template {TemplateId}, alıcı {Recipient})",
-                request.TemplateId, request.RecipientEmail);
+            _logger.LogError(ex, "skymail /mail_tasks/single isteğinde hata (template {TemplateId})", request.TemplateId);
             return false;
         }
     }
