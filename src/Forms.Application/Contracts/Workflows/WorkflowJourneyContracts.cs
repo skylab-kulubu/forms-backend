@@ -29,4 +29,5 @@ public static class WorkflowJourneyStatus
     public const string InReview = "inReview";
     public const string Current = "current";
     public const string Upcoming = "upcoming";
+    public const string TimedOut = "timedOut";
 }

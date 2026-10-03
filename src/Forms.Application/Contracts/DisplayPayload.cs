@@ -1,3 +1,4 @@
+using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Workflows;
 
@@ -20,5 +21,8 @@ public record FormDisplayPayload(
     WorkflowJourneyContract? Workflow = null,
     string? FormTitle = null,
     DateTime? SubmittedAt = null,
-    WorkflowLastRunContract? LastRun = null
+    WorkflowLastRunContract? LastRun = null,
+    FormAttemptDisplayContract? Attempt = null,
+    DateTime? ServerNow = null,
+    DateTime? ClosesAt = null
 );

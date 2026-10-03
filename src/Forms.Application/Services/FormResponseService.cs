@@ -7,9 +7,11 @@ using Skylab.Forms.Application.Contracts.Exports;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts;
+using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -36,6 +38,8 @@ public class FormResponseService : IFormResponseService
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly ICoreGuestApply _guestApply;
     private readonly ICoreEventLookup _events;
+    private readonly IFormAttemptService _attempts;
+    private readonly IFormAttemptRepository _attemptRecords;
 
     public FormResponseService(
         IFormRepository forms,
@@ -50,8 +54,12 @@ public class FormResponseService : IFormResponseService
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
         ICoreGuestApply guestApply,
-        ICoreEventLookup events)
+        ICoreEventLookup events,
+        IFormAttemptService attempts,
+        IFormAttemptRepository attemptRecords)
     {
+        _attempts = attempts;
+        _attemptRecords = attemptRecords;
         _forms = forms;
         _responses = responses;
         _uow = uow;
@@ -79,18 +87,43 @@ public class FormResponseService : IFormResponseService
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
         if (form.Status != FormStatus.Open) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
+        if (!form.HasTimeLimit && form.HasClosedAt(DateTime.UtcNow))
+        {
+            return new ServiceResult<ResponseSubmitResult>(
+                ServiceStatus.NotAvailable,
+                new ResponseSubmitResult(null, null, 0, Reason: FormClosedReason.Closed),
+                "Bu form kapanış saatinde kendiliğinden kapandı.");
+        }
+
         if (!form.AllowAnonymousResponses && userId == null && form.EventId is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
 
         var guestTicket = await WriteGuestTicketAsync(form, contract.Responses, cancellationToken);
         if (guestTicket is not null) return guestTicket;
 
+        Guid? attemptId = null;
+
+        if (userId.HasValue && form.HasTimeLimit)
+        {
+            var gate = await _attempts.CheckSubmitAsync(form, userId.Value, cancellationToken);
+            if (gate.Rejection is not null) return gate.Rejection;
+
+            attemptId = gate.Attempt?.Id;
+        }
+
         if (userId.HasValue)
         {
             var workflowResult = await SubmitThroughWorkflowAsync(form, contract, userId.Value, cancellationToken);
-            if (workflowResult is not null) return workflowResult;
+
+            if (workflowResult is not null)
+            {
+                if (attemptId.HasValue && !workflowResult.Status.IsFailure() && workflowResult.Data?.ResponseId is { } workflowResponseId)
+                    await _attempts.MarkSubmittedAsync(attemptId.Value, workflowResponseId, cancellationToken);
+
+                return workflowResult;
+            }
         }
 
-        if (userId.HasValue && !form.AllowMultipleResponses)
+        if (userId.HasValue && !form.AllowMultipleResponses && !attemptId.HasValue)
         {
             var hasExistingResponse = await _responses.HasNonArchivedResponseAsync(form.Id, userId.Value, cancellationToken);
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
@@ -100,6 +133,9 @@ public class FormResponseService : IFormResponseService
 
         _responses.Add(response);
         await _uow.SaveChangesAsync(cancellationToken);
+
+        if (attemptId.HasValue)
+            await _attempts.MarkSubmittedAsync(attemptId.Value, response.Id, cancellationToken);
 
         await AfterResponseSavedAsync(form, response, cancellationToken);
 
@@ -175,13 +211,18 @@ public class FormResponseService : IFormResponseService
         if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
             return new ServiceResult<FormResponsesListResult>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
-        var paged = await _responses.GetPagedAsync(formId, request, cancellationToken);
+        var form = await _forms.GetByIdAsync(formId, cancellationToken);
+        var hasTimeLimit = form?.HasTimeLimit == true;
+        var now = DateTime.UtcNow;
+
+        var paged = await _responses.GetPagedAsync(formId, request, hasTimeLimit, now, cancellationToken);
 
         var userIds = paged.Items.Where(r => r.UserId.HasValue).Select(r => r.UserId!.Value)
             .Concat(paged.Items.Where(r => r.ReviewedBy.HasValue).Select(r => r.ReviewedBy!.Value))
             .Distinct()
             .ToList();
         var users = await _userService.GetUsersAsync(userIds, cancellationToken);
+        var canRemind = _mailNotifier.CanNotifyAttempts && form?.HasClosedAt(now) == false;
 
         var mappedItems = paged.Items.Select(r =>
         {
@@ -194,7 +235,10 @@ public class FormResponseService : IFormResponseService
             if (reviewerDetail == null && r.ReviewedBy.HasValue)
                 reviewerDetail = new UserContract(r.ReviewedBy.Value, null, "??", null);
 
-            return new ResponseSummaryContract(r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt);
+            return new ResponseSummaryContract(
+                r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt,
+                r.TimeSpent,
+                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null);
         }).ToList();
 
         var resultData = new PagedResult<ResponseSummaryContract>(
@@ -204,10 +248,37 @@ public class FormResponseService : IFormResponseService
             request.PageSize
         );
 
-        var finalResult = new FormResponsesListResult(resultData, paged.AverageTimeSpent);
+        var counts = paged.Counts;
+        var finalResult = new FormResponsesListResult(
+            resultData,
+            paged.AverageTimeSpent,
+            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission),
+            paged.AverageTaskSeconds,
+            hasTimeLimit);
 
         return new ServiceResult<FormResponsesListResult>(ServiceStatus.Success, Data: finalResult);
     }
+
+    private static ResponseAttemptSummaryContract ToAttemptSummary(ResponseAttemptProjection attempt, bool canRemind) =>
+        new(
+            attempt.Id,
+            attempt.Status,
+            attempt.OpenedAt,
+            attempt.StartedAt,
+            attempt.DeadlineAt,
+            attempt.ExpiredAt,
+            attempt.ExtendedMinutes,
+            attempt.ClosedByTeam,
+            attempt.Status switch
+            {
+                FormAttemptStatus.Started or FormAttemptStatus.Provisional => true,
+                FormAttemptStatus.NoSubmission => attempt.WorkflowStepId is null && !attempt.ClosedByTeam,
+                _ => false
+            },
+            canRemind && attempt.Status == FormAttemptStatus.Opened,
+            attempt is { StartedAt: { } startedAt, ResponseSubmittedAt: { } submittedAt, Status: FormAttemptStatus.Submitted }
+                ? (int)Math.Max(0, (submittedAt - startedAt).TotalSeconds)
+                : null);
 
     public async Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, string? token, CancellationToken cancellationToken = default)
     {
@@ -245,9 +316,15 @@ public class FormResponseService : IFormResponseService
         var archiverUser = response.ArchivedBy.HasValue ? users.FirstOrDefault(u => u.Id == response.ArchivedBy) : null;
         var sharedByUser = shareEntry != null ? users.FirstOrDefault(u => u.Id == shareEntry.SharedByUserId) : null;
 
+        var attempt = canView ? await _attempts.GetDetailForResponseAsync(response, cancellationToken) : null;
+
         return new ServiceResult<ResponseContract>(
             ServiceStatus.Success,
-            Data: MapToDetailContract(response, workflow, responderUser, reviewerUser, archiverUser, sharedByUser)
+            Data: MapToDetailContract(response, workflow, responderUser, reviewerUser, archiverUser, sharedByUser) with
+            {
+                Attempt = attempt,
+                Task = response.Form.Task
+            }
         );
     }
 
@@ -269,6 +346,12 @@ public class FormResponseService : IFormResponseService
         // Kolon sınırını aşan not kayıtta 22001 ile patlar; istek 500 olur ve durum değişmez.
         if (contract.Note?.Length > FormResponse.ReviewNoteMaxLength)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Açıklama en fazla {FormResponse.ReviewNoteMaxLength} karakter olabilir.");
+
+        if (response.Status == FormResponseStatus.Provisional)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Geçici cevap için önce karar verin: teslim olarak kabul edin, süre verin ya da kapatın.");
+
+        if (contract.NewStatus == FormResponseStatus.Provisional)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap geçici duruma alınamaz.");
 
         // Akış içindeki bir cevapta durum ve rota birlikte yazılır; ikisini ayırmak
         // onaylanmış ama ilerlememiş bir başvuru bırakırdı.
@@ -307,6 +390,9 @@ public class FormResponseService : IFormResponseService
 
         if (response.IsArchived)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bu yanıt zaten arşivlenmiş.");
+
+        if (response.Status == FormResponseStatus.Provisional)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Geçici cevap arşivlenemez; önce karar verin.");
 
         if (response.Status == FormResponseStatus.Pending)
         {
@@ -361,6 +447,13 @@ public class FormResponseService : IFormResponseService
             "Kampanya"
         };
 
+        var timings = form.HasTimeLimit
+            ? await _attemptRecords.GetTimingsByResponseAsync(formId, cancellationToken)
+            : new Dictionary<Guid, Abstractions.Storage.FormAttemptTiming>();
+
+        if (form.HasTimeLimit)
+            headers.AddRange(["Başlama Tarihi", "Teslim Süresi (dk)", "Ek Süre (dk)"]);
+
         foreach (var schemaItem in form.Schema)
         {
             string questionText = schemaItem.Props.TryGetValue("question", out var qVal) ? qVal?.ToString() ?? "İsimsiz Soru" : "Soru";
@@ -382,6 +475,15 @@ public class FormResponseService : IFormResponseService
                 response.Attribution?.Medium ?? "",
                 response.Attribution?.Campaign ?? ""
             };
+
+            if (form.HasTimeLimit)
+            {
+                var timing = timings.TryGetValue(response.Id, out var found) ? found : null;
+
+                row.Add(timing?.StartedAt?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "");
+                row.Add(timing?.StartedAt is { } startedAt ? Math.Max(0, (int)Math.Round((response.SubmittedAt - startedAt).TotalMinutes)).ToString() : "");
+                row.Add(timing is { ExtendedMinutes: > 0 } ? timing.ExtendedMinutes.ToString() : "");
+            }
 
             foreach (var schemaItem in form.Schema)
             {
@@ -537,6 +639,19 @@ public class FormResponseService : IFormResponseService
     private async Task<ResponseWorkflowContract?> BuildWorkflowContractAsync(FormResponse response, CancellationToken cancellationToken)
     {
         var context = await _instances.GetContextByResponseAsync(response.Id, cancellationToken);
+
+        if (context is null && response.Status == FormResponseStatus.Provisional
+            && await _attempts.FindStepIdForResponseAsync(response.Id, cancellationToken) is { } stepId
+            && await _instances.GetContextByStepAsync(stepId, cancellationToken) is { } stepContext)
+        {
+            context = stepContext with
+            {
+                Steps = [.. stepContext.Steps.Select(step => step.Stage == stepContext.Stage
+                    ? step with { ResponseId = response.Id, Status = FormResponseStatus.Provisional }
+                    : step)]
+            };
+        }
+
         if (context is null) return null;
 
         var steps = context.Steps

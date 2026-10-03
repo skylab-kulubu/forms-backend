@@ -9,7 +9,8 @@ public sealed record WorkflowNodeForm(
     bool IsOpen,
     bool AllowAnonymousResponses,
     bool WorkflowOwnerIsFormOwner,
-    IReadOnlyCollection<string> QuestionIds)
+    IReadOnlyCollection<string> QuestionIds,
+    bool HasTimeLimit = false)
 {
     public static readonly WorkflowNodeForm Missing =
         new(false, false, false, false, Array.Empty<string>());

@@ -71,6 +71,15 @@ public static class WorkflowAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapPut("/{id:guid}/intake-schedule", async (Guid id, [FromBody] WorkflowIntakeScheduleRequest request, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışın kapanış saatini değiştirmek için giriş yapmalısınız.");
+
+            var result = await service.UpdateIntakeScheduleAsync(id, request, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
         group.MapPut("/{id:guid}/definition", async (Guid id, [FromBody] WorkflowDefinitionRequest request, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);

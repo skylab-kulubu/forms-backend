@@ -1,5 +1,6 @@
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
+using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Contracts.Workflows;
 
@@ -21,7 +22,9 @@ public record ResponseContract(
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
     UserContract? SharedBy = null,
-    ResponseAttribution? Attribution = null
+    ResponseAttribution? Attribution = null,
+    FormAttemptDetailContract? Attempt = null,
+    FormTask? Task = null
 );
 
 /// <summary>
@@ -73,11 +76,38 @@ public record ResponseSubmitResult(
 public record ResponseSummaryContract(
     Guid Id,
     UserContract? User,
-    FormResponseStatus Status,
+    FormResponseStatus? Status,
     bool IsArchived,
     UserContract? ReviewedBy,
     Guid? ArchivedBy,
-    DateTime SubmittedAt,
+    DateTime? SubmittedAt,
     DateTime? ReviewedAt,
-    DateTime? ArchivedAt
+    DateTime? ArchivedAt,
+    int? TimeSpent = null,
+    ResponseAttemptSummaryContract? Attempt = null
+);
+
+public record ResponseAttemptSummaryContract(
+    Guid Id,
+    FormAttemptStatus Status,
+    DateTime OpenedAt,
+    DateTime? StartedAt,
+    DateTime? DeadlineAt,
+    DateTime? ExpiredAt,
+    int ExtendedMinutes,
+    bool ClosedByTeam,
+    bool CanExtend,
+    bool CanRemind,
+    int? TaskSeconds
+);
+
+public record ResponseStatusCountsContract(
+    int Submitted,
+    int Pending,
+    int Approved,
+    int Declined,
+    int Provisional,
+    int Running,
+    int Opened,
+    int NoSubmission
 );

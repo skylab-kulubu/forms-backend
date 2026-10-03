@@ -20,7 +20,8 @@ public record WorkflowContract(
     /// <summary>Taslağın son doğrulama sonucu; ayrıca /validate çağırmaya gerek yok.</summary>
     WorkflowValidationContract Validation,
     DateTime CreatedAt,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    DateTime? IntakeClosesAt = null
 );
 
 public record WorkflowVersionContract(
@@ -43,7 +44,8 @@ public record WorkflowNodeContract(
     string FormTitle,
     bool RequiresManualReview,
     bool IsStart,
-    WorkflowNodePositionContract? Position
+    WorkflowNodePositionContract? Position,
+    int? TimeLimitMinutes = null
 );
 
 /// <summary>İstemci piksel biriminde tam sayı koordinat; sunucu dönüştürmez, doğrulamaz.</summary>
@@ -91,7 +93,8 @@ public record WorkflowAvailableFormContract(
     bool RequiresManualReview,
     bool IsEligible,
     string? Reason,
-    bool IsUsedInThisWorkflow
+    bool IsUsedInThisWorkflow,
+    int? TimeLimitMinutes = null
 );
 
 public record WorkflowVersionSummaryContract(

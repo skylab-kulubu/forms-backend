@@ -75,16 +75,178 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         var openNode = definition.Nodes.First(candidate => candidate.Id == openStep.NodeId);
 
         return Result(
-            new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId, startFormId, Journey: journey),
+            new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId, startFormId, Journey: journey, StepId: openStep.Id),
             null,
             isTwoStepFlow);
     }
 
-    public async Task<ServiceResult<WorkflowStepOutcome>> SubmitAsync(
+    public Task<ServiceResult<WorkflowStepOutcome>> SubmitAsync(
         Form form,
         FormResponse response,
         Guid userId,
+        CancellationToken cancellationToken = default) =>
+        SubmitCoreAsync(form, response, userId, addResponse: true, cancellationToken);
+
+    public Task<ServiceResult<WorkflowStepOutcome>> AcceptAsync(
+        Form form,
+        FormResponse response,
+        Guid userId,
+        CancellationToken cancellationToken = default) =>
+        SubmitCoreAsync(form, response, userId, addResponse: false, cancellationToken);
+
+    public async Task<ServiceResult<WorkflowStepOutcome>> BeginRunAsync(
+        Form form,
+        Guid userId,
         CancellationToken cancellationToken = default)
+    {
+        var active = await _instances.GetActiveByFormAsync(form.Id, userId, cancellationToken);
+
+        if (active is not null)
+        {
+            var activeDefinition = await _workflows.GetDefinitionAsync(active.WorkflowVersionId, cancellationToken);
+            if (activeDefinition is null) return DefinitionUnavailable();
+
+            var activeNode = activeDefinition.Nodes.First(candidate => candidate.FormId == form.Id);
+            var openStep = FindOpenStep(active);
+            var activeStartFormId = activeDefinition.Nodes.First(candidate => candidate.IsStart).FormId;
+
+            if (openStep is not null && openStep.NodeId == activeNode.Id && openStep.ResponseId is null)
+            {
+                return Result(
+                    new WorkflowStepOutcome(active.Id, WorkflowActionState.ShowForm, openStep.Sequence, form.Id, activeStartFormId, StepId: openStep.Id),
+                    null,
+                    activeDefinition.Nodes.Count == 2);
+            }
+
+            return Result(
+                new WorkflowStepOutcome(active.Id, WorkflowActionState.RequiresPreviousStep, openStep?.Sequence ?? 0, null, activeStartFormId),
+                "Şu anda beklenen adım bu form değil.",
+                activeDefinition.Nodes.Count == 2);
+        }
+
+        var location = await _workflows.FindPublishedNodeAsync(form.Id, cancellationToken);
+        if (location is null) return Result(WorkflowStepOutcome.NotInWorkflow);
+
+        if (!location.IsStart)
+        {
+            return Result(
+                new WorkflowStepOutcome(null, WorkflowActionState.RequiresPreviousStep, 0, null, location.StartFormId),
+                "Bu formu doldurmak için önceki adımı tamamlamanız gerekiyor.",
+                location.NodeCount == 2);
+        }
+
+        if (!location.AllowMultipleRuns && await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken) is not null)
+        {
+            return new ServiceResult<WorkflowStepOutcome>(
+                ServiceStatus.NotAcceptable,
+                Message: "Bu akışı daha önce tamamladınız.");
+        }
+
+        var intake = location.IntakeAt(DateTime.UtcNow);
+        if (intake != WorkflowIntake.Open)
+            return IntakeClosed(intake, null, 0, location.StartFormId, location.NodeCount == 2);
+
+        var definition = await _workflows.GetDefinitionAsync(location.WorkflowVersionId, cancellationToken);
+        if (definition is null) return DefinitionUnavailable();
+
+        var node = definition.Nodes.First(candidate => candidate.Id == location.NodeId);
+
+        var instance = new FormWorkflowInstance
+        {
+            WorkflowId = location.WorkflowId,
+            WorkflowVersionId = location.WorkflowVersionId,
+            UserId = userId
+        };
+
+        var step = new FormWorkflowStep { NodeId = node.Id, Sequence = 1 };
+        instance.Steps.Add(step);
+        _instances.Add(instance);
+
+        await _uow.SaveChangesAsync(cancellationToken);
+
+        return Result(
+            new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, 1, form.Id, location.StartFormId, StepId: step.Id),
+            null,
+            location.NodeCount == 2);
+    }
+
+    public async Task<ServiceResult<WorkflowStepOutcome>> TimeOutAsync(
+        Guid stepId,
+        CancellationToken cancellationToken = default)
+    {
+        var step = await _instances.GetStepForEditAsync(stepId, cancellationToken);
+        if (step is null) return Result(WorkflowStepOutcome.NotInWorkflow);
+
+        if (step.CompletedAt is not null || step.ResponseId is not null)
+        {
+            return new ServiceResult<WorkflowStepOutcome>(
+                ServiceStatus.NotAcceptable,
+                Message: "Bu adımın yönlendirmesi daha önce yapıldı.");
+        }
+
+        var instance = step.WorkflowInstance;
+
+        if (instance.Status != WorkflowInstanceStatus.Active)
+        {
+            return new ServiceResult<WorkflowStepOutcome>(
+                ServiceStatus.NotAcceptable,
+                Message: "Başvuru artık devam etmiyor.");
+        }
+
+        var definition = await _workflows.GetDefinitionAsync(instance.WorkflowVersionId, cancellationToken);
+        if (definition is null) return DefinitionUnavailable();
+
+        var node = definition.Nodes.First(candidate => candidate.Id == step.NodeId);
+
+        var (outcome, nextStep) = await AdvanceAsync(
+            instance, definition, node, step, [], WorkflowTransitionTrigger.TimedOut, cancellationToken);
+
+        await CommitAsync(instance, nextStep, cancellationToken);
+
+        return Result(outcome, MessageFor(outcome), definition.Nodes.Count == 2);
+    }
+
+    public async Task<WorkflowAttemptPreview?> PreviewAttemptAsync(
+        Guid stepId,
+        List<FormResponseSchemaItem> answers,
+        CancellationToken cancellationToken = default)
+    {
+        var step = await _instances.GetStepForEditAsync(stepId, cancellationToken);
+        if (step is null || step.CompletedAt is not null) return null;
+
+        var definition = await _workflows.GetDefinitionAsync(step.WorkflowInstance.WorkflowVersionId, cancellationToken);
+        if (definition is null) return null;
+
+        var node = definition.Nodes.First(candidate => candidate.Id == step.NodeId);
+        var context = await BuildContextAsync(step.WorkflowInstance, node.NodeKey, answers, cancellationToken);
+        var onTimeout = PreviewTrigger(definition, node, WorkflowTransitionTrigger.TimedOut, context);
+
+        return node.RequiresManualReview
+            ? new WorkflowAttemptPreview(true, null, onTimeout)
+            : new WorkflowAttemptPreview(false, PreviewTrigger(definition, node, WorkflowTransitionTrigger.ResponseSubmitted, context), onTimeout);
+    }
+
+    public async Task<WorkflowJourneyContract?> GetJourneyByStepAsync(
+        Guid stepId,
+        CancellationToken cancellationToken = default)
+    {
+        var step = await _instances.GetStepForEditAsync(stepId, cancellationToken);
+        if (step is null) return null;
+
+        var instance = step.WorkflowInstance;
+        var definition = await _workflows.GetDefinitionAsync(instance.WorkflowVersionId, cancellationToken);
+
+        return definition is null
+            ? null
+            : await BuildJourneyAsync(instance.Workflow.Name, definition, instance.Id, null, cancellationToken);
+    }
+
+    private async Task<ServiceResult<WorkflowStepOutcome>> SubmitCoreAsync(
+        Form form,
+        FormResponse response,
+        Guid userId,
+        bool addResponse,
+        CancellationToken cancellationToken)
     {
         var instance = await _instances.GetActiveByFormAsync(form.Id, userId, cancellationToken);
 
@@ -113,8 +275,9 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                     Message: "Bu akışı daha önce tamamladınız.");
             }
 
-            if (location.Intake != WorkflowIntake.Open)
-                return IntakeClosed(location.Intake, null, 0, location.StartFormId, location.NodeCount == 2);
+            var intake = location.IntakeAt(DateTime.UtcNow);
+            if (intake != WorkflowIntake.Open)
+                return IntakeClosed(intake, null, 0, location.StartFormId, location.NodeCount == 2);
 
             definition = await _workflows.GetDefinitionAsync(location.WorkflowVersionId, cancellationToken);
             if (definition is null) return DefinitionUnavailable();
@@ -165,7 +328,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                     Message: "Bu adımı zaten cevapladınız.");
             }
 
-            if (instance.Workflow.Intake == WorkflowIntake.Closed)
+            if (addResponse && instance.Workflow.Intake == WorkflowIntake.Closed)
             {
                 return IntakeClosed(
                     WorkflowIntake.Closed,
@@ -181,7 +344,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         // Cevap formun kendi ayarıyla kurulmuş gelir; akış içinde adımın ayarı geçerlidir.
         response.Status = node.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict;
 
-        _responses.Add(response);
+        if (addResponse) _responses.Add(response);
         step.ResponseId = response.Id;
 
         if (node.RequiresManualReview)
@@ -334,8 +497,9 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         // Sonuçlanmış başvuru kabul durumundan önce gelir: akış kapansa da sonucu görünsün.
         if (lastRun is not null && !location.AllowMultipleRuns) return ClosedRun(lastRun, isTwoStepFlow, location.StartFormId, await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken));
 
-        if (location.Intake != WorkflowIntake.Open)
-            return IntakeClosed(location.Intake, null, 0, location.StartFormId, isTwoStepFlow, await StartJourneyAsync(location, cancellationToken));
+        var intake = location.IntakeAt(DateTime.UtcNow);
+        if (intake != WorkflowIntake.Open)
+            return IntakeClosed(intake, null, 0, location.StartFormId, isTwoStepFlow, await StartJourneyAsync(location, cancellationToken));
 
         var outcome = new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId, location.StartFormId, Journey: await StartJourneyAsync(location, cancellationToken));
 
@@ -344,7 +508,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             outcome = outcome with
             {
                 LastRun = new WorkflowLastRunContract(
-                    lastRun.Outcome == WorkflowInstanceOutcome.Declined ? WorkflowActionState.Declined : WorkflowActionState.Completed,
+                    lastRun.Outcome is WorkflowInstanceOutcome.Declined or WorkflowInstanceOutcome.TimedOut ? WorkflowActionState.Declined : WorkflowActionState.Completed,
                     lastRun.ReviewNote,
                     lastRun.ReviewedAt,
                     await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken))
@@ -359,7 +523,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
     {
         var state = run.Status == WorkflowInstanceStatus.Faulted
             ? WorkflowActionState.Faulted
-            : run.Outcome == WorkflowInstanceOutcome.Declined
+            : run.Outcome is WorkflowInstanceOutcome.Declined or WorkflowInstanceOutcome.TimedOut
                 ? WorkflowActionState.Declined
                 : WorkflowActionState.Completed;
 
@@ -475,7 +639,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         DateTime now,
         Guid startFormId)
     {
-        var declined = trigger == WorkflowTransitionTrigger.ResponseDeclined;
+        var declined = trigger is WorkflowTransitionTrigger.ResponseDeclined or WorkflowTransitionTrigger.TimedOut;
 
         instance.Status = declined ? WorkflowInstanceStatus.Terminated : WorkflowInstanceStatus.Completed;
         instance.CompletedAt = now;
@@ -483,6 +647,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         {
             WorkflowTransitionTrigger.ResponseApproved => WorkflowInstanceOutcome.Approved,
             WorkflowTransitionTrigger.ResponseDeclined => WorkflowInstanceOutcome.Declined,
+            WorkflowTransitionTrigger.TimedOut => WorkflowInstanceOutcome.TimedOut,
             _ => WorkflowInstanceOutcome.None
         };
 

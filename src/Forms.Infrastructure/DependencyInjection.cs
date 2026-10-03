@@ -6,6 +6,7 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Application.ShortLinks;
+using Skylab.Forms.Infrastructure.Attempts;
 using Skylab.Forms.Infrastructure.Auth;
 using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
@@ -50,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IFormMetricsRepository, FormMetricsRepository>();
         services.AddScoped<IFormWorkflowRepository, FormWorkflowRepository>();
         services.AddScoped<IFormWorkflowInstanceRepository, FormWorkflowInstanceRepository>();
+        services.AddScoped<IFormAttemptRepository, FormAttemptRepository>();
         services.AddScoped<IFormsUnitOfWork, FormsUnitOfWork>();
 
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
@@ -100,6 +102,7 @@ public static class DependencyInjection
         services.Configure<FormMailOptions>(configuration.GetSection(FormMailOptions.SectionName));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<FormMailOptions>>().Value);
         services.AddHostedService<PendingResponseReminderWorker>();
+        services.AddHostedService<FormAttemptExpiryWorker>();
 
         return services;
     }

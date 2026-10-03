@@ -19,7 +19,10 @@ public record FormContract(
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    EventRefContract? Event = null
+    EventRefContract? Event = null,
+    FormTask? Task = null,
+    DateTime? ClosesAt = null,
+    int? TimeLimitMinutes = null
 );
 
     public record FormDisplayContract(
@@ -28,7 +31,10 @@ public record FormContract(
     string? Description,
     List<FormSchemaItem> Schema,
     Guid? EventId = null,
-    bool RequiresManualReview = false
+    bool RequiresManualReview = false,
+    FormTask? Task = null,
+    DateTime? ClosesAt = null,
+    int? TimeLimitMinutes = null
 );
 
 public record FormSummaryContract(

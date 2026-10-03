@@ -111,10 +111,33 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
 
         if (owningStep is null) return null;
 
+        return await BuildContextAsync(owningStep.WorkflowInstanceId, owningStep.Sequence, ct);
+    }
+
+    public async Task<ResponseWorkflowProjection?> GetContextByStepAsync(Guid stepId, CancellationToken ct = default)
+    {
+        var step = await _context.WorkflowSteps.AsNoTracking()
+            .Where(candidate => candidate.Id == stepId)
+            .Select(candidate => new { candidate.WorkflowInstanceId, candidate.Sequence })
+            .FirstOrDefaultAsync(ct);
+
+        return step is null ? null : await BuildContextAsync(step.WorkflowInstanceId, step.Sequence, ct);
+    }
+
+    public Task<FormWorkflowStep?> GetStepForEditAsync(Guid stepId, CancellationToken ct = default) =>
+        _context.WorkflowSteps
+            .Include(step => step.WorkflowInstance)
+            .ThenInclude(instance => instance.Steps)
+            .Include(step => step.WorkflowInstance)
+            .ThenInclude(instance => instance.Workflow)
+            .FirstOrDefaultAsync(step => step.Id == stepId, ct);
+
+    private async Task<ResponseWorkflowProjection> BuildContextAsync(Guid instanceId, int sequence, CancellationToken ct)
+    {
         // Formu sonradan silinmiş bir adım da başvurunun geçmişinin parçasıdır.
         var steps = await _context.WorkflowSteps.AsNoTracking()
             .IgnoreQueryFilters()
-            .Where(step => step.WorkflowInstanceId == owningStep.WorkflowInstanceId)
+            .Where(step => step.WorkflowInstanceId == instanceId)
             .OrderBy(step => step.Sequence)
             .Select(step => new
             {
@@ -140,7 +163,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
                 step.Status))
             .ToList();
 
-        return new ResponseWorkflowProjection(owningStep.WorkflowInstanceId, owningStep.Sequence, mapped);
+        return new ResponseWorkflowProjection(instanceId, sequence, mapped);
     }
 
     public void Add(FormWorkflowInstance instance) => _context.WorkflowInstances.Add(instance);

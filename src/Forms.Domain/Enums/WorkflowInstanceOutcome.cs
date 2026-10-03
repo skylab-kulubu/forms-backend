@@ -4,5 +4,6 @@ public enum WorkflowInstanceOutcome
 {
     None = 0,
     Approved = 1,
-    Declined = 2
+    Declined = 2,
+    TimedOut = 3
 }

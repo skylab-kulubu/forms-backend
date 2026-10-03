@@ -16,7 +16,7 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
 
     public Task<FormBasicStats?> GetFormBasicStatsAsync(Guid formId, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId)
+            .Where(r => r.FormId == formId && r.Status != FormResponseStatus.Provisional)
             .GroupBy(_ => 1)
             .Select(g => new FormBasicStats(
                 g.Count(),
@@ -33,27 +33,27 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
     // so pull the raw answer lists for every non-archived response of the form.
     public async Task<IReadOnlyList<List<FormResponseSchemaItem>>> GetNonArchivedResponseDataAsync(Guid formId, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !r.IsArchived)
+            .Where(r => r.FormId == formId && !r.IsArchived && r.Status != FormResponseStatus.Provisional)
             .Select(r => r.Data)
             .ToListAsync(ct);
 
     public async Task<IReadOnlyList<DailyResponseCount>> GetDailyResponseCountsAsync(Guid formId, DateTime sinceDate, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && r.SubmittedAt >= sinceDate)
+            .Where(r => r.FormId == formId && r.SubmittedAt >= sinceDate && r.Status != FormResponseStatus.Provisional)
             .GroupBy(r => r.SubmittedAt.Date)
             .Select(g => new DailyResponseCount(g.Key, g.Count()))
             .ToListAsync(ct);
 
     public async Task<IReadOnlyList<HourlyResponseCount>> GetHourlyResponseCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && r.SubmittedAt >= sinceTime)
+            .Where(r => r.FormId == formId && r.SubmittedAt >= sinceTime && r.Status != FormResponseStatus.Provisional)
             .GroupBy(r => new { r.SubmittedAt.Date, r.SubmittedAt.Hour })
             .Select(g => new HourlyResponseCount(g.Key.Date, g.Key.Hour, g.Count()))
             .ToListAsync(ct);
 
     public async Task<IReadOnlyList<ResponseSourceCount>> GetResponseSourceCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !r.IsArchived && r.SubmittedAt >= sinceTime)
+            .Where(r => r.FormId == formId && !r.IsArchived && r.SubmittedAt >= sinceTime && r.Status != FormResponseStatus.Provisional)
             .GroupBy(r => r.Attribution!.Source)
             .Select(g => new ResponseSourceCount(g.Key, g.Count()))
             .ToListAsync(ct);
@@ -62,7 +62,7 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
         _context.Forms.AsNoTracking().CountAsync(ct);
 
     public Task<int> GetTotalResponsesCountAsync(CancellationToken ct = default) =>
-        _context.Responses.AsNoTracking().CountAsync(ct);
+        _context.Responses.AsNoTracking().CountAsync(r => r.Status != FormResponseStatus.Provisional, ct);
 
     public Task<int> GetPendingNonArchivedResponsesCountAsync(CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
@@ -76,7 +76,7 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
 
     public async Task<IReadOnlyList<DateTime>> GetResponseSubmittedDatesAsync(DateTime sinceDate, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.SubmittedAt >= sinceDate)
+            .Where(r => r.SubmittedAt >= sinceDate && r.Status != FormResponseStatus.Provisional)
             .Select(r => r.SubmittedAt)
             .ToListAsync(ct);
 }

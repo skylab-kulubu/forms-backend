@@ -89,7 +89,8 @@ public sealed record WorkflowFormMembership(
     bool AllowMultipleRuns,
     WorkflowIntake Intake,
     bool RequiresManualReview,
-    IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions);
+    IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions,
+    DateTime? IntakeClosesAt = null);
 
 /// <summary>
 /// Bir koşulun okuduğu soru ve karşılaştırdığı metinler. Cevaplar seçeneğin görünen
@@ -113,7 +114,11 @@ public sealed record WorkflowNodeLocation(
     WorkflowIntake Intake,
     int NodeCount,
     Guid StartFormId,
-    string WorkflowName);
+    string WorkflowName,
+    DateTime? IntakeClosesAt = null)
+{
+    public WorkflowIntake IntakeAt(DateTime now) => FormWorkflow.EffectiveIntake(Intake, IntakeClosesAt, now);
+}
 
 public sealed record WorkflowDefinition(
     Guid WorkflowId,
@@ -140,9 +145,9 @@ public sealed record WorkflowSummaryProjection(
     bool HasUnpublishedChanges,
     DateTime? UpdatedAt);
 
-public sealed record WorkflowCandidateForm(Guid Id, string Title, bool RequiresManualReview);
+public sealed record WorkflowCandidateForm(Guid Id, string Title, bool RequiresManualReview, int? TimeLimitMinutes = null);
 
 /// <param name="RequiresManualReview">
 /// Formun kendi ayarı; yalnız onay ayarı gönderilmeyen yeni adımın varsayılanıdır.
 /// </param>
-public sealed record WorkflowFormHeader(string Title, bool RequiresManualReview);
+public sealed record WorkflowFormHeader(string Title, bool RequiresManualReview, int? TimeLimitMinutes = null);

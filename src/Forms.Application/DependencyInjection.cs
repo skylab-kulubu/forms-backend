@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Skylab.Forms.Application.Services;
+using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Application.Services.Workflows;
 
@@ -18,6 +19,7 @@ public static class DependencyInjection
         services.AddScoped<IFormWorkflowService, FormWorkflowService>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();
         services.AddScoped<IFormShortLinkService, FormShortLinkService>();
+        services.AddScoped<IFormAttemptService, FormAttemptService>();
 
         return services;
     }

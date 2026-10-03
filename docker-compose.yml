@@ -32,6 +32,7 @@ services:
       FormMail__FormCopyTemplateId: "${FORMMAIL_FORM_COPY_TEMPLATE_ID}"
       FormMail__StatusChangedTemplateId: "${FORMMAIL_STATUS_CHANGED_TEMPLATE_ID}"
       FormMail__PendingReminderTemplateId: "${FORMMAIL_PENDING_REMINDER_TEMPLATE_ID}"
+      FormMail__AttemptUpdateTemplateId: "${FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID}"
     restart: unless-stopped
     networks:
       - skylab

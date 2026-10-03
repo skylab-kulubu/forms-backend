@@ -22,5 +22,10 @@ public class FormWorkflow : BaseEntity
     /// </summary>
     public WorkflowIntake Intake { get; set; } = WorkflowIntake.Open;
 
+    public DateTime? IntakeClosesAt { get; set; }
+
     public ICollection<FormWorkflowVersion> Versions { get; set; } = new List<FormWorkflowVersion>();
+
+    public static WorkflowIntake EffectiveIntake(WorkflowIntake intake, DateTime? closesAt, DateTime now) =>
+        intake == WorkflowIntake.Open && closesAt is { } at && now >= at ? WorkflowIntake.NewRunsClosed : intake;
 }

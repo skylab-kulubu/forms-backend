@@ -80,6 +80,7 @@ public static class WorkflowJourneyBuilder
     {
         { IsOpen: true, ResponseStatus: null } => WorkflowJourneyStatus.Current,
         { IsOpen: true } => WorkflowJourneyStatus.InReview,
+        { ResponseStatus: null } => WorkflowJourneyStatus.TimedOut,
         { ResponseStatus: FormResponseStatus.Approved } => WorkflowJourneyStatus.Approved,
         { ResponseStatus: FormResponseStatus.Declined } => WorkflowJourneyStatus.Declined,
         _ => WorkflowJourneyStatus.Submitted

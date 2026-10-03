@@ -8,6 +8,8 @@ using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Draft;
 using Skylab.Forms.Application.Contracts.ShortLinks;
+using Skylab.Forms.Application.Contracts.Attempts;
+using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.ShortLinks;
 
 namespace Skylab.Forms.Api.Endpoints;
@@ -244,6 +246,60 @@ public static class FormAdminEndpoints
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Cevabı arşivlemek için giriş yapmalısınız.");
 
             var result = await service.ArchiveResponseAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/attempts/{id:guid}", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Kaydı görmek için giriş yapmalısınız.");
+
+            var result = await service.GetViewAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/extend", async (Guid id, [FromBody] AttemptExtendRequest request, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Süre vermek için giriş yapmalısınız.");
+
+            var result = await service.ExtendAsync(id, userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/accept", async (Guid id, [FromBody] AttemptDecisionRequest? request, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Karar vermek için giriş yapmalısınız.");
+
+            var result = await service.AcceptAsync(id, userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/close", async (Guid id, [FromBody] AttemptDecisionRequest? request, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Karar vermek için giriş yapmalısınız.");
+
+            var result = await service.CloseAsync(id, userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/remind", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Hatırlatma göndermek için giriş yapmalısınız.");
+
+            var result = await service.RemindAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/attempts/analytics", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Analitiği görmek için giriş yapmalısınız.");
+
+            var result = await service.GetAnalyticsAsync(id, userId.Value, ct);
             return result.ToApiResult();
         });
 

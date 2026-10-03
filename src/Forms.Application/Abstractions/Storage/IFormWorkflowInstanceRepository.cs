@@ -40,6 +40,10 @@ public interface IFormWorkflowInstanceRepository
     /// </summary>
     Task<ResponseWorkflowProjection?> GetContextByResponseAsync(Guid responseId, CancellationToken ct = default);
 
+    Task<ResponseWorkflowProjection?> GetContextByStepAsync(Guid stepId, CancellationToken ct = default);
+
+    Task<FormWorkflowStep?> GetStepForEditAsync(Guid stepId, CancellationToken ct = default);
+
     void Add(FormWorkflowInstance instance);
 
     /// <summary>

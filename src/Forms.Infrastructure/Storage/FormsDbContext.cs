@@ -16,6 +16,8 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     public DbSet<FormWorkflowTransition> WorkflowTransitions { get; set; }
     public DbSet<FormWorkflowInstance> WorkflowInstances { get; set; }
     public DbSet<FormWorkflowStep> WorkflowSteps { get; set; }
+    public DbSet<FormAttempt> Attempts { get; set; }
+    public DbSet<FormAttemptEvent> AttemptEvents { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(FormsDbContext).Assembly);

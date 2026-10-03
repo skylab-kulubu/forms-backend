@@ -5,11 +5,13 @@ namespace Skylab.Forms.Application.Contracts.Draft;
 public record ResponseDraftContract(
     List<FormResponseSchemaItem> Responses,
     int TimeSpent,
-    DateTime? SavedAt
+    DateTime? SavedAt,
+    List<FormResponseSchemaItem>? Submission = null
 );
 
 public record ResponseDraftRequest(
     Guid FormId,
     List<FormResponseSchemaItem> Responses,
-    int TimeSpent
+    int TimeSpent,
+    List<FormResponseSchemaItem>? Submission = null
 );

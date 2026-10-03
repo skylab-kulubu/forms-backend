@@ -30,6 +30,19 @@ public class FormConfiguration : IEntityTypeConfiguration<Form>
                 c => JsonSerializer.Deserialize<List<FormSchemaItem>>(JsonSerializer.Serialize(c, jsonOptions), jsonOptions)!
             ));
 
+        builder.Property(f => f.Task).HasColumnType("jsonb")
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, jsonOptions),
+                v => JsonSerializer.Deserialize<FormTask>(v, jsonOptions)
+            ).Metadata.SetValueComparer(new ValueComparer<FormTask?>(
+                (c1, c2) => JsonSerializer.Serialize(c1, jsonOptions) == JsonSerializer.Serialize(c2, jsonOptions),
+                c => JsonSerializer.Serialize(c, jsonOptions).GetHashCode(),
+                c => JsonSerializer.Deserialize<FormTask>(JsonSerializer.Serialize(c, jsonOptions), jsonOptions)
+            ));
+
+        builder.Property(f => f.ClosesAt).IsRequired(false);
+        builder.Property(f => f.TimeLimitMinutes).IsRequired(false);
+
         builder.HasQueryFilter(f => f.Status != FormStatus.Deleted);
 
         builder.HasOne(r => r.LinkedForm).WithMany().OnDelete(DeleteBehavior.Restrict);

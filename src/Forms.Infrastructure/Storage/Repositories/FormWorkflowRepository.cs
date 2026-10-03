@@ -35,7 +35,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.WorkflowVersion.Workflow.Intake,
                 node.WorkflowVersion.Nodes.Count,
                 node.WorkflowVersion.Nodes.Where(start => start.IsStart).Select(start => start.FormId).FirstOrDefault(),
-                node.WorkflowVersion.Workflow.Name))
+                node.WorkflowVersion.Workflow.Name,
+                node.WorkflowVersion.Workflow.IntakeClosesAt))
             .FirstOrDefaultAsync(ct);
 
     public async Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default)
@@ -73,7 +74,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.WorkflowVersion.WorkflowId,
                 WorkflowName = node.WorkflowVersion.Workflow.Name,
                 node.WorkflowVersion.Workflow.AllowMultipleRuns,
-                node.WorkflowVersion.Workflow.Intake
+                node.WorkflowVersion.Workflow.Intake,
+                node.WorkflowVersion.Workflow.IntakeClosesAt
             })
             .ToListAsync(ct);
 
@@ -93,6 +95,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             .ToList();
 
         var lockedByNodeKey = await FindLockedQuestionsAsync(publishedVersionIds, ct);
+        var now = DateTime.UtcNow;
 
         return chosen.ToDictionary(
             entry => entry.Key,
@@ -102,11 +105,12 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 entry.Value.IsStart,
                 entry.Value.IsPublished,
                 entry.Value.AllowMultipleRuns,
-                entry.Value.Intake,
+                FormWorkflow.EffectiveIntake(entry.Value.Intake, entry.Value.IntakeClosesAt, now),
                 entry.Value.RequiresManualReview,
                 entry.Value.IsPublished && lockedByNodeKey.TryGetValue(entry.Value.NodeKey, out var locked)
                     ? [.. locked.Select(question => new WorkflowLockedQuestion(question.Key, question.Value))]
-                    : []));
+                    : [],
+                entry.Value.IntakeClosesAt));
     }
 
     /// <summary>
@@ -296,7 +300,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
         await _context.Forms.AsNoTracking()
             .Where(form => form.Collaborators.Any(c => c.UserId == ownerUserId && c.Role == CollaboratorRole.Owner))
             .OrderByDescending(form => form.UpdatedAt ?? form.CreatedAt)
-            .Select(form => new WorkflowCandidateForm(form.Id, form.Title, form.RequiresManualReview))
+            .Select(form => new WorkflowCandidateForm(form.Id, form.Title, form.RequiresManualReview, form.TimeLimitMinutes))
             .ToListAsync(ct);
 
     public async Task<IReadOnlyDictionary<Guid, WorkflowNodeForm>> GetNodeFormsAsync(
@@ -314,6 +318,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 form.Status,
                 form.AllowAnonymousResponses,
                 form.Schema,
+                form.TimeLimitMinutes,
                 IsOwner = form.Collaborators.Any(c => c.UserId == ownerUserId && c.Role == CollaboratorRole.Owner)
             })
             .ToListAsync(ct);
@@ -325,7 +330,8 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 IsOpen: form.Status == FormStatus.Open,
                 AllowAnonymousResponses: form.AllowAnonymousResponses,
                 WorkflowOwnerIsFormOwner: form.IsOwner,
-                QuestionIds: [.. form.Schema.Select(item => item.Id)]));
+                QuestionIds: [.. form.Schema.Select(item => item.Id)],
+                HasTimeLimit: form.TimeLimitMinutes is > 0));
     }
 
     public async Task<IReadOnlyDictionary<Guid, WorkflowFormHeader>> GetFormHeadersAsync(
@@ -334,7 +340,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
         await _context.Forms.AsNoTracking()
             .IgnoreQueryFilters()
             .Where(form => formIds.Contains(form.Id))
-            .ToDictionaryAsync(form => form.Id, form => new WorkflowFormHeader(form.Title, form.RequiresManualReview), ct);
+            .ToDictionaryAsync(form => form.Id, form => new WorkflowFormHeader(form.Title, form.RequiresManualReview, form.TimeLimitMinutes), ct);
 
     public async Task<IReadOnlyDictionary<Guid, string>> FindFormsInOtherPublishedWorkflowsAsync(
         Guid workflowId,

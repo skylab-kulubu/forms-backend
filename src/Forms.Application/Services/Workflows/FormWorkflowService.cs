@@ -70,6 +70,9 @@ public class FormWorkflowService : IFormWorkflowService
         if (string.IsNullOrWhiteSpace(request.Name))
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akış adı boş olamaz.");
 
+        if (request.AllowMultipleRuns && !workflow.AllowMultipleRuns && await HasTimedStepAsync(workflowId, cancellationToken))
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akışta kişisel süreli bir form var; tekrar başlatma açılamaz.");
+
         workflow.Name = request.Name.Trim();
         workflow.Description = request.Description;
         workflow.AllowMultipleRuns = request.AllowMultipleRuns;
@@ -77,6 +80,43 @@ public class FormWorkflowService : IFormWorkflowService
         await _uow.SaveChangesAsync(cancellationToken);
 
         return await BuildContractAsync(workflow, cancellationToken);
+    }
+
+    public async Task<ServiceResult<WorkflowContract>> UpdateIntakeScheduleAsync(
+        Guid workflowId,
+        WorkflowIntakeScheduleRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = await _workflows.GetForEditAsync(workflowId, cancellationToken);
+        if (workflow is null) return NotFound<WorkflowContract>();
+        if (workflow.OwnerUserId != userId) return NotOwner<WorkflowContract>();
+
+        if (workflow.Status == WorkflowStatus.Archived)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akış düzenlenemez.");
+
+        workflow.IntakeClosesAt = UtcDate.Normalize(request.ClosesAt);
+
+        await _uow.SaveChangesAsync(cancellationToken);
+
+        return await BuildContractAsync(workflow, cancellationToken);
+    }
+
+    private async Task<bool> HasTimedStepAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        var draft = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
+        var published = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Published, cancellationToken);
+
+        var formIds = (draft?.Nodes ?? []).Concat(published?.Nodes ?? [])
+            .Select(node => node.FormId)
+            .Distinct()
+            .ToList();
+
+        if (formIds.Count == 0) return false;
+
+        var headers = await _workflows.GetFormHeadersAsync(formIds, cancellationToken);
+
+        return headers.Values.Any(header => header.TimeLimitMinutes is > 0);
     }
 
     public async Task<ServiceResult<WorkflowContract>> UpdateIntakeAsync(
@@ -277,7 +317,7 @@ public class FormWorkflowService : IFormWorkflowService
         var available = candidates
             .Select(form =>
             {
-                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked);
+                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked, workflow.AllowMultipleRuns);
 
                 return new WorkflowAvailableFormContract(
                     form.Id,
@@ -285,7 +325,8 @@ public class FormWorkflowService : IFormWorkflowService
                     form.RequiresManualReview,
                     reason is null,
                     reason,
-                    used.Contains(form.Id));
+                    used.Contains(form.Id),
+                    form.TimeLimitMinutes is > 0 ? form.TimeLimitMinutes : null);
             })
             .ToList();
 
@@ -300,12 +341,14 @@ public class FormWorkflowService : IFormWorkflowService
         Guid formId,
         IReadOnlyDictionary<Guid, WorkflowNodeForm> facts,
         IReadOnlyDictionary<Guid, string> clashes,
-        IReadOnlyCollection<Guid> legacyLinked)
+        IReadOnlyCollection<Guid> legacyLinked,
+        bool allowMultipleRuns)
     {
         if (!facts.TryGetValue(formId, out var form) || !form.Exists) return "formMissing";
         if (!form.WorkflowOwnerIsFormOwner) return "formNotOwned";
         if (form.AllowAnonymousResponses) return "formAnonymous";
         if (!form.IsOpen) return "formClosed";
+        if (allowMultipleRuns && form.HasTimeLimit) return "formTimedRepeatable";
         if (clashes.ContainsKey(formId)) return "formInAnotherWorkflow";
         if (legacyLinked.Contains(formId)) return "formIsLegacyLinked";
 
@@ -436,6 +479,17 @@ public class FormWorkflowService : IFormWorkflowService
                 "formIsLegacyLinked",
                 $"'{node.NodeKey}' adımının formu eski bağlı form akışının parçası; önce o bağlantıyı kaldırın.",
                 node.NodeKey));
+        }
+
+        if (workflow.AllowMultipleRuns)
+        {
+            foreach (var node in nodes.Where(node => forms.TryGetValue(node.FormId, out var form) && form.HasTimeLimit))
+            {
+                errors.Add(new WorkflowValidationError(
+                    "formTimedRepeatable",
+                    $"'{node.NodeKey}' adımının formunda kişisel süre var; tekrar başlatılabilen akışlarda kişisel süre kullanılamaz.",
+                    node.NodeKey));
+            }
         }
 
         return errors;
@@ -570,7 +624,8 @@ public class FormWorkflowService : IFormWorkflowService
             ToVersionContract(published, headers),
             validation,
             workflow.CreatedAt,
-            workflow.UpdatedAt);
+            workflow.UpdatedAt,
+            workflow.IntakeClosesAt);
 
         return new ServiceResult<WorkflowContract>(ServiceStatus.Success, contract);
     }
@@ -584,15 +639,18 @@ public class FormWorkflowService : IFormWorkflowService
         var nodes = version.Nodes
             .Select(node =>
             {
+                var found = headers.TryGetValue(node.FormId, out var header);
+
                 return new WorkflowNodeContract(
                     node.NodeKey,
                     node.FormId,
-                    headers.TryGetValue(node.FormId, out var header) ? header.Title : "(silinmiş form)",
+                    found ? header!.Title : "(silinmiş form)",
                     node.RequiresManualReview,
                     node.IsStart,
                     node.PositionX is { } x && node.PositionY is { } y
                         ? new WorkflowNodePositionContract(x, y)
-                        : null);
+                        : null,
+                    found ? header!.TimeLimitMinutes : null);
             })
             .ToList();
 

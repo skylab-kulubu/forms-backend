@@ -59,7 +59,7 @@ public static class WorkflowGraphValidator
                 node.NodeKey));
         }
 
-        ValidateTriggerGroups(transitions, nodesById, errors);
+        ValidateTriggerGroups(transitions, nodesById, formsByFormId, errors);
         ValidateConditions(transitions, nodesById, nodesByKey, formsByFormId, graph, errors);
 
         return errors;
@@ -193,13 +193,15 @@ public static class WorkflowGraphValidator
     private static void ValidateTriggerGroups(
         IReadOnlyList<FormWorkflowTransition> transitions,
         IReadOnlyDictionary<Guid, FormWorkflowNode> nodesById,
+        IReadOnlyDictionary<Guid, WorkflowNodeForm> formsByFormId,
         List<WorkflowValidationError> errors)
     {
         foreach (var group in transitions.GroupBy(transition => new { transition.SourceNodeId, transition.Trigger }))
         {
             var node = nodesById[group.Key.SourceNodeId];
+            var form = formsByFormId.TryGetValue(node.FormId, out var found) ? found : WorkflowNodeForm.Missing;
 
-            ValidateTrigger(group.Key.Trigger, node, errors);
+            ValidateTrigger(group.Key.Trigger, node, form, errors);
 
             var defaultRoutes = group.Where(transition => transition.IsDefaultRoute).ToList();
             var conditionals = group.Where(transition => !transition.IsDefaultRoute).ToList();
@@ -239,8 +241,20 @@ public static class WorkflowGraphValidator
     private static void ValidateTrigger(
         WorkflowTransitionTrigger trigger,
         FormWorkflowNode node,
+        WorkflowNodeForm form,
         List<WorkflowValidationError> errors)
     {
+        if (trigger == WorkflowTransitionTrigger.TimedOut)
+        {
+            if (form.HasTimeLimit || !form.Exists) return;
+
+            errors.Add(new WorkflowValidationError(
+                "timeoutNotAllowed",
+                $"'{node.NodeKey}' adımının formunda kişisel süre yok; süre dolduğunda yönlendirmesi kullanılamaz.",
+                node.NodeKey));
+            return;
+        }
+
         var triggerIsAllowed = node.RequiresManualReview
             ? trigger is WorkflowTransitionTrigger.ResponseApproved or WorkflowTransitionTrigger.ResponseDeclined
             : trigger is WorkflowTransitionTrigger.ResponseSubmitted;

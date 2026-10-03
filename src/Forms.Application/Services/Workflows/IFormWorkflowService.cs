@@ -27,6 +27,12 @@ public interface IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<WorkflowContract>> UpdateIntakeScheduleAsync(
+        Guid workflowId,
+        WorkflowIntakeScheduleRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<WorkflowContract>> GetAsync(
         Guid workflowId,
         Guid userId,

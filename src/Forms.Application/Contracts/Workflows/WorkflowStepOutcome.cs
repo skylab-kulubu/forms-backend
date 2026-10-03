@@ -60,11 +60,17 @@ public sealed record WorkflowStepOutcome(
     bool IsLegacyTwoStepFlow = false,
     string? Reason = null,
     WorkflowJourneyContract? Journey = null,
-    WorkflowLastRunContract? LastRun = null)
+    WorkflowLastRunContract? LastRun = null,
+    Guid? StepId = null)
 {
     public static readonly WorkflowStepOutcome NotInWorkflow =
         new(null, WorkflowActionState.NotInWorkflow, 0, null);
 }
+
+public sealed record WorkflowAttemptPreview(
+    bool RequiresReview,
+    WorkflowRouteTarget? OnSubmit,
+    WorkflowRouteTarget OnTimeout);
 
 /// <summary>Bir incelemenin iki olası sonucunun nereye götüreceği.</summary>
 public sealed record WorkflowReviewPreview(

@@ -1,5 +1,6 @@
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Domain.Models;
 namespace Skylab.Forms.Application.Services;
 
 public interface IFormDraftService
@@ -8,6 +9,7 @@ public interface IFormDraftService
     Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<ServiceResult<bool>> DeleteResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<ServiceResult<bool>> ClearResponseDraftsAsync(Guid formId, CancellationToken ct = default);
+    Task RestoreResponseDraftAsync(Guid formId, Guid userId, List<FormResponseSchemaItem> responses, int timeSpent, List<FormResponseSchemaItem>? submission, CancellationToken ct = default);
 
     Task<ServiceResult<bool>> SaveFormDraftAsync(Guid formId, Guid userId, FormDraftRequest draft, CancellationToken ct = default);
     Task<ServiceResult<FormDraftContract?>> GetFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);

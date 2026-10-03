@@ -4,7 +4,9 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
+using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services;
@@ -13,21 +15,31 @@ public class FormDraftService : IFormDraftService
 {
     private readonly ICacheService _cache;
     private readonly IFormRepository _forms;
+    private readonly IFormAttemptRepository _attempts;
 
     private static readonly TimeSpan ResponseDraftTtl = TimeSpan.FromHours(168);
     private static readonly TimeSpan FormDraftTtl = TimeSpan.FromHours(168);
     private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public FormDraftService(ICacheService cache, IFormRepository forms)
+    public FormDraftService(ICacheService cache, IFormRepository forms, IFormAttemptRepository attempts)
     {
         _cache = cache;
         _forms = forms;
+        _attempts = attempts;
     }
 
     public async Task<ServiceResult<bool>> SaveResponseDraftAsync(Guid formId, Guid userId, ResponseDraftRequest draft, CancellationToken ct)
     {
-        if (!await _forms.IsFormOpenAsync(formId, ct))
+        var form = await _forms.GetByIdAsync(formId, ct);
+        if (form is null || form.Status != FormStatus.Open)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
+
+        if (form.HasTimeLimit)
+        {
+            var attempt = await _attempts.GetLatestAsync(formId, userId, ct);
+            if (attempt is null || !attempt.AcceptsSubmissionAt(DateTime.UtcNow, AttemptLimits.SubmitGrace))
+                return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Süre işlemediği için taslak kaydedilmedi.");
+        }
 
         var key = $"forms:draft:response:{formId}:{userId}";
 
@@ -37,10 +49,26 @@ public class FormDraftService : IFormDraftService
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
         }
 
-        var stored = new ResponseDraftContract(draft.Responses, draft.TimeSpent, DateTime.UtcNow);
-        await _cache.SetAsync(key, stored, ResponseDraftTtl, ct);
+        var stored = new ResponseDraftContract(draft.Responses, draft.TimeSpent, DateTime.UtcNow, form.HasTimeLimit ? draft.Submission : null);
+        await _cache.SetAsync(key, stored, DraftTtlFor(form), ct);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
+    }
+
+    public async Task RestoreResponseDraftAsync(Guid formId, Guid userId, List<FormResponseSchemaItem> responses, int timeSpent, List<FormResponseSchemaItem>? submission, CancellationToken ct = default)
+    {
+        var form = await _forms.GetByIdAsync(formId, ct);
+        var stored = new ResponseDraftContract(responses, timeSpent, DateTime.UtcNow, submission);
+
+        await _cache.SetAsync($"forms:draft:response:{formId}:{userId}", stored, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
+    }
+
+    private static TimeSpan DraftTtlFor(Form form)
+    {
+        if (form.TimeLimitMinutes is not { } minutes) return ResponseDraftTtl;
+
+        var timed = TimeSpan.FromMinutes(minutes) + TimeSpan.FromDays(1);
+        return timed > ResponseDraftTtl ? timed : ResponseDraftTtl;
     }
     public async Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
@@ -147,6 +175,9 @@ public class FormDraftService : IFormDraftService
         if (draft.AllowMultipleResponses != form.AllowMultipleResponses) return false;
         if (draft.RequiresManualReview != form.RequiresManualReview) return false;
         if (draft.Status != form.Status) return false;
+        if (draft.TimeLimitMinutes != form.TimeLimitMinutes) return false;
+        if (draft.ClosesAt != form.ClosesAt) return false;
+        if (JsonSerializer.Serialize(draft.Task, CamelCase) != JsonSerializer.Serialize(form.Task, CamelCase)) return false;
 
         var formSchema = form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
 
