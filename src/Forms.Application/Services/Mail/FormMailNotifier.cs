@@ -74,10 +74,8 @@ public class FormMailNotifier : IFormMailNotifier
         if (response.ReviewedAt.HasValue)
             variables["reviewedAt"] = ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
-        // Değişken adı mail şablonuyla uyumlu kalsın diye korunuyor; kaynağı artık
-        // formun eski bağlantısı değil, akışın seçtiği sonraki adım.
         if (nextFormId.HasValue)
-            variables["linkedFormId"] = nextFormId.Value.ToString();
+            variables["nextFormId"] = nextFormId.Value.ToString();
 
         _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
