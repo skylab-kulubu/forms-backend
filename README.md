@@ -487,10 +487,10 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core user lookup |
 | `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core user lookup |
 | `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core user lookup |
-| `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template | Optional |
-| `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template | Optional |
-| `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
-| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID` | Timed task updates: reminder, extension, expiry, accept, close. The team's remind action is refused while it is empty | Optional |
+| `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template: SkyMail template key or id | No, defaults to `forms.form-copy` |
+| `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template: SkyMail template key or id | No, defaults to `forms.status-changed` |
+| `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template: SkyMail template key or id | No, defaults to `forms.pending-reminder` |
+| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID` | Timed task updates (reminder, extension, expiry, accept, close): SkyMail template key or id. The team's remind action is refused while it is empty | No, defaults to `forms.attempt-update` |
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 
