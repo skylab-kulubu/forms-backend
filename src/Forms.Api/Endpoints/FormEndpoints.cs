@@ -5,6 +5,7 @@ using Skylab.Forms.Application.Common;
 using Microsoft.AspNetCore.Mvc;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Application.Services.Attempts;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -26,6 +27,15 @@ public static class FormEndpoints
         {
             var result = await service.GetFormMetaByIdAsync(id, ct);
 
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/attempt", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Görevi başlatmak için giriş yapmalısınız.");
+
+            var result = await service.StartAsync(id, userId.Value, ct);
             return result.ToApiResult();
         });
 

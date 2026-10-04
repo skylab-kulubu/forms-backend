@@ -7,6 +7,10 @@ using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Application.Contracts.ShortLinks;
+using Skylab.Forms.Application.Contracts.Attempts;
+using Skylab.Forms.Application.Services.Attempts;
+using Skylab.Forms.Application.Services.ShortLinks;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -150,6 +154,54 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/short-link", async (Guid id, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Kısa linki görmek için giriş yapmalısınız.");
+
+            var result = await service.GetAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/short-link", async (Guid id, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Formu paylaşmak için giriş yapmalısınız.");
+
+            var result = await service.EnsureAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPatch("/{id:guid}/short-link", async (Guid id, [FromBody] ShortLinkRenameRequest request, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Kısa adı değiştirmek için giriş yapmalısınız.");
+
+            var result = await service.RenameAsync(id, userId.Value, request.Alias, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/short-link/availability", async (Guid id, [FromQuery] string alias, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Giriş yapmalısınız.");
+
+            var result = await service.CheckAliasAsync(id, userId.Value, alias, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/short-link/qr", async (Guid id, [FromQuery] string? format, [FromQuery] string? source, [FromQuery] string? campaign, [FromQuery] string? content, IFormShortLinkService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Giriş yapmalısınız.");
+
+            var svg = string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase);
+            var result = await service.GetQrAsync(id, userId.Value, svg, source, campaign, content, ct);
+            if (result.Status.IsFailure() || result.Data is null) return result.ToApiResult();
+
+            return Results.File(result.Data.Content, result.Data.ContentType, result.Data.FileName);
+        });
+
         group.MapGet("/responses/{id:guid}", async (Guid id, [FromQuery] string? token, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
@@ -197,6 +249,60 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/attempts/{id:guid}", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Kaydı görmek için giriş yapmalısınız.");
+
+            var result = await service.GetViewAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/extend", async (Guid id, [FromBody] AttemptExtendRequest request, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Süre vermek için giriş yapmalısınız.");
+
+            var result = await service.ExtendAsync(id, userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/accept", async (Guid id, [FromBody] AttemptDecisionRequest? request, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Karar vermek için giriş yapmalısınız.");
+
+            var result = await service.AcceptAsync(id, userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/close", async (Guid id, [FromBody] AttemptDecisionRequest? request, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Karar vermek için giriş yapmalısınız.");
+
+            var result = await service.CloseAsync(id, userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/attempts/{id:guid}/remind", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Hatırlatma göndermek için giriş yapmalısınız.");
+
+            var result = await service.RemindAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/attempts/analytics", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Analitiği görmek için giriş yapmalısınız.");
+
+            var result = await service.GetAnalyticsAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/{id:guid}/responses/export", async (Guid id, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
@@ -219,7 +325,7 @@ public static class FormAdminEndpoints
         group.MapGet("/component-groups", async (IComponentGroupService service, ICurrentUserService userService, [AsParameters] GetComponentGroupsRequest request, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grupları görmek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonları görmek için giriş yapmalısınız.");
 
             var result = await service.GetUserGroupsAsync(userId.Value, request, ct);
             return result.ToApiResult();
@@ -228,7 +334,7 @@ public static class FormAdminEndpoints
         group.MapGet("/component-groups/{id:guid}", async (Guid id, [FromQuery] string? token, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grubu görmek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu görmek için giriş yapmalısınız.");
 
             var result = await service.GetGroupByIdAsync(id, userId.Value, token, ct);
             return result.ToApiResult();
@@ -237,7 +343,7 @@ public static class FormAdminEndpoints
         group.MapPost("/component-groups/{id:guid}/share", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grup paylaşmak için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablon paylaşmak için giriş yapmalısınız.");
 
             var result = await service.CreateOrRefreshShareTokenAsync(id, userId.Value, ct);
             return result.ToApiResult();
@@ -246,7 +352,7 @@ public static class FormAdminEndpoints
         group.MapPost("/component-groups/{id:guid}/clone", async (Guid id, [FromQuery] string token, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grup eklemek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablon eklemek için giriş yapmalısınız.");
 
             var result = await service.CloneGroupAsync(id, userId.Value, token, ct);
 
@@ -259,7 +365,7 @@ public static class FormAdminEndpoints
         group.MapPost("/component-groups", async ([FromBody] ComponentGroupUpsertRequest request, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grup oluşturmak için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablon oluşturmak için giriş yapmalısınız.");
 
             var result = await service.CreateGroupAsync(request, userId.Value, ct);
 
@@ -274,7 +380,7 @@ public static class FormAdminEndpoints
         group.MapPut("/component-groups/{id:guid}", async (Guid id, [FromBody] ComponentGroupUpsertRequest request, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grup güncellemek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablon güncellemek için giriş yapmalısınız.");
 
             var result = await service.UpdateGroupAsync(id, request, userId.Value, ct);
             return result.ToApiResult();
@@ -283,7 +389,7 @@ public static class FormAdminEndpoints
         group.MapDelete("/component-groups/{id:guid}", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grubu arşivlemek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu arşivlemek için giriş yapmalısınız.");
 
             var result = await service.DeleteGroupAsync(id, userId.Value, ct);
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
@@ -292,7 +398,7 @@ public static class FormAdminEndpoints
         group.MapPost("/component-groups/{id:guid}/restore", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Grubu geri yüklemek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu geri yüklemek için giriş yapmalısınız.");
 
             var result = await service.RestoreGroupAsync(id, userId.Value, ct);
             return result.ToApiResult();

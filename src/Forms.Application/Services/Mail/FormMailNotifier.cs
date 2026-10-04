@@ -82,4 +82,50 @@ public class FormMailNotifier : IFormMailNotifier
 
         _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
     }
+
+    public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateId);
+
+    public async Task NotifyAttemptAsync(Form form, Guid userId, string kind, DateTime? deadlineAt = null, int? minutes = null, Guid? nextFormId = null, CancellationToken ct = default)
+    {
+        if (!CanNotifyAttempts) return;
+
+        var recipient = await _userService.GetUserAsync(userId, ct);
+        if (recipient?.Email is null) return;
+
+        var variables = new Dictionary<string, object>
+        {
+            ["recipientName"] = recipient.FullName ?? string.Empty,
+            ["formTitle"] = form.Title,
+            ["formId"] = form.Id.ToString(),
+            ["kind"] = kind
+        };
+
+        if (deadlineAt.HasValue)
+            variables["deadlineAt"] = ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+
+        if (minutes.HasValue)
+            variables["minutes"] = minutes.Value;
+
+        if (nextFormId.HasValue)
+            variables["nextFormId"] = nextFormId.Value.ToString();
+
+        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+    }
+
+    private static readonly TimeZoneInfo Istanbul = ResolveIstanbul();
+
+    private static DateTime ToLocal(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), Istanbul);
+
+    private static TimeZoneInfo ResolveIstanbul()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul");
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.CreateCustomTimeZone("Europe/Istanbul", TimeSpan.FromHours(3), "Türkiye", "Türkiye");
+        }
+    }
 }

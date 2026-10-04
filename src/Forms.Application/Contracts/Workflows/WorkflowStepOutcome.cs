@@ -17,7 +17,20 @@ public enum WorkflowActionState
     /// İstenen adım şu anda beklenen adım değil. Yanıt, başvurunun kaldığı yere
     /// götüren başlangıç formunu taşır.
     /// </summary>
-    RequiresPreviousStep = 6
+    RequiresPreviousStep = 6,
+
+    /// <summary>
+    /// Akış bu kullanıcıyı içeri almıyor; sebebi Reason taşır. Stage sıfırdan büyükse
+    /// devam eden bir başvuru durdurulmuştur.
+    /// </summary>
+    Closed = 7
+}
+
+/// <summary>Kapalı akışta dönen sebep kodları; istemci metni bunlara göre seçer.</summary>
+public static class WorkflowClosedReason
+{
+    public const string NewRunsClosed = "newRunsClosed";
+    public const string WorkflowClosed = "workflowClosed";
 }
 
 /// <summary>
@@ -35,6 +48,7 @@ public enum WorkflowActionState
 /// istemcinin beklediği 1..5 aşamasını hesaplamak için var; frontend State ve
 /// Stage alanlarına geçtiğinde kaldırılacak.
 /// </param>
+/// <param name="Reason">Closed durumunda <see cref="WorkflowClosedReason"/> kodlarından biri.</param>
 public sealed record WorkflowStepOutcome(
     Guid? InstanceId,
     WorkflowActionState State,
@@ -43,11 +57,20 @@ public sealed record WorkflowStepOutcome(
     Guid? StartFormId = null,
     string? ReviewNote = null,
     DateTime? ReviewedAt = null,
-    bool IsLegacyTwoStepFlow = false)
+    bool IsLegacyTwoStepFlow = false,
+    string? Reason = null,
+    WorkflowJourneyContract? Journey = null,
+    WorkflowLastRunContract? LastRun = null,
+    Guid? StepId = null)
 {
     public static readonly WorkflowStepOutcome NotInWorkflow =
         new(null, WorkflowActionState.NotInWorkflow, 0, null);
 }
+
+public sealed record WorkflowAttemptPreview(
+    bool RequiresReview,
+    WorkflowRouteTarget? OnSubmit,
+    WorkflowRouteTarget OnTimeout);
 
 /// <summary>Bir incelemenin iki olası sonucunun nereye götüreceği.</summary>
 public sealed record WorkflowReviewPreview(

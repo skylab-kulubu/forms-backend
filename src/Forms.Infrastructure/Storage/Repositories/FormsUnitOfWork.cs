@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Common;
 
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
@@ -12,7 +14,18 @@ public sealed class FormsUnitOfWork : IFormsUnitOfWork
         _context = context;
     }
 
-    public Task<int> SaveChangesAsync(CancellationToken ct = default) => _context.SaveChangesAsync(ct);
+    public async Task<int> SaveChangesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            return await _context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex is DbUpdateConcurrencyException || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            _context.ChangeTracker.Clear();
+            throw new StorageConflictException(ex);
+        }
+    }
 
     public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct = default)
     {

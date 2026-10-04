@@ -16,5 +16,16 @@ public class FormWorkflow : BaseEntity
     /// </summary>
     public bool AllowMultipleRuns { get; set; } = false;
 
+    /// <summary>
+    /// Sürümde değil akışta tutulur: kapatma yayın beklemeden etkili olur ve eski
+    /// sürümlere bağlı başvurulara da ulaşır. Arşivleme bunu kalıcı olarak Closed yapar.
+    /// </summary>
+    public WorkflowIntake Intake { get; set; } = WorkflowIntake.Open;
+
+    public DateTime? IntakeClosesAt { get; set; }
+
     public ICollection<FormWorkflowVersion> Versions { get; set; } = new List<FormWorkflowVersion>();
+
+    public static WorkflowIntake EffectiveIntake(WorkflowIntake intake, DateTime? closesAt, DateTime now) =>
+        intake == WorkflowIntake.Open && closesAt is { } at && now >= at ? WorkflowIntake.NewRunsClosed : intake;
 }

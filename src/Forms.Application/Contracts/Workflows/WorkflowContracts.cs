@@ -4,6 +4,7 @@ using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Contracts.Workflows;
 
+/// <param name="ActiveRunCount">Devam eden başvuru sayısı; kapatma onayı bunu gösterir.</param>
 /// <param name="Draft">Düzenlenebilir sürüm; yoksa editör yayındakinden başlar.</param>
 public record WorkflowContract(
     Guid Id,
@@ -11,13 +12,16 @@ public record WorkflowContract(
     string? Description,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
+    int ActiveRunCount,
     UserContract Owner,
     WorkflowVersionContract? Draft,
     WorkflowVersionContract? Published,
     /// <summary>Taslağın son doğrulama sonucu; ayrıca /validate çağırmaya gerek yok.</summary>
     WorkflowValidationContract Validation,
     DateTime CreatedAt,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    DateTime? IntakeClosesAt = null
 );
 
 public record WorkflowVersionContract(
@@ -30,15 +34,22 @@ public record WorkflowVersionContract(
 );
 
 /// <param name="RequiresManualReview">
-/// Adımın formu onay gerektiriyor mu? Editörün hangi tetikleri sunacağını bu belirler.
+/// Adım onay gerektiriyor mu? Formun kendi ayarından bağımsızdır; editörün hangi
+/// tetikleri sunacağını bu belirler.
 /// </param>
+/// <param name="Position">Tuvaldeki yer; eski tanımlarda null gelir, istemci kendi yerleştirir.</param>
 public record WorkflowNodeContract(
     string NodeKey,
     Guid FormId,
     string FormTitle,
     bool RequiresManualReview,
-    bool IsStart
+    bool IsStart,
+    WorkflowNodePositionContract? Position,
+    int? TimeLimitMinutes = null
 );
+
+/// <summary>İstemci piksel biriminde tam sayı koordinat; sunucu dönüştürmez, doğrulamaz.</summary>
+public record WorkflowNodePositionContract(int X, int Y);
 
 public record WorkflowTransitionContract(
     string SourceNodeKey,
@@ -55,6 +66,7 @@ public record WorkflowSummaryContract(
     string Name,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     WorkflowFormRefContract? StartForm,
     int NodeCount,
     int? PublishedVersion,
@@ -71,12 +83,18 @@ public record WorkflowFormRefContract(
 /// Uygun değilse sebebin sabit kodu: formClosed, formAnonymous, formNotOwned,
 /// formInAnotherWorkflow, formIsLegacyLinked. Doğrulama kodlarıyla aynı sözlük.
 /// </param>
+/// <param name="RequiresManualReview">
+/// Formun kendi ayarı. Editör bunu yeni eklenen adımın varsayılanı olarak kullanır;
+/// adım eklendikten sonra kendi ayarını taşır.
+/// </param>
 public record WorkflowAvailableFormContract(
     Guid Id,
     string Title,
+    bool RequiresManualReview,
     bool IsEligible,
     string? Reason,
-    bool IsUsedInThisWorkflow
+    bool IsUsedInThisWorkflow,
+    int? TimeLimitMinutes = null
 );
 
 public record WorkflowVersionSummaryContract(

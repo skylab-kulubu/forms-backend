@@ -1,3 +1,5 @@
+using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Workflows;
@@ -31,7 +33,10 @@ public interface IFormWorkflowRepository
     Task<int> GetNextVersionNumberAsync(Guid workflowId, CancellationToken ct = default);
 
     Task<IReadOnlyList<WorkflowVersionProjection>> GetVersionsAsync(Guid workflowId, CancellationToken ct = default);
-    Task<IReadOnlyList<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(Guid ownerUserId, CancellationToken ct = default);
+    Task<PagedResult<WorkflowSummaryProjection>> GetOwnedWorkflowsAsync(
+        Guid ownerUserId,
+        GetWorkflowsRequest request,
+        CancellationToken ct = default);
 
     /// <summary>Kullanıcının Owner olduğu, silinmemiş formlar: adım seçicinin kaynağı.</summary>
     Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default);
@@ -42,7 +47,7 @@ public interface IFormWorkflowRepository
         Guid ownerUserId,
         CancellationToken ct = default);
 
-    /// <summary>Adım kartlarının ihtiyaç duyduğu form başlığı ve onay ayarı.</summary>
+    /// <summary>Adım kartlarının ihtiyaç duyduğu form başlığı ve formun kendi onay ayarı.</summary>
     Task<IReadOnlyDictionary<Guid, WorkflowFormHeader>> GetFormHeadersAsync(
         IReadOnlyCollection<Guid> formIds,
         CancellationToken ct = default);
@@ -70,16 +75,22 @@ public interface IFormWorkflowRepository
     void AddRange(IEnumerable<FormWorkflowTransition> transitions);
     void RemoveRange(IEnumerable<FormWorkflowNode> nodes);
     void RemoveRange(IEnumerable<FormWorkflowTransition> transitions);
+    void Remove(FormWorkflowVersion version);
 }
 
 /// <param name="IsPublished">Üyelik yayında mı? Kilitler yalnız yayındayken geçerlidir.</param>
+/// <param name="RequiresManualReview">Üyeliğin bildirildiği sürümdeki adımın onay ayarı.</param>
 /// <param name="LockedQuestions">Yönlendirme koşullarının dayandığı sorular ve değerler.</param>
 public sealed record WorkflowFormMembership(
     Guid WorkflowId,
     string WorkflowName,
     bool IsStart,
     bool IsPublished,
-    IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions);
+    bool AllowMultipleRuns,
+    WorkflowIntake Intake,
+    bool RequiresManualReview,
+    IReadOnlyCollection<WorkflowLockedQuestion> LockedQuestions,
+    DateTime? IntakeClosesAt = null);
 
 /// <summary>
 /// Bir koşulun okuduğu soru ve karşılaştırdığı metinler. Cevaplar seçeneğin görünen
@@ -100,8 +111,14 @@ public sealed record WorkflowNodeLocation(
     string NodeKey,
     bool IsStart,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     int NodeCount,
-    Guid StartFormId);
+    Guid StartFormId,
+    string WorkflowName,
+    DateTime? IntakeClosesAt = null)
+{
+    public WorkflowIntake IntakeAt(DateTime now) => FormWorkflow.EffectiveIntake(Intake, IntakeClosesAt, now);
+}
 
 public sealed record WorkflowDefinition(
     Guid WorkflowId,
@@ -121,12 +138,16 @@ public sealed record WorkflowSummaryProjection(
     string Name,
     WorkflowStatus Status,
     bool AllowMultipleRuns,
+    WorkflowIntake Intake,
     Guid? StartFormId,
     int NodeCount,
     int? PublishedVersion,
     bool HasUnpublishedChanges,
     DateTime? UpdatedAt);
 
-public sealed record WorkflowCandidateForm(Guid Id, string Title);
+public sealed record WorkflowCandidateForm(Guid Id, string Title, bool RequiresManualReview, int? TimeLimitMinutes = null);
 
-public sealed record WorkflowFormHeader(string Title, bool RequiresManualReview);
+/// <param name="RequiresManualReview">
+/// Formun kendi ayarı; yalnız onay ayarı gönderilmeyen yeni adımın varsayılanıdır.
+/// </param>
+public sealed record WorkflowFormHeader(string Title, bool RequiresManualReview, int? TimeLimitMinutes = null);

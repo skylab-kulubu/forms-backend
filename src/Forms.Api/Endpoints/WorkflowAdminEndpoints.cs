@@ -13,12 +13,12 @@ public static class WorkflowAdminEndpoints
     {
         var group = routes.MapGroup("api/admin/workflows").WithTags("WorkflowsAdmin");
 
-        group.MapGet("/", async (IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/", async (IFormWorkflowService service, ICurrentUserService userService, [AsParameters] GetWorkflowsRequest request, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışları görmek için giriş yapmalısınız.");
 
-            var result = await service.GetOwnedAsync(userId.Value, ct);
+            var result = await service.GetOwnedAsync(userId.Value, request, ct);
             return result.ToApiResult();
         });
 
@@ -59,6 +59,24 @@ public static class WorkflowAdminEndpoints
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akış güncellemek için giriş yapmalısınız.");
 
             var result = await service.UpdateAsync(id, request, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPut("/{id:guid}/intake", async (Guid id, [FromBody] WorkflowIntakeRequest request, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışın başvuru durumunu değiştirmek için giriş yapmalısınız.");
+
+            var result = await service.UpdateIntakeAsync(id, request, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPut("/{id:guid}/intake-schedule", async (Guid id, [FromBody] WorkflowIntakeScheduleRequest request, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışın kapanış saatini değiştirmek için giriş yapmalısınız.");
+
+            var result = await service.UpdateIntakeScheduleAsync(id, request, userId.Value, ct);
             return result.ToApiResult();
         });
 

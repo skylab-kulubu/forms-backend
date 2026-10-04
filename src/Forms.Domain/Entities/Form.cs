@@ -21,6 +21,13 @@ public class Form : BaseEntity
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
     public Guid? EventId { get; set; }
+    public FormTask? Task { get; set; }
+    public DateTime? ClosesAt { get; set; }
+    public int? TimeLimitMinutes { get; set; }
+
+    public bool HasTimeLimit => TimeLimitMinutes is > 0;
+
+    public bool HasClosedAt(DateTime now) => ClosesAt is { } closesAt && now >= closesAt;
 
     // Navigation
     public ICollection<FormCollaborator> Collaborators { get; set; } = new List<FormCollaborator>();

@@ -1,9 +1,13 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
+using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services;
 
@@ -11,37 +15,109 @@ public class FormDraftService : IFormDraftService
 {
     private readonly ICacheService _cache;
     private readonly IFormRepository _forms;
+    private readonly IFormAttemptRepository _attempts;
 
     private static readonly TimeSpan ResponseDraftTtl = TimeSpan.FromHours(168);
     private static readonly TimeSpan FormDraftTtl = TimeSpan.FromHours(168);
+    private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public FormDraftService(ICacheService cache, IFormRepository forms)
+    public FormDraftService(ICacheService cache, IFormRepository forms, IFormAttemptRepository attempts)
     {
         _cache = cache;
         _forms = forms;
+        _attempts = attempts;
     }
 
     public async Task<ServiceResult<bool>> SaveResponseDraftAsync(Guid formId, Guid userId, ResponseDraftRequest draft, CancellationToken ct)
     {
-        if (!await _forms.IsFormOpenAsync(formId, ct))
+        var form = await _forms.GetByIdAsync(formId, ct);
+        if (form is null || form.Status != FormStatus.Open)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
+        if (form.HasTimeLimit)
+        {
+            var attempt = await _attempts.GetLatestAsync(formId, userId, ct);
+            if (attempt is null || !attempt.AcceptsSubmissionAt(DateTime.UtcNow, AttemptLimits.SubmitGrace))
+                return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Süre işlemediği için taslak kaydedilmedi.");
+        }
+
         var key = $"forms:draft:response:{formId}:{userId}";
-        await _cache.SetAsync(key, draft, ResponseDraftTtl, ct);
+
+        if (!HasAnswers(draft.Responses))
+        {
+            await _cache.RemoveAsync(key, ct);
+            return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
+        }
+
+        var stored = new ResponseDraftContract(draft.Responses, draft.TimeSpent, DateTime.UtcNow, form.HasTimeLimit ? draft.Submission : null);
+        await _cache.SetAsync(key, stored, DraftTtlFor(form), ct);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
     }
-    public async Task<ServiceResult<ResponseDraftRequest?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
+
+    public async Task RestoreResponseDraftAsync(Guid formId, Guid userId, List<FormResponseSchemaItem> responses, int timeSpent, List<FormResponseSchemaItem>? submission, CancellationToken ct = default)
+    {
+        var form = await _forms.GetByIdAsync(formId, ct);
+        var stored = new ResponseDraftContract(responses, timeSpent, DateTime.UtcNow, submission);
+
+        await _cache.SetAsync($"forms:draft:response:{formId}:{userId}", stored, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
+    }
+
+    private static TimeSpan DraftTtlFor(Form form)
+    {
+        if (form.TimeLimitMinutes is not { } minutes) return ResponseDraftTtl;
+
+        var timed = TimeSpan.FromMinutes(minutes) + TimeSpan.FromDays(1);
+        return timed > ResponseDraftTtl ? timed : ResponseDraftTtl;
+    }
+    public async Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
         var key = $"forms:draft:response:{formId}:{userId}";
 
-        var draft = await _cache.GetAsync<ResponseDraftRequest>(key, ResponseDraftTtl, ct);
+        var draft = await _cache.GetAsync<ResponseDraftContract>(key, ResponseDraftTtl, ct);
+
+        if (draft != null && !HasAnswers(draft.Responses))
+        {
+            await _cache.RemoveAsync(key, ct);
+            draft = null;
+        }
 
         if (draft == null)
-            return new ServiceResult<ResponseDraftRequest?>(ServiceStatus.NotFound, Message: "Yanıt taslağı bulunamadı.");
+            return new ServiceResult<ResponseDraftContract?>(ServiceStatus.NotFound, Message: "Yanıt taslağı bulunamadı.");
 
-        return new ServiceResult<ResponseDraftRequest?>(ServiceStatus.Success, Data: draft);
+        return new ServiceResult<ResponseDraftContract?>(ServiceStatus.Success, Data: draft);
     }
+
+    /// <summary>
+    /// Taslak cevapları istemcinin JSON olarak yazdığı değerlerdir; boş metin, liste,
+    /// nesne ve kapalı anahtar (false) cevap sayılmaz. JSON olmayan eski düz metin cevaptır.
+    /// </summary>
+    private static bool HasAnswers(IEnumerable<FormResponseSchemaItem>? responses) =>
+        responses?.Any(item => !IsBlankAnswer(item.Answer)) == true;
+
+    private static bool IsBlankAnswer(string? answer)
+    {
+        if (string.IsNullOrWhiteSpace(answer)) return true;
+
+        try
+        {
+            using var document = JsonDocument.Parse(answer);
+            return IsBlank(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsBlank(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.False => true,
+        JsonValueKind.String => string.IsNullOrWhiteSpace(element.GetString()),
+        JsonValueKind.Array => element.EnumerateArray().All(IsBlank),
+        JsonValueKind.Object => element.EnumerateObject().All(property => IsBlank(property.Value)),
+        _ => false
+    };
     public async Task<ServiceResult<bool>> DeleteResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
         var key = $"forms:draft:response:{formId}:{userId}";
@@ -79,25 +155,37 @@ public class FormDraftService : IFormDraftService
 
         var form = await _forms.GetByIdAsync(formId, ct);
         if (form != null && IsDraftIdenticalToForm(draftRequest.Data, form))
+        {
+            await _cache.RemoveAsync(key, ct);
             return new ServiceResult<FormDraftContract?>(ServiceStatus.NotFound, Message: "Form taslağı bulunamadı.");
+        }
 
         return new ServiceResult<FormDraftContract?>(ServiceStatus.Success, Data: draftRequest.Data);
     }
 
+    /// <summary>
+    /// Editör etkinlik formunu kimlik alanları eklenmiş şemayla açar; taslak da onunla kıyaslanır.
+    /// jsonb anahtar sırasını değiştirdiği için şemalar metin olarak değil, ağaç olarak karşılaştırılır.
+    /// </summary>
     private static bool IsDraftIdenticalToForm(FormDraftContract draft, Form form)
     {
         if (draft.Title != form.Title) return false;
-        if (draft.Description != form.Description) return false;
+        if ((draft.Description ?? "") != (form.Description ?? "")) return false;
         if (draft.AllowAnonymousResponses != form.AllowAnonymousResponses) return false;
         if (draft.AllowMultipleResponses != form.AllowMultipleResponses) return false;
         if (draft.RequiresManualReview != form.RequiresManualReview) return false;
         if (draft.Status != form.Status) return false;
+        if (draft.TimeLimitMinutes != form.TimeLimitMinutes) return false;
+        if (draft.ClosesAt != form.ClosesAt) return false;
+        if (JsonSerializer.Serialize(draft.Task, CamelCase) != JsonSerializer.Serialize(form.Task, CamelCase)) return false;
 
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        var draftSchema = JsonSerializer.Serialize(draft.Schema, opts);
-        var formSchema = JsonSerializer.Serialize(form.Schema, opts);
-        return draftSchema == formSchema;
+        var formSchema = form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
+
+        return JsonNode.DeepEquals(ToJsonNode(draft.Schema), ToJsonNode(formSchema));
     }
+
+    private static JsonNode? ToJsonNode(IReadOnlyList<FormSchemaItem>? schema) =>
+        JsonNode.Parse(JsonSerializer.Serialize(schema, CamelCase));
 
     public async Task<ServiceResult<bool>> DeleteFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {

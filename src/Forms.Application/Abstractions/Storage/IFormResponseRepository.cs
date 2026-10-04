@@ -13,33 +13,63 @@ public interface IFormResponseRepository
     Task<FormResponse?> GetByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
     Task<FormResponse?> GetForEditByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
 
-    Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, CancellationToken ct = default);
+    Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);
 
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
     Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default);
 
     void Add(FormResponse response);
+    void Remove(FormResponse response);
 }
 
 public sealed record FormResponseCounts(int Total, int Waiting, double? AverageTimeSpentSeconds);
 
 public sealed record OverduePendingFormProjection(Guid FormId, string FormTitle, int PendingCount, IReadOnlyList<Guid> ReviewerIds);
 
-public sealed record ResponseSummaryProjection(
+public sealed record ResponseRowProjection(
     Guid Id,
     Guid? UserId,
-    FormResponseStatus Status,
+    FormResponseStatus? Status,
     bool IsArchived,
     Guid? ReviewedBy,
     Guid? ArchivedBy,
-    DateTime SubmittedAt,
+    DateTime? SubmittedAt,
     DateTime? ReviewedAt,
-    DateTime? ArchivedAt
+    DateTime? ArchivedAt,
+    int? TimeSpent,
+    ResponseAttemptProjection? Attempt
+);
+
+public sealed record ResponseAttemptProjection(
+    Guid Id,
+    FormAttemptStatus Status,
+    Guid? WorkflowStepId,
+    DateTime OpenedAt,
+    DateTime? StartedAt,
+    DateTime? DeadlineAt,
+    DateTime? ExpiredAt,
+    DateTime? ReminderSentAt,
+    int ExtendedMinutes,
+    bool ClosedByTeam,
+    DateTime? ResponseSubmittedAt
+);
+
+public sealed record ResponseStatusCounts(
+    int Submitted,
+    int Pending,
+    int Approved,
+    int Declined,
+    int Provisional,
+    int Running,
+    int Opened,
+    int NoSubmission
 );
 
 public sealed record PagedResponsesProjection(
-    IReadOnlyList<ResponseSummaryProjection> Items,
+    IReadOnlyList<ResponseRowProjection> Items,
     int TotalCount,
-    double? AverageTimeSpent
+    double? AverageTimeSpent,
+    ResponseStatusCounts Counts,
+    double? AverageTaskSeconds
 );

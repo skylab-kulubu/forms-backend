@@ -50,10 +50,10 @@ public class ComponentGroupService : IComponentGroupService
         var existingGroup = await _groups.GetForEditAsync(id, cancellationToken);
 
         if (existingGroup == null)
-            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Grup bulunamadı.");
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Şablon bulunamadı.");
 
         if (existingGroup.OwnedBy != userId)
-            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAuthorized, Message: "Bu grubu düzenleme yetkiniz yok.");
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAuthorized, Message: "Bu şablonu düzenleme yetkiniz yok.");
 
         existingGroup.Title = request.Title;
         existingGroup.Description = request.Description;
@@ -75,7 +75,7 @@ public class ComponentGroupService : IComponentGroupService
         var group = await _groups.GetByIdAsync(id, cancellationToken);
 
         if (group == null)
-            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Grup bulunamadı.");
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Şablon bulunamadı.");
 
         var isOwner = group.OwnedBy == userId;
 
@@ -95,7 +95,7 @@ public class ComponentGroupService : IComponentGroupService
         var group = await _groups.GetForLifecycleEditAsync(id, cancellationToken);
 
         if (group == null || group.OwnedBy != userId)
-            return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Grup bulunamadı veya yetkiniz yok.");
+            return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Şablon bulunamadı veya yetkiniz yok.");
 
         if (group.ArchivedAt == null)
         {
@@ -106,7 +106,7 @@ public class ComponentGroupService : IComponentGroupService
             await _uow.SaveChangesAsync(cancellationToken);
         }
 
-        return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Grup arşivlendi.");
+        return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Şablon arşivlendi.");
     }
 
     public async Task<ServiceResult<ComponentGroupContract>> RestoreGroupAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -114,7 +114,7 @@ public class ComponentGroupService : IComponentGroupService
         var group = await _groups.GetForLifecycleEditAsync(id, cancellationToken);
 
         if (group == null || group.OwnedBy != userId)
-            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Grup bulunamadı veya yetkiniz yok.");
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Şablon bulunamadı veya yetkiniz yok.");
 
         if (group.ArchivedAt != null)
         {
@@ -126,7 +126,7 @@ public class ComponentGroupService : IComponentGroupService
         return new ServiceResult<ComponentGroupContract>(
             ServiceStatus.Success,
             Data: MapToContract(group),
-            Message: "Grup geri yüklendi.");
+            Message: "Şablon geri yüklendi.");
     }
 
     public async Task<ServiceResult<ShareTokenContract>> CreateOrRefreshShareTokenAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default)
@@ -134,10 +134,10 @@ public class ComponentGroupService : IComponentGroupService
         var group = await _groups.GetByIdAsync(groupId, cancellationToken);
 
         if (group == null)
-            return new ServiceResult<ShareTokenContract>(ServiceStatus.NotFound, Message: "Grup bulunamadı.");
+            return new ServiceResult<ShareTokenContract>(ServiceStatus.NotFound, Message: "Şablon bulunamadı.");
 
         if (group.OwnedBy != userId)
-            return new ServiceResult<ShareTokenContract>(ServiceStatus.NotAuthorized, Message: "Bu grubu paylaşma yetkiniz yok.");
+            return new ServiceResult<ShareTokenContract>(ServiceStatus.NotAuthorized, Message: "Bu şablonu paylaşma yetkiniz yok.");
 
         var existingToken = await _cache.GetAsync<string>(GroupKeyPrefix + groupId, ct: cancellationToken);
         var token = existingToken ?? GenerateToken();
@@ -176,10 +176,10 @@ public class ComponentGroupService : IComponentGroupService
         var source = await _groups.GetByIdAsync(id, cancellationToken);
 
         if (source == null)
-            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Grup bulunamadı.");
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotFound, Message: "Şablon bulunamadı.");
 
         if (source.OwnedBy == userId)
-            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAcceptable, Message: "Bu grup zaten sizin.");
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAcceptable, Message: "Bu şablon zaten sizin.");
 
         var clone = new ComponentGroup
         {

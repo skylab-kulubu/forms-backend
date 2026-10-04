@@ -201,7 +201,7 @@ public static class WorkflowGraphValidator
             var node = nodesById[group.Key.SourceNodeId];
             var form = formsByFormId.TryGetValue(node.FormId, out var found) ? found : WorkflowNodeForm.Missing;
 
-            if (form.Exists) ValidateTrigger(group.Key.Trigger, node, form, errors);
+            ValidateTrigger(group.Key.Trigger, node, form, errors);
 
             var defaultRoutes = group.Where(transition => transition.IsDefaultRoute).ToList();
             var conditionals = group.Where(transition => !transition.IsDefaultRoute).ToList();
@@ -244,7 +244,18 @@ public static class WorkflowGraphValidator
         WorkflowNodeForm form,
         List<WorkflowValidationError> errors)
     {
-        var triggerIsAllowed = form.RequiresManualReview
+        if (trigger == WorkflowTransitionTrigger.TimedOut)
+        {
+            if (form.HasTimeLimit || !form.Exists) return;
+
+            errors.Add(new WorkflowValidationError(
+                "timeoutNotAllowed",
+                $"'{node.NodeKey}' adımının formunda kişisel süre yok; süre dolduğunda yönlendirmesi kullanılamaz.",
+                node.NodeKey));
+            return;
+        }
+
+        var triggerIsAllowed = node.RequiresManualReview
             ? trigger is WorkflowTransitionTrigger.ResponseApproved or WorkflowTransitionTrigger.ResponseDeclined
             : trigger is WorkflowTransitionTrigger.ResponseSubmitted;
 
@@ -252,7 +263,7 @@ public static class WorkflowGraphValidator
 
         errors.Add(new WorkflowValidationError(
             "triggerNotAllowed",
-            form.RequiresManualReview
+            node.RequiresManualReview
                 ? $"'{node.NodeKey}' adımı onay gerektiriyor; yönlendirme yalnızca onay veya red sonrasına bağlanabilir."
                 : $"'{node.NodeKey}' adımı onay gerektirmiyor; yönlendirme yalnızca cevap gönderimine bağlanabilir.",
             node.NodeKey));
