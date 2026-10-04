@@ -57,7 +57,8 @@ public class ExternalUserService : IExternalUserService
             user.Id,
             user.Email,
             $"{user.FirstName} {user.LastName}".Trim(),
-            user.ProfilePictureUrl
+            user.ProfilePictureUrl,
+            user.FirstName?.Trim()
         );
     }
 }

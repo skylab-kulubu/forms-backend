@@ -37,15 +37,14 @@ public class FormMailNotifier : IFormMailNotifier
             })
             .ToList();
 
-        var variables = new Dictionary<string, object>
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
-            ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
             ["submittedAt"] = ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
             ["answers"] = answers
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public async Task NotifyStatusChangedAsync(Form form, FormResponse response, Guid? nextFormId = null, CancellationToken ct = default)
@@ -64,9 +63,8 @@ public class FormMailNotifier : IFormMailNotifier
         var recipient = await _userService.GetUserAsync(response.UserId.Value, ct);
         if (recipient?.Email is null) return;
 
-        var variables = new Dictionary<string, object>
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
-            ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
             ["status"] = status,
             ["reviewNote"] = response.ReviewNote ?? string.Empty
@@ -80,7 +78,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (nextFormId.HasValue)
             variables["linkedFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateId);
@@ -92,9 +90,8 @@ public class FormMailNotifier : IFormMailNotifier
         var recipient = await _userService.GetUserAsync(userId, ct);
         if (recipient?.Email is null) return;
 
-        var variables = new Dictionary<string, object>
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
-            ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
             ["formId"] = form.Id.ToString(),
             ["kind"] = kind
@@ -109,7 +106,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     private static readonly TimeZoneInfo Istanbul = ResolveIstanbul();

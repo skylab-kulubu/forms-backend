@@ -4,5 +4,6 @@ public record UserContract(
     Guid Id,
     string? Email,
     string? FullName,
-    string? ProfilePictureUrl
+    string? ProfilePictureUrl,
+    string? FirstName = null
 );
