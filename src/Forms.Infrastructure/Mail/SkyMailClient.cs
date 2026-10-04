@@ -23,7 +23,12 @@ public class SkyMailClient : ISkyMailService
     {
         try
         {
-            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", request, JsonOptions, ct);
+            // Kimlik değilse SkyMail şablon anahtarıdır (ör. forms.form-copy).
+            object body = Guid.TryParse(request.TemplateId, out _)
+                ? request
+                : new { TemplateKey = request.TemplateId, request.RecipientEmail, request.RecipientFullName, request.BodyVariables };
+
+            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", body, JsonOptions, ct);
 
             if (!response.IsSuccessStatusCode)
             {

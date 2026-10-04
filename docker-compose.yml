@@ -29,10 +29,10 @@ services:
       Keycloak__TokenUrl: "${KEYCLOAK_TOKEN_URL}"
       Keycloak__ClientId: "${KEYCLOAK_CLIENT_ID}"
       Keycloak__ClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
-      FormMail__FormCopyTemplateId: "${FORMMAIL_FORM_COPY_TEMPLATE_ID}"
-      FormMail__StatusChangedTemplateId: "${FORMMAIL_STATUS_CHANGED_TEMPLATE_ID}"
-      FormMail__PendingReminderTemplateId: "${FORMMAIL_PENDING_REMINDER_TEMPLATE_ID}"
-      FormMail__AttemptUpdateTemplateId: "${FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID}"
+      FormMail__FormCopyTemplateId: "${FORMMAIL_FORM_COPY_TEMPLATE_ID:-forms.form-copy}"
+      FormMail__StatusChangedTemplateId: "${FORMMAIL_STATUS_CHANGED_TEMPLATE_ID:-forms.status-changed}"
+      FormMail__PendingReminderTemplateId: "${FORMMAIL_PENDING_REMINDER_TEMPLATE_ID:-forms.pending-reminder}"
+      FormMail__AttemptUpdateTemplateId: "${FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID:-forms.attempt-update}"
     restart: unless-stopped
     networks:
       - skylab
