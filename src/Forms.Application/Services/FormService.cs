@@ -4,9 +4,11 @@ using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts;
+using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Collaborators;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Application.Validators;
 using Skylab.Forms.Domain.Entities;
@@ -28,6 +30,7 @@ public class FormService : IFormService
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly ICoreEventLookup _events;
+    private readonly IFormAttemptService _attempts;
 
     public FormService(
         IFormRepository forms,
@@ -39,7 +42,8 @@ public class FormService : IFormService
         ICacheService cache,
         IFormWorkflowRepository workflows,
         IFormWorkflowRuntime workflowRuntime,
-        ICoreEventLookup events)
+        ICoreEventLookup events,
+        IFormAttemptService attempts)
     {
         _forms = forms;
         _responses = responses;
@@ -51,6 +55,7 @@ public class FormService : IFormService
         _workflows = workflows;
         _workflowRuntime = workflowRuntime;
         _events = events;
+        _attempts = attempts;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -69,6 +74,13 @@ public class FormService : IFormService
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
+        var task = NormalizeTask(contract.Task);
+        var timeLimit = NormalizeTimeLimit(contract.TimeLimitMinutes);
+
+        var timing = FormValidator.ValidateTiming(allowAnonymous, allowMultiple, task, timeLimit);
+        if (timing.Status != ServiceStatus.Success)
+            return new ServiceResult<FormContract>(timing.Status, Message: timing.Message);
+
         var formId = Guid.NewGuid();
 
         var newForm = new Form
@@ -81,7 +93,10 @@ public class FormService : IFormService
             AllowAnonymousResponses = allowAnonymous,
             AllowMultipleResponses = allowMultiple,
             RequiresManualReview = contract.RequiresManualReview,
-            EventId = contract.EventId
+            EventId = contract.EventId,
+            Task = task,
+            ClosesAt = UtcDate.Normalize(contract.ClosesAt),
+            TimeLimitMinutes = timeLimit
         };
 
         var collaborators = new List<FormCollaborator>
@@ -146,6 +161,20 @@ public class FormService : IFormService
                 return new ServiceResult<FormContract>(ServiceStatus.NotAcceptable, Message: lockViolation);
         }
 
+        var task = NormalizeTask(contract.Task);
+        var timeLimit = NormalizeTimeLimit(contract.TimeLimitMinutes);
+
+        if (timeLimit.HasValue && membership is { IsPublished: true, AllowMultipleRuns: true })
+        {
+            return new ServiceResult<FormContract>(
+                ServiceStatus.NotAcceptable,
+                Message: $"Bu form '{membership.WorkflowName}' akışında kullanılıyor ve akış tekrar başlatılabiliyor; kişisel süre kullanılamaz.");
+        }
+
+        var timing = FormValidator.ValidateTiming(allowAnonymous, membership is { IsPublished: true } ? false : allowMultiple, task, timeLimit);
+        if (timing.Status != ServiceStatus.Success)
+            return new ServiceResult<FormContract>(timing.Status, Message: timing.Message);
+
         bool statusChanged = existingForm.Status != contract.Status;
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -161,6 +190,9 @@ public class FormService : IFormService
         existingForm.AllowAnonymousResponses = allowAnonymous;
         existingForm.AllowMultipleResponses = allowMultiple;
         existingForm.RequiresManualReview = contract.RequiresManualReview;
+        existingForm.Task = task;
+        existingForm.ClosesAt = UtcDate.Normalize(contract.ClosesAt);
+        existingForm.TimeLimitMinutes = timeLimit;
         if (eventId.HasValue)
             existingForm.EventId = eventId;
 
@@ -221,15 +253,24 @@ public class FormService : IFormService
 
         // Kapalı form "yok" değildir: istemci bunu ayrı bir ekranla karşılayabilsin.
         if (form.Status == FormStatus.Closed)
-            return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
+            return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, new FormDisplayPayload(null, 0, FormTitle: form.Title), "Bu form şu anda yanıt kabul etmiyor.");
+
+        var now = DateTime.UtcNow;
+
+        if (!form.HasTimeLimit && form.HasClosedAt(now))
+            return ClosesAtPassed(form, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
 
         if (userId == null && !form.AllowAnonymousResponses && form.EventId is null)
         {
             return new ServiceResult<FormDisplayPayload>(
                 ServiceStatus.Unauthorized,
-                Message: "Bu formu görüntülemek için giriş yapmalısınız."
+                new FormDisplayPayload(null, 0, FormTitle: form.Title),
+                "Bu formu görüntülemek için giriş yapmalısınız."
             );
         }
+
+        if (userId.HasValue && form.HasTimeLimit && await _attempts.FindSettledAsync(form, userId.Value, cancellationToken) is { } settled)
+            return await TimedDisplayAsync(form, settled, now, cancellationToken);
 
         if (userId.HasValue)
         {
@@ -237,7 +278,15 @@ public class FormService : IFormService
 
             // Veri yoksa hata vardır; ikisi de akış yoluna aittir.
             if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
-                return await MapWorkflowDisplayAsync(workflow, cancellationToken);
+                return await MapWorkflowDisplayAsync(workflow, form.Title, userId.Value, now, cancellationToken);
+        }
+
+        if (userId.HasValue && form.HasTimeLimit)
+        {
+            var attempt = await _attempts.PrepareDisplayAsync(form, userId.Value, null, cancellationToken);
+
+            if (attempt.Contract.State != FormAttemptState.Submitted)
+                return await TimedDisplayAsync(form, attempt, now, cancellationToken);
         }
 
         var latestResponse = userId.HasValue
@@ -246,7 +295,7 @@ public class FormService : IFormService
 
         if (latestResponse is not null && !form.AllowMultipleResponses)
         {
-            var answered = new FormDisplayPayload(null, 0, latestResponse.ReviewNote, latestResponse.ReviewedAt);
+            var answered = new FormDisplayPayload(null, 0, latestResponse.ReviewNote, latestResponse.ReviewedAt, FormTitle: form.Title, SubmittedAt: latestResponse.SubmittedAt);
 
             return latestResponse.Status switch
             {
@@ -257,7 +306,7 @@ public class FormService : IFormService
                 FormResponseStatus.Declined => new ServiceResult<FormDisplayPayload>(
                     ServiceStatus.Declined, answered, "Başvurunuz reddedilmiştir."),
                 _ => new ServiceResult<FormDisplayPayload>(
-                    ServiceStatus.Success, answered, "Bu formu daha önce doldurdunuz.")
+                    ServiceStatus.Created, answered, "Bu formu daha önce doldurdunuz.")
             };
         }
 
@@ -267,8 +316,53 @@ public class FormService : IFormService
             if (linked is not null) form.EventId = linked.Id;
         }
 
-        return new ServiceResult<FormDisplayPayload>(ServiceStatus.Success, MapToDisplayPayload(form, 0));
+        return new ServiceResult<FormDisplayPayload>(ServiceStatus.Success, MapToDisplayPayload(form, 0) with { ServerNow = now, ClosesAt = form.ClosesAt });
     }
+
+    private async Task<ServiceResult<FormDisplayPayload>> TimedDisplayAsync(
+        Form form,
+        AttemptDisplay attempt,
+        DateTime now,
+        CancellationToken cancellationToken,
+        FormDisplayPayload? workflowPayload = null)
+    {
+        if (attempt.Contract.State == FormAttemptState.StartClosed)
+            return ClosesAtPassed(form, FormClosedReason.StartClosed, "Son başlama saati geçti; görev artık başlatılamaz.");
+
+        var payload = workflowPayload ?? MapToDisplayPayload(form, 0);
+        var contract = attempt.Contract;
+        var settled = contract.State is FormAttemptState.Provisional or FormAttemptState.NoSubmission;
+
+        if (settled && attempt.WorkflowStepId is { } stepId)
+        {
+            var journey = await _workflowRuntime.GetJourneyByStepAsync(stepId, cancellationToken);
+            if (journey is not null) payload = payload with { Workflow = journey, State = payload.State ?? WorkflowActionState.ShowForm };
+
+            contract = contract with { NextFormId = await _workflowRuntime.GetNextFormByStepAsync(stepId, cancellationToken) };
+        }
+
+        if (contract.State != FormAttemptState.Running && payload.Form is { } shown)
+        {
+            contract = contract with
+            {
+                Deliverables = [.. shown.Schema
+                    .Where(item => item.Type != "separator")
+                    .Select(ResponseDataMapper.QuestionOf)
+                    .Where(question => question.Length > 0)]
+            };
+
+            payload = payload with { Form = shown with { Schema = [], Task = null } };
+        }
+
+        return new ServiceResult<FormDisplayPayload>(
+            ServiceStatus.Success,
+            payload with { Attempt = contract, ServerNow = now, ClosesAt = form.ClosesAt, FormTitle = form.Title });
+    }
+
+    private ServiceResult<FormDisplayPayload> ClosesAtPassed(Form form, string reason, string message) =>
+        new(ServiceStatus.NotAvailable,
+            new FormDisplayPayload(null, 0, FormTitle: form.Title, Reason: reason, ClosesAt: form.ClosesAt, ServerNow: DateTime.UtcNow),
+            message);
 
     public async Task<ServiceResult<FormMetaContract>> GetFormMetaByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -308,7 +402,8 @@ public class FormService : IFormService
             counts.Waiting,
             AverageTimeSeconds: counts.AverageTimeSpentSeconds,
             LastSeenUsers: Array.Empty<FormLastSeenUserContract>(),
-            UserRole: collaborator?.Role ?? CollaboratorRole.None
+            UserRole: collaborator?.Role ?? CollaboratorRole.None,
+            TimeLimitMinutes: form.HasTimeLimit ? form.TimeLimitMinutes : null
         );
 
         return new ServiceResult<FormInfoContract>(ServiceStatus.Success, Data: contract);
@@ -345,6 +440,9 @@ public class FormService : IFormService
         var users = await _userService.GetUsersAsync(ownerIds, cancellationToken);
         var userMap = users.ToDictionary(u => u.Id);
 
+        var memberships = await _workflows.GetFormMembershipsAsync(
+            [.. raw.Items.Select(form => form.Id)], cancellationToken);
+
         var forms = raw.Items.Select(f =>
         {
             userMap.TryGetValue(f.OwnerUserId, out var owner);
@@ -356,6 +454,7 @@ public class FormService : IFormService
                 f.AllowAnonymousResponses,
                 f.AllowMultipleResponses,
                 f.RequiresManualReview,
+                memberships.TryGetValue(f.Id, out var membership) ? ToWorkflowRef(membership) : null,
                 f.CreatedAt,
                 f.UpdatedAt,
                 f.ResponseCount
@@ -460,25 +559,36 @@ public class FormService : IFormService
             collaboratorContracts,
             form.CreatedAt,
             form.UpdatedAt,
-            ev
+            ev,
+            form.Task,
+            form.ClosesAt,
+            form.TimeLimitMinutes
         );
     }
 
     private async Task<ServiceResult<FormDisplayPayload>> MapWorkflowDisplayAsync(
         ServiceResult<WorkflowStepOutcome> workflow,
+        string formTitle,
+        Guid userId,
+        DateTime now,
         CancellationToken cancellationToken)
     {
         if (workflow.Data is not { } outcome)
             return new ServiceResult<FormDisplayPayload>(workflow.Status, Message: workflow.Message);
 
         FormDisplayContract? contract = null;
+        Form? target = null;
 
         if (outcome is { State: WorkflowActionState.ShowForm, FormId: { } targetFormId })
         {
-            var target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
+            target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
             if (target == null) return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-            contract = new FormDisplayContract(target.Id, target.Title, target.Description, DisplaySchema(target), target.EventId);
+            if (!target.HasTimeLimit && target.HasClosedAt(now))
+                return ClosesAtPassed(target, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
+
+            var requiresManualReview = outcome.Journey?.Route.FirstOrDefault(step => step.Status == WorkflowJourneyStatus.Current)?.RequiresManualReview ?? false;
+            contract = ToDisplayContract(target, requiresManualReview);
         }
 
         var payload = new FormDisplayPayload(
@@ -489,7 +599,21 @@ public class FormService : IFormService
             outcome.InstanceId,
             outcome.State,
             outcome.Stage,
-            outcome.StartFormId);
+            outcome.StartFormId,
+            outcome.Reason,
+            outcome.Journey,
+            formTitle,
+            LastRun: outcome.LastRun,
+            ServerNow: now,
+            ClosesAt: target?.ClosesAt);
+
+        if (target is { HasTimeLimit: true })
+        {
+            var attempt = await _attempts.PrepareDisplayAsync(target, userId, outcome.StepId, cancellationToken);
+
+            if (attempt.Contract.State != FormAttemptState.Submitted)
+                return await TimedDisplayAsync(target, attempt, now, cancellationToken, payload);
+        }
 
         return new ServiceResult<FormDisplayPayload>(workflow.Status, payload, workflow.Message);
     }
@@ -502,9 +626,6 @@ public class FormService : IFormService
     {
         if (contract.Status != FormStatus.Open)
             return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; kapatılamaz.";
-
-        if (contract.RequiresManualReview != existingForm.RequiresManualReview)
-            return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; onay ayarı değiştirilemez.";
 
         if (contract.AllowAnonymousResponses)
             return $"Bu form '{workflowLock.WorkflowName}' akışında kullanılıyor; anonim yanıtlara açılamaz.";
@@ -535,21 +656,33 @@ public class FormService : IFormService
                 membership.WorkflowName,
                 membership.IsStart,
                 membership.IsPublished,
+                membership.AllowMultipleRuns,
+                membership.Intake,
+                membership.RequiresManualReview,
                 [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
     private static List<FormSchemaItem> DisplaySchema(Form form) =>
         form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
 
-    private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null)
-    {
-        var contract = new FormDisplayContract(
+    private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null) =>
+        new(ToDisplayContract(form, form.RequiresManualReview), step, reviewNote, reviewedAt);
+
+    private static FormDisplayContract ToDisplayContract(Form form, bool requiresManualReview) =>
+        new(
             form.Id,
             form.Title,
             form.Description,
             DisplaySchema(form),
-            form.EventId
-        );
+            form.EventId,
+            requiresManualReview,
+            form.Task,
+            form.ClosesAt,
+            form.TimeLimitMinutes);
 
-        return new FormDisplayPayload(contract, step, reviewNote, reviewedAt);
-    }
+    private static FormTask? NormalizeTask(FormTask? task) =>
+        task is null || string.IsNullOrWhiteSpace(task.Content)
+            ? null
+            : new FormTask { Content = task.Content, Collapsible = task.Collapsible, Downloadable = task.Downloadable };
+
+    private static int? NormalizeTimeLimit(int? minutes) => minutes is > 0 ? minutes : null;
 }

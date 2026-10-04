@@ -1,5 +1,6 @@
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
+using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Contracts.Workflows;
 
@@ -20,7 +21,10 @@ public record ResponseContract(
     DateTime SubmittedAt,
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
-    UserContract? SharedBy = null
+    UserContract? SharedBy = null,
+    ResponseAttribution? Attribution = null,
+    FormAttemptDetailContract? Attempt = null,
+    FormTask? Task = null
 );
 
 /// <summary>
@@ -55,6 +59,7 @@ public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);
 /// <param name="LinkedFormId">Legacy bağlı form akışının hedefi; akış motorunda null.</param>
 /// <param name="Step">Legacy 1..5 aşaması; akış motorunda 0.</param>
 /// <param name="StartFormId">Başvuruyu kaldığı yerden sürdüren form.</param>
+/// <param name="Reason">Akış kapalıysa sebebin kodu: newRunsClosed ya da workflowClosed.</param>
 public record ResponseSubmitResult(
     Guid? ResponseId,
     Guid? LinkedFormId,
@@ -63,17 +68,46 @@ public record ResponseSubmitResult(
     WorkflowActionState? State = null,
     int Stage = 0,
     Guid? NextFormId = null,
-    Guid? StartFormId = null
+    Guid? StartFormId = null,
+    string? Reason = null,
+    WorkflowJourneyContract? Workflow = null
 );
 
 public record ResponseSummaryContract(
     Guid Id,
     UserContract? User,
-    FormResponseStatus Status,
+    FormResponseStatus? Status,
     bool IsArchived,
     UserContract? ReviewedBy,
     Guid? ArchivedBy,
-    DateTime SubmittedAt,
+    DateTime? SubmittedAt,
     DateTime? ReviewedAt,
-    DateTime? ArchivedAt
+    DateTime? ArchivedAt,
+    int? TimeSpent = null,
+    ResponseAttemptSummaryContract? Attempt = null
+);
+
+public record ResponseAttemptSummaryContract(
+    Guid Id,
+    FormAttemptStatus Status,
+    DateTime OpenedAt,
+    DateTime? StartedAt,
+    DateTime? DeadlineAt,
+    DateTime? ExpiredAt,
+    int ExtendedMinutes,
+    bool ClosedByTeam,
+    bool CanExtend,
+    bool CanRemind,
+    int? TaskSeconds
+);
+
+public record ResponseStatusCountsContract(
+    int Submitted,
+    int Pending,
+    int Approved,
+    int Declined,
+    int Provisional,
+    int Running,
+    int Opened,
+    int NoSubmission
 );

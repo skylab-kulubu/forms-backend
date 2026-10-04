@@ -11,7 +11,10 @@ public record FormDraftContract(
     bool AllowMultipleResponses,
     bool RequiresManualReview,
     FormStatus Status,
-    DateTime SavedAt
+    DateTime SavedAt,
+    FormTask? Task = null,
+    DateTime? ClosesAt = null,
+    int? TimeLimitMinutes = null
 );
 
 public record FormDraftRequest(

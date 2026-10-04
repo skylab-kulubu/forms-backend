@@ -142,9 +142,9 @@ Dynamic form creation and response management service.
 | `Responses` | User responses, review information, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
-| `Workflows` | Workflow header: name, owner, and repeat-run setting |
+| `Workflows` | Workflow header: name, owner, repeat-run setting, and intake |
 | `WorkflowVersions` | One frozen graph per version, in draft, published, or archived state |
-| `WorkflowNodes` | The forms a version chains, and which one starts the flow |
+| `WorkflowNodes` | The forms a version chains, which one starts the flow, and whether each step needs review |
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on |
 | `WorkflowSteps` | Each position in a run, with its response and the route chosen out of it |
@@ -165,12 +165,12 @@ Form 1 ───────────────┤                         
 
 | Entity | Holds |
 |--------|-------|
-| `FormWorkflow` | Name, owner, and whether one user may run the flow more than once |
+| `FormWorkflow` | Name, owner, whether one user may run the flow more than once, and whom it lets in |
 | `FormWorkflowVersion` | One frozen copy of the graph, in `Draft`, `Published`, or `Archived` |
 | `FormWorkflowNode` | One step: the form it shows, its `NodeKey`, whether it starts the flow |
 | `FormWorkflowTransition` | One route out of a node: trigger, optional condition, priority, target |
 
-Publishing freezes a version. Editing a published workflow opens a **new draft** instead of mutating what is live, and an application keeps running on the version it started on, even after a newer one is published and even when the newer one no longer contains the form the applicant is on.
+Publishing freezes a version. Editing a published workflow opens a **new draft** instead of mutating what is live, and an application keeps running on the version it started on, even after a newer one is published and even when the newer one no longer contains the form the applicant is on. A saved graph that **matches the live version** (steps, review settings, positions, routes, priorities and conditions) opens no draft and removes an open one, so a workflow reports unpublished changes only when publishing would change something.
 
 Steps are addressed by **`NodeKey`**, not by id. Node ids are regenerated for every version, so conditions that point at an earlier step survive a new draft.
 
@@ -182,7 +182,7 @@ Steps are addressed by **`NodeKey`**, not by id. Node ids are regenerated for ev
 | `ResponseApproved` (1) | A reviewer approves the answer |
 | `ResponseDeclined` (2) | A reviewer declines the answer |
 
-A node's form decides which triggers are legal: a form that requires review may only route on approval or decline, and a form that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once.
+A node's own review setting decides which triggers are legal: a step that requires review may only route on approval or decline, and a step that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once.
 
 Within one trigger, transitions are evaluated by ascending `Priority` and the first matching condition wins. **A transition with no condition is the default route** and is always evaluated last, whatever its priority. A trigger with no transitions at all ends the flow, so a terminal step needs no configuration.
 
@@ -229,6 +229,72 @@ A step with no `CompletedAt` is the step the application is waiting on. When tha
 
 Opening the workflow's **start form** resumes an application at whatever step it reached. Opening another node's form directly is refused, so a shared link cannot skip a step or enter a branch that was never chosen.
 
+### Application journey
+
+The public payloads describe the whole application so the client can show where the applicant stands. `GET /api/forms/{id}` and `POST /api/forms/responses` carry a `workflow` block in `data` whenever the form belongs to a published workflow:
+
+```json
+"workflow": {
+  "title": "Ekip Başvurusu 2026",
+  "maxSteps": 3,
+  "route": [
+    { "stage": 1, "formTitle": "Ön Başvuru", "status": "submitted", "requiresManualReview": false, "certain": true, "submittedAt": "2026-09-12T14:32:00Z" },
+    { "stage": 2, "formTitle": "Teknik Görüşme Formu", "status": "current", "requiresManualReview": true, "certain": true },
+    { "stage": 3, "formTitle": "Üyelik Bilgileri", "status": "upcoming", "requiresManualReview": false, "certain": true }
+  ]
+}
+```
+
+`route` has three parts: the steps the application already took, read from its own steps with `submittedAt`, `reviewedAt` and `reviewNote`; the step it is waiting on; and the steps it is expected to take next. Expected steps follow the approval route of a reviewed step and the submission route of any other, taking the default route where several exist. **None of them is promised**: `certain` turns `false` as soon as a route depends on an answer, and an upcoming step whose form depends on the answer has `formTitle: null`. `maxSteps` is the longest route still possible from the current step across every trigger, so the client can draw the remaining steps without inventing a total.
+
+| `status` | Meaning |
+|----------|---------|
+| `submitted` | Answered on a step without review |
+| `approved` / `declined` | Reviewed; `reviewedAt` and `reviewNote` are set |
+| `inReview` | Answered and waiting for review |
+| `current` | The form the applicant fills in next |
+| `upcoming` | Expected later; see `certain` |
+
+A finished application has no upcoming steps, and a refused submission carries no `workflow` block.
+
+A workflow that lets people apply again keeps the **last result** in view. When the applicant's previous application ended (completed or declined) and intake is open, the start form's display payload adds `lastRun`, so the client can show how it ended before opening the new form:
+
+```json
+"lastRun": {
+  "state": 4,
+  "reviewNote": "Bu dönem yazılım ekibinde yer kalmadı.",
+  "reviewedAt": "2026-09-24T16:20:00Z",
+  "workflow": {
+    "title": "Ekip Başvurusu 2026",
+    "maxSteps": 2,
+    "route": [
+      { "stage": 1, "formTitle": "Ön Başvuru", "status": "submitted", "requiresManualReview": false, "certain": true, "submittedAt": "2026-09-12T14:32:00Z" },
+      { "stage": 2, "formTitle": "Teknik Görüşme Formu", "status": "declined", "requiresManualReview": true, "certain": true, "submittedAt": "2026-09-20T10:05:00Z", "reviewedAt": "2026-09-24T16:20:00Z", "reviewNote": "Bu dönem yazılım ekibinde yer kalmadı." }
+    ]
+  }
+}
+```
+
+`state` is `3` for a completed application and `4` for a declined one, and `workflow` is that application's own journey. A faulted application adds nothing, so it never stands between the applicant and a new start.
+
+Forms used on their own get the smaller part of the same information. The display payload's `form.requiresManualReview` tells the client whether an answer goes to review; answered states (`201`, `600`, `601`, `602`) add `formTitle` and `submittedAt`; `401` and `410` add `formTitle`, so every status screen can name the form. A signed-in user who already answered a form that takes one response gets `201` or the review status, never the form again.
+
+### Intake
+
+`FormWorkflow.Intake` decides who may still move through a workflow. It lives on the workflow rather than on a version, so a change takes effect at once without publishing and also reaches applications bound to older versions.
+
+| Value | New applications | Running applications |
+|-------|------------------|----------------------|
+| `Open` (0) | Start as usual | Continue |
+| `NewRunsClosed` (1) | Refused with `newRunsClosed` | Continue |
+| `Closed` (2) | Refused with `workflowClosed` | Stopped with `workflowClosed` at the next form to fill in |
+
+Displaying or submitting a refused form returns `410` with `reason`, `stage`, and `startFormId` in `data`. `stage` is `0` for someone who has not started and the current step's sequence for a stopped application, which is how the client tells the two apart. A refused submission saves nothing.
+
+The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes; one who may run it again gets the form with `lastRun` while intake is open (see [Application journey](#application-journey)).
+
+Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change.
+
 ### What the database enforces
 
 These are constraints rather than checks in code, so a race cannot get past them.
@@ -257,7 +323,9 @@ The forms themselves must also hold up: each must exist, be open, reject anonymo
 
 ### Forms used by a published workflow
 
-Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, change the review setting, open the form to anonymous answers, close it, or delete it.
+Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, open the form to anonymous answers, close it, or delete it. A workflow is stopped through its intake, not by closing its forms one by one.
+
+The review setting is not locked because a step carries its own. The form's value applies only when the form is used on its own, and it is the default for a step added without one. Turning review on in a new version leaves running applications alone, since each stays on the version it started on.
 
 One lock the backend cannot enforce: **the option labels a condition compares against**. Answers are stored as the option's visible text and the backend never reads the option list out of a question's `props`, so renaming an option silently stops the condition from matching. The form contract reports those labels so the editor can protect them.
 
@@ -272,8 +340,8 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 | `GET` | `/api/forms/{id}` | Get a form for display |
 | `GET` | `/api/forms/{id}/meta` | Get public form metadata |
 | `POST` | `/api/forms/responses` | Submit a response |
-| `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft |
-| `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft |
+| `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft; a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
+| `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft with its `savedAt`; a stored draft with only blank answers is deleted and answers 404 |
 | `DELETE` | `/api/forms/responses/draft/{formId}` | Delete an authenticated user's response draft |
 | `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata |
 | `GET` | `/api/forms/responses/{id}/meta` | Get shared response metadata |
@@ -282,14 +350,14 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/forms/` | List the current user's forms |
-| `GET` | `/api/admin/forms/all` | List all forms for service administrators |
+| `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow`. `AllowMultiple` and `RequiresManualReview` match a form in a published workflow on the workflow's and the step's settings |
+| `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list |
 | `POST` | `/api/admin/forms/` | Create a form |
-| `GET` | `/api/admin/forms/{id}` | Get form details |
+| `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
 | `PUT` | `/api/admin/forms/{id}` | Update a form |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
-| `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft |
+| `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing the schema the editor loads (with event identity fields) regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses |
@@ -307,16 +375,17 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/workflows` | List the current user's workflows |
+| `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
-| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions |
+| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
-| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole |
-| `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with a reason when they are not |
+| `PUT` | `/api/admin/workflows/{id}/intake` | Set the intake (`0` open, `1` closed to new applications, `2` closed) from a body such as `{ "intake": 1 }` |
+| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
+| `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
-| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow, leaving running applications alone |
+| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications |
 
 ### Component Groups - Admin
 

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Common;
@@ -12,17 +13,20 @@ namespace Skylab.Forms.Application.Services.Workflows;
 public class FormWorkflowService : IFormWorkflowService
 {
     private readonly IFormWorkflowRepository _workflows;
+    private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormsUnitOfWork _uow;
     private readonly IExternalUserService _userService;
     private readonly ICurrentUserService _currentUserService;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
+        IFormWorkflowInstanceRepository instances,
         IFormsUnitOfWork uow,
         IExternalUserService userService,
         ICurrentUserService currentUserService)
     {
         _workflows = workflows;
+        _instances = instances;
         _uow = uow;
         _userService = userService;
         _currentUserService = currentUserService;
@@ -66,9 +70,72 @@ public class FormWorkflowService : IFormWorkflowService
         if (string.IsNullOrWhiteSpace(request.Name))
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akış adı boş olamaz.");
 
+        if (request.AllowMultipleRuns && !workflow.AllowMultipleRuns && await HasTimedStepAsync(workflowId, cancellationToken))
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akışta kişisel süreli bir form var; tekrar başlatma açılamaz.");
+
         workflow.Name = request.Name.Trim();
         workflow.Description = request.Description;
         workflow.AllowMultipleRuns = request.AllowMultipleRuns;
+
+        await _uow.SaveChangesAsync(cancellationToken);
+
+        return await BuildContractAsync(workflow, cancellationToken);
+    }
+
+    public async Task<ServiceResult<WorkflowContract>> UpdateIntakeScheduleAsync(
+        Guid workflowId,
+        WorkflowIntakeScheduleRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = await _workflows.GetForEditAsync(workflowId, cancellationToken);
+        if (workflow is null) return NotFound<WorkflowContract>();
+        if (workflow.OwnerUserId != userId) return NotOwner<WorkflowContract>();
+
+        if (workflow.Status == WorkflowStatus.Archived)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akış düzenlenemez.");
+
+        workflow.IntakeClosesAt = UtcDate.Normalize(request.ClosesAt);
+
+        await _uow.SaveChangesAsync(cancellationToken);
+
+        return await BuildContractAsync(workflow, cancellationToken);
+    }
+
+    private async Task<bool> HasTimedStepAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        var draft = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
+        var published = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Published, cancellationToken);
+
+        var formIds = (draft?.Nodes ?? []).Concat(published?.Nodes ?? [])
+            .Select(node => node.FormId)
+            .Distinct()
+            .ToList();
+
+        if (formIds.Count == 0) return false;
+
+        var headers = await _workflows.GetFormHeadersAsync(formIds, cancellationToken);
+
+        return headers.Values.Any(header => header.TimeLimitMinutes is > 0);
+    }
+
+    public async Task<ServiceResult<WorkflowContract>> UpdateIntakeAsync(
+        Guid workflowId,
+        WorkflowIntakeRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = await _workflows.GetForEditAsync(workflowId, cancellationToken);
+        if (workflow is null) return NotFound<WorkflowContract>();
+        if (workflow.OwnerUserId != userId) return NotOwner<WorkflowContract>();
+
+        if (workflow.Status == WorkflowStatus.Archived)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akış yeniden açılamaz.");
+
+        if (request.Intake is not { } intake || !Enum.IsDefined(intake))
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Geçersiz başvuru durumu.");
+
+        workflow.Intake = intake;
 
         await _uow.SaveChangesAsync(cancellationToken);
 
@@ -89,11 +156,13 @@ public class FormWorkflowService : IFormWorkflowService
         return await BuildContractAsync(workflow, cancellationToken);
     }
 
-    public async Task<ServiceResult<List<WorkflowSummaryContract>>> GetOwnedAsync(
+    public async Task<ServiceResult<PagedResult<WorkflowSummaryContract>>> GetOwnedAsync(
         Guid userId,
+        GetWorkflowsRequest request,
         CancellationToken cancellationToken = default)
     {
-        var workflows = await _workflows.GetOwnedWorkflowsAsync(userId, cancellationToken);
+        var page = await _workflows.GetOwnedWorkflowsAsync(userId, request, cancellationToken);
+        var workflows = page.Items;
 
         var startFormIds = workflows
             .Where(workflow => workflow.StartFormId.HasValue)
@@ -109,6 +178,7 @@ public class FormWorkflowService : IFormWorkflowService
                 workflow.Name,
                 workflow.Status,
                 workflow.AllowMultipleRuns,
+                workflow.Intake,
                 ToFormRef(workflow.StartFormId, headers),
                 workflow.NodeCount,
                 workflow.PublishedVersion,
@@ -116,7 +186,9 @@ public class FormWorkflowService : IFormWorkflowService
                 workflow.UpdatedAt))
             .ToList();
 
-        return new ServiceResult<List<WorkflowSummaryContract>>(ServiceStatus.Success, summaries);
+        return new ServiceResult<PagedResult<WorkflowSummaryContract>>(
+            ServiceStatus.Success,
+            new PagedResult<WorkflowSummaryContract>(summaries, page.TotalCount, page.Page, page.PageSize));
     }
 
     public async Task<ServiceResult<List<WorkflowVersionSummaryContract>>> GetVersionsAsync(
@@ -158,6 +230,7 @@ public class FormWorkflowService : IFormWorkflowService
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akış düzenlenemez.");
 
         var draft = await _workflows.GetVersionForEditAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
+        var isNewDraft = draft is null;
 
         if (draft is null)
         {
@@ -168,13 +241,39 @@ public class FormWorkflowService : IFormWorkflowService
                 Version = await _workflows.GetNextVersionNumberAsync(workflowId, cancellationToken),
                 Status = WorkflowStatus.Draft
             };
-
-            _workflows.Add(draft);
         }
 
-        var build = BuildGraph(draft.Id, request);
+        var unsetReviewFormIds = request.Nodes
+            .Where(node => node.RequiresManualReview is null)
+            .Select(node => node.FormId)
+            .Distinct()
+            .ToList();
+
+        var defaults = unsetReviewFormIds.Count == 0
+            ? new Dictionary<Guid, WorkflowFormHeader>()
+            : await _workflows.GetFormHeadersAsync(unsetReviewFormIds, cancellationToken);
+
+        var build = BuildGraph(draft.Id, request, defaults);
         if (build.Error is not null)
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: build.Error);
+
+        var published = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Published, cancellationToken);
+
+        if (published is not null && HasSameGraph(build.Nodes, build.Transitions, published))
+        {
+            if (!isNewDraft)
+            {
+                _workflows.RemoveRange(draft.Transitions.ToList());
+                _workflows.RemoveRange(draft.Nodes.ToList());
+                _workflows.Remove(draft);
+
+                await _uow.SaveChangesAsync(cancellationToken);
+            }
+
+            return await BuildContractAsync(workflow, cancellationToken);
+        }
+
+        if (isNewDraft) _workflows.Add(draft);
 
         // Silme ve ekleme tek kayıt işleminde gönderilirse EF ekleme komutlarını
         // önce yazabilir ve node anahtarı üzerindeki tekil indeks ihlal edilir.
@@ -218,14 +317,16 @@ public class FormWorkflowService : IFormWorkflowService
         var available = candidates
             .Select(form =>
             {
-                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked);
+                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked, workflow.AllowMultipleRuns);
 
                 return new WorkflowAvailableFormContract(
                     form.Id,
                     form.Title,
+                    form.RequiresManualReview,
                     reason is null,
                     reason,
-                    used.Contains(form.Id));
+                    used.Contains(form.Id),
+                    form.TimeLimitMinutes is > 0 ? form.TimeLimitMinutes : null);
             })
             .ToList();
 
@@ -240,12 +341,14 @@ public class FormWorkflowService : IFormWorkflowService
         Guid formId,
         IReadOnlyDictionary<Guid, WorkflowNodeForm> facts,
         IReadOnlyDictionary<Guid, string> clashes,
-        IReadOnlyCollection<Guid> legacyLinked)
+        IReadOnlyCollection<Guid> legacyLinked,
+        bool allowMultipleRuns)
     {
         if (!facts.TryGetValue(formId, out var form) || !form.Exists) return "formMissing";
         if (!form.WorkflowOwnerIsFormOwner) return "formNotOwned";
         if (form.AllowAnonymousResponses) return "formAnonymous";
         if (!form.IsOpen) return "formClosed";
+        if (allowMultipleRuns && form.HasTimeLimit) return "formTimedRepeatable";
         if (clashes.ContainsKey(formId)) return "formInAnotherWorkflow";
         if (legacyLinked.Contains(formId)) return "formIsLegacyLinked";
 
@@ -333,10 +436,11 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow.OwnerUserId != userId) return NotOwner<bool>();
 
         workflow.Status = WorkflowStatus.Archived;
+        workflow.Intake = WorkflowIntake.Closed;
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular etkilenmedi.");
+        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular durduruldu.");
     }
 
     /// <summary>
@@ -377,12 +481,24 @@ public class FormWorkflowService : IFormWorkflowService
                 node.NodeKey));
         }
 
+        if (workflow.AllowMultipleRuns)
+        {
+            foreach (var node in nodes.Where(node => forms.TryGetValue(node.FormId, out var form) && form.HasTimeLimit))
+            {
+                errors.Add(new WorkflowValidationError(
+                    "formTimedRepeatable",
+                    $"'{node.NodeKey}' adımının formunda kişisel süre var; tekrar başlatılabilen akışlarda kişisel süre kullanılamaz.",
+                    node.NodeKey));
+            }
+        }
+
         return errors;
     }
 
     private static (List<FormWorkflowNode> Nodes, List<FormWorkflowTransition> Transitions, string? Error) BuildGraph(
         Guid versionId,
-        WorkflowDefinitionRequest request)
+        WorkflowDefinitionRequest request,
+        IReadOnlyDictionary<Guid, WorkflowFormHeader> defaults)
     {
         var nodes = new List<FormWorkflowNode>();
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -399,7 +515,11 @@ public class FormWorkflowService : IFormWorkflowService
                 WorkflowVersionId = versionId,
                 FormId = node.FormId,
                 NodeKey = key,
-                IsStart = node.IsStart
+                IsStart = node.IsStart,
+                RequiresManualReview = node.RequiresManualReview
+                    ?? (defaults.TryGetValue(node.FormId, out var header) && header.RequiresManualReview),
+                PositionX = node.Position?.X,
+                PositionY = node.Position?.Y
             });
         }
 
@@ -431,6 +551,42 @@ public class FormWorkflowService : IFormWorkflowService
         return (nodes, transitions, null);
     }
 
+    private static bool HasSameGraph(
+        IReadOnlyCollection<FormWorkflowNode> nodes,
+        IReadOnlyCollection<FormWorkflowTransition> transitions,
+        FormWorkflowVersion version) =>
+        NodeShapes(nodes).SequenceEqual(NodeShapes(version.Nodes))
+        && TransitionShapes(nodes, transitions).SequenceEqual(TransitionShapes(version.Nodes, version.Transitions));
+
+    private static List<NodeShape> NodeShapes(IEnumerable<FormWorkflowNode> nodes) =>
+        nodes
+            .Select(node => new NodeShape(node.NodeKey, node.FormId, node.IsStart, node.RequiresManualReview, node.PositionX, node.PositionY))
+            .OrderBy(shape => shape.Key, StringComparer.Ordinal)
+            .ToList();
+
+    private static List<TransitionShape> TransitionShapes(IEnumerable<FormWorkflowNode> nodes, IEnumerable<FormWorkflowTransition> transitions)
+    {
+        var keysById = nodes.ToDictionary(node => node.Id, node => node.NodeKey);
+
+        return transitions
+            .Select(transition => new TransitionShape(
+                keysById[transition.SourceNodeId],
+                transition.TargetNodeId is { } targetId ? keysById[targetId] : null,
+                transition.Trigger,
+                transition.Priority,
+                JsonSerializer.Serialize(transition.Condition)))
+            .OrderBy(shape => shape.Source, StringComparer.Ordinal)
+            .ThenBy(shape => shape.Trigger)
+            .ThenBy(shape => shape.Priority)
+            .ThenBy(shape => shape.Target, StringComparer.Ordinal)
+            .ThenBy(shape => shape.Condition, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private sealed record NodeShape(string Key, Guid FormId, bool IsStart, bool RequiresManualReview, int? X, int? Y);
+
+    private sealed record TransitionShape(string Source, string? Target, WorkflowTransitionTrigger Trigger, int Priority, string Condition);
+
     private async Task<ServiceResult<WorkflowContract>> BuildContractAsync(FormWorkflow workflow, CancellationToken cancellationToken)
     {
         var draft = await _workflows.GetVersionAsync(workflow.Id, WorkflowStatus.Draft, cancellationToken);
@@ -461,12 +617,15 @@ public class FormWorkflowService : IFormWorkflowService
             workflow.Description,
             workflow.Status,
             workflow.AllowMultipleRuns,
+            workflow.Intake,
+            await _instances.CountActiveAsync(workflow.Id, cancellationToken),
             owner,
             ToVersionContract(draft, headers),
             ToVersionContract(published, headers),
             validation,
             workflow.CreatedAt,
-            workflow.UpdatedAt);
+            workflow.UpdatedAt,
+            workflow.IntakeClosesAt);
 
         return new ServiceResult<WorkflowContract>(ServiceStatus.Success, contract);
     }
@@ -486,8 +645,12 @@ public class FormWorkflowService : IFormWorkflowService
                     node.NodeKey,
                     node.FormId,
                     found ? header!.Title : "(silinmiş form)",
-                    found && header!.RequiresManualReview,
-                    node.IsStart);
+                    node.RequiresManualReview,
+                    node.IsStart,
+                    node.PositionX is { } x && node.PositionY is { } y
+                        ? new WorkflowNodePositionContract(x, y)
+                        : null,
+                    found ? header!.TimeLimitMinutes : null);
             })
             .ToList();
 

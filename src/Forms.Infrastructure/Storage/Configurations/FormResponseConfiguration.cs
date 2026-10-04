@@ -21,7 +21,7 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.Property(fr => fr.TimeSpent).IsRequired(false);
 
-        builder.Property(fr => fr.ReviewNote).HasMaxLength(500).IsRequired(false);
+        builder.Property(fr => fr.ReviewNote).HasMaxLength(FormResponse.ReviewNoteMaxLength).IsRequired(false);
 
         builder.Property(fr => fr.IsArchived).HasDefaultValue(false);
         builder.Property(fr => fr.ArchivedBy).IsRequired(false);
@@ -29,6 +29,15 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.Property(fr => fr.PendingReminderSentAt).IsRequired(false);
         builder.HasIndex(fr => new { fr.Status, fr.IsArchived, fr.PendingReminderSentAt });
+
+        builder.OwnsOne(fr => fr.Attribution, attribution =>
+        {
+            attribution.Property(a => a.Source).HasColumnName("UtmSource").HasMaxLength(100);
+            attribution.Property(a => a.Medium).HasColumnName("UtmMedium").HasMaxLength(100);
+            attribution.Property(a => a.Campaign).HasColumnName("UtmCampaign").HasMaxLength(100);
+            attribution.Property(a => a.Term).HasColumnName("UtmTerm").HasMaxLength(100);
+            attribution.Property(a => a.Content).HasColumnName("UtmContent").HasMaxLength(100);
+        });
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 

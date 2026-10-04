@@ -9,6 +9,21 @@ public record WorkflowUpsertRequest(
     bool AllowMultipleRuns
 );
 
+/// <summary>Liste sorgusu; sıralama her zaman son güncellemeye göredir.</summary>
+/// <param name="ShowArchived">Arşivlenmiş akışlar yalnız açıkça istenince listelenir.</param>
+public record GetWorkflowsRequest(
+    int Page = 1,
+    int PageSize = 10,
+    string? Search = null,
+    string SortDirection = "descending",
+    bool ShowArchived = false
+);
+
+/// <param name="Intake">Boş gelen istek reddedilir; eksik bir alan akışı sessizce yeniden açmasın.</param>
+public record WorkflowIntakeRequest(WorkflowIntake? Intake);
+
+public record WorkflowIntakeScheduleRequest(DateTime? ClosesAt);
+
 /// <summary>
 /// Taslak tanımın tamamı. Editör parça güncelleme yapamaz: yarım bir graf hiçbir
 /// zaman kaydedilmesin diye node ve yönlendirme listeleri birlikte gelir.
@@ -18,10 +33,14 @@ public record WorkflowDefinitionRequest(
     List<WorkflowTransitionRequest> Transitions
 );
 
+/// <param name="Position">İsteğe bağlı; tuval çizmeyen bir istemci göndermeyebilir.</param>
+/// <param name="RequiresManualReview">Boş gelirse adım, formun kendi onay ayarıyla kaydedilir.</param>
 public record WorkflowNodeRequest(
     string NodeKey,
     Guid FormId,
-    bool IsStart
+    bool IsStart,
+    WorkflowNodePositionContract? Position = null,
+    bool? RequiresManualReview = null
 );
 
 /// <summary>

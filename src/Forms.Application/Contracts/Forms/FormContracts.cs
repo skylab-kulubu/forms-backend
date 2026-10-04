@@ -19,7 +19,10 @@ public record FormContract(
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    EventRefContract? Event = null
+    EventRefContract? Event = null,
+    FormTask? Task = null,
+    DateTime? ClosesAt = null,
+    int? TimeLimitMinutes = null
 );
 
     public record FormDisplayContract(
@@ -27,7 +30,11 @@ public record FormContract(
     string Title,
     string? Description,
     List<FormSchemaItem> Schema,
-    Guid? EventId = null
+    Guid? EventId = null,
+    bool RequiresManualReview = false,
+    FormTask? Task = null,
+    DateTime? ClosesAt = null,
+    int? TimeLimitMinutes = null
 );
 
 public record FormSummaryContract(
@@ -53,29 +60,24 @@ public record FormAllSummaryContract(
     bool AllowAnonymousResponses,
     bool AllowMultipleResponses,
     bool RequiresManualReview,
+    FormWorkflowRefContract? Workflow,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     int ResponseCount,
     EventRefContract? Event = null
 );
 
-/// <summary>
-/// Formun hangi akışta yer aldığı. Akışta değilse null. Yayınlanmış bir akışta yer
-/// alıyorsa LockedQuestions, yönlendirmenin dayandığı soruları ve o soruların
-/// değiştirilemeyecek seçenek adlarını verir.
-/// </summary>
 public record FormWorkflowRefContract(
     Guid Id,
     string Name,
     bool IsStart,
     bool IsPublished,
+    bool AllowMultipleRuns,
+    WorkflowIntake Intake,
+    bool RequiresManualReview,
     List<FormLockedQuestionContract> LockedQuestions
 );
 
-/// <param name="Values">
-/// Koşulun karşılaştırdığı seçenek adları. Cevaplar seçeneğin görünen adıyla
-/// saklandığı için bu adları değiştirmek yönlendirmeyi sessizce bozar.
-/// </param>
 public record FormLockedQuestionContract(
     string Id,
     List<string> Values

@@ -74,6 +74,9 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<bool>("AllowMultipleResponses")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("ClosesAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -96,6 +99,12 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Task")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int?>("TimeLimitMinutes")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -109,6 +118,110 @@ namespace Forms.Infrastructure.Migrations
                     b.HasIndex("LinkedFormId");
 
                     b.ToTable("Forms", (string)null);
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeadlineAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DraftSnapshot")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime?>("ExpiredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReminderSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResponseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WorkflowStepId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ResponseId");
+
+                    b.HasIndex("WorkflowStepId");
+
+                    b.HasIndex("FormId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Attempts_FormId_UserId_Standalone")
+                        .HasFilter("\"WorkflowStepId\" IS NULL");
+
+                    b.HasIndex("Status", "DeadlineAt")
+                        .HasDatabaseName("IX_Attempts_Status_DeadlineAt");
+
+                    b.HasIndex("FormId", "UserId", "WorkflowStepId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Attempts_FormId_UserId_WorkflowStepId");
+
+                    b.ToTable("Attempts", (string)null);
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormAttemptEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeadlineAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("Minutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttemptId", "CreatedAt");
+
+                    b.ToTable("AttemptEvents", (string)null);
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormCollaborator", b =>
@@ -206,6 +319,12 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<int>("Intake")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("IntakeClosesAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -295,6 +414,15 @@ namespace Forms.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<int?>("PositionX")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PositionY")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("RequiresManualReview")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid>("WorkflowVersionId")
                         .HasColumnType("uuid");
@@ -458,6 +586,38 @@ namespace Forms.Infrastructure.Migrations
                     b.Navigation("LinkedForm");
                 });
 
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormAttempt", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
+                        .WithMany()
+                        .HasForeignKey("FormId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Skylab.Forms.Domain.Entities.FormResponse", null)
+                        .WithMany()
+                        .HasForeignKey("ResponseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skylab.Forms.Domain.Entities.FormWorkflowStep", null)
+                        .WithMany()
+                        .HasForeignKey("WorkflowStepId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormAttemptEvent", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.FormAttempt", "Attempt")
+                        .WithMany("Events")
+                        .HasForeignKey("AttemptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Attempt");
+                });
+
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormCollaborator", b =>
                 {
                     b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
@@ -476,6 +636,46 @@ namespace Forms.Infrastructure.Migrations
                         .HasForeignKey("FormId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.OwnsOne("Skylab.Forms.Domain.Models.ResponseAttribution", "Attribution", b1 =>
+                        {
+                            b1.Property<Guid>("FormResponseId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Campaign")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("UtmCampaign");
+
+                            b1.Property<string>("Content")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("UtmContent");
+
+                            b1.Property<string>("Medium")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("UtmMedium");
+
+                            b1.Property<string>("Source")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("UtmSource");
+
+                            b1.Property<string>("Term")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("UtmTerm");
+
+                            b1.HasKey("FormResponseId");
+
+                            b1.ToTable("Responses");
+
+                            b1.WithOwner()
+                                .HasForeignKey("FormResponseId");
+                        });
+
+                    b.Navigation("Attribution");
 
                     b.Navigation("Form");
                 });
@@ -598,6 +798,11 @@ namespace Forms.Infrastructure.Migrations
                     b.Navigation("Collaborators");
 
                     b.Navigation("Responses");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormAttempt", b =>
+                {
+                    b.Navigation("Events");
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormWorkflow", b =>

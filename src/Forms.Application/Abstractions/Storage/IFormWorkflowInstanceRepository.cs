@@ -9,7 +9,8 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>
     /// Kullanıcının bu formu içeren aktif başvurusu. Arama form üzerinden yapılır
     /// çünkü başvuru, yayındaki tanımdan daha eski bir version'a bağlı olabilir.
-    /// Yazma için izlenen (tracked) varlık döner.
+    /// Yazma için izlenen (tracked) varlık döner; akışın güncel kabul durumu
+    /// okunabilsin diye Workflow da yüklenir.
     /// </summary>
     Task<FormWorkflowInstance?> GetActiveByFormAsync(Guid formId, Guid userId, CancellationToken ct = default);
 
@@ -23,17 +24,25 @@ public interface IFormWorkflowInstanceRepository
     /// </summary>
     Task<WorkflowRunSummary?> GetLastRunAsync(Guid workflowId, Guid userId, CancellationToken ct = default);
 
+    Task<int> CountActiveAsync(Guid workflowId, CancellationToken ct = default);
+
     /// <summary>Cevap, rotası henüz belirlenmemiş bir adıma mı bağlı?</summary>
     Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default);
 
     /// <summary>Koşul değerlendirmesi için başvurunun cevaplanmış adımları.</summary>
     Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default);
 
+    Task<IReadOnlyList<WorkflowJourneyStepFact>> GetJourneyStepsAsync(Guid instanceId, CancellationToken ct = default);
+
     /// <summary>
     /// Cevabın ait olduğu başvurunun bütün adımları. İnceleyen, başvuranın önceki
     /// adımlardaki cevaplarını tek yerden görebilsin diye.
     /// </summary>
     Task<ResponseWorkflowProjection?> GetContextByResponseAsync(Guid responseId, CancellationToken ct = default);
+
+    Task<ResponseWorkflowProjection?> GetContextByStepAsync(Guid stepId, CancellationToken ct = default);
+
+    Task<FormWorkflowStep?> GetStepForEditAsync(Guid stepId, CancellationToken ct = default);
 
     void Add(FormWorkflowInstance instance);
 
@@ -47,6 +56,16 @@ public interface IFormWorkflowInstanceRepository
 
 public sealed record WorkflowStepAnswers(string NodeKey, IReadOnlyList<FormResponseSchemaItem> Answers);
 
+public sealed record WorkflowJourneyStepFact(
+    int Sequence,
+    Guid NodeId,
+    Guid FormId,
+    bool IsOpen,
+    FormResponseStatus? ResponseStatus,
+    DateTime? SubmittedAt,
+    DateTime? ReviewedAt,
+    string? ReviewNote);
+
 public sealed record ResponseWorkflowProjection(
     Guid InstanceId,
     int Stage,
@@ -58,9 +77,12 @@ public sealed record ResponseWorkflowStepProjection(
     Guid? ResponseId,
     FormResponseStatus? Status);
 
+/// <param name="LastSequence">Başvurunun ulaştığı son adımın sıra numarası.</param>
 public sealed record WorkflowRunSummary(
     Guid InstanceId,
+    Guid WorkflowVersionId,
     WorkflowInstanceStatus Status,
     WorkflowInstanceOutcome Outcome,
+    int LastSequence,
     string? ReviewNote,
     DateTime? ReviewedAt);

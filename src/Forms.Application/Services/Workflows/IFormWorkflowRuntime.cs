@@ -2,6 +2,7 @@ using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services.Workflows;
 
@@ -50,5 +51,33 @@ public interface IFormWorkflowRuntime
     /// </summary>
     Task<WorkflowReviewPreview?> PreviewReviewAsync(
         FormResponse response,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<WorkflowStepOutcome>> BeginRunAsync(
+        Form form,
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<WorkflowStepOutcome>> AcceptAsync(
+        Form form,
+        FormResponse response,
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<WorkflowStepOutcome>> TimeOutAsync(
+        Guid stepId,
+        CancellationToken cancellationToken = default);
+
+    Task<WorkflowAttemptPreview?> PreviewAttemptAsync(
+        Guid stepId,
+        List<FormResponseSchemaItem> answers,
+        CancellationToken cancellationToken = default);
+
+    Task<Guid?> GetNextFormByStepAsync(
+        Guid stepId,
+        CancellationToken cancellationToken = default);
+
+    Task<WorkflowJourneyContract?> GetJourneyByStepAsync(
+        Guid stepId,
         CancellationToken cancellationToken = default);
 }
