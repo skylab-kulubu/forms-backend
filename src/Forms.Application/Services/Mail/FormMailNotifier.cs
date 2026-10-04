@@ -1,4 +1,5 @@
 using System.Globalization;
+using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -101,7 +102,10 @@ public class FormMailNotifier : IFormMailNotifier
             variables["deadlineAt"] = ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
         if (minutes.HasValue)
+        {
             variables["minutes"] = minutes.Value;
+            variables["duration"] = DurationText.Of(minutes.Value);
+        }
 
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
