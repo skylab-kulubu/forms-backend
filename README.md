@@ -490,6 +490,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template | Optional |
 | `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template | Optional |
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
+| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID` | Timed task updates: reminder, extension, expiry, accept, close. The team's remind action is refused while it is empty | Optional |
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 

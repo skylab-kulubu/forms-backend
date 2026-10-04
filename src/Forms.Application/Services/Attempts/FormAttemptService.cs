@@ -300,7 +300,7 @@ public class FormAttemptService : IFormAttemptService
         return new ServiceResult<FormAttemptDetailContract>(
             ServiceStatus.Success,
             await DetailOfAsync(attempt, attempt.Form, null, ct),
-            $"Adaya {DurationText(request.Minutes)} verildi.");
+            $"Adaya {DurationText.Of(request.Minutes)} verildi.");
     }
 
     public async Task<ServiceResult<FormAttemptDetailContract>> AcceptAsync(Guid attemptId, Guid actorId, AttemptDecisionRequest? request, CancellationToken ct = default)
@@ -411,10 +411,12 @@ public class FormAttemptService : IFormAttemptService
             CreatedAt = now
         });
 
+        Guid? nextFormId = null;
+
         try
         {
             if (attempt.WorkflowStepId is { } stepId)
-                await _workflowRuntime.TimeOutAsync(stepId, ct);
+                nextFormId = NextFormOf(await _workflowRuntime.TimeOutAsync(stepId, ct));
 
             await _uow.SaveChangesAsync(ct);
         }
@@ -423,7 +425,7 @@ public class FormAttemptService : IFormAttemptService
             return Conflicted();
         }
 
-        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Closed, ct: ct);
+        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Closed, nextFormId: nextFormId, ct: ct);
 
         return new ServiceResult<FormAttemptDetailContract>(
             ServiceStatus.Success,
@@ -470,7 +472,7 @@ public class FormAttemptService : IFormAttemptService
             return Conflicted();
         }
 
-        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Reminder, attempt.Form.ClosesAt, ct: ct);
+        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Reminder, attempt.Form.ClosesAt, attempt.Form.TimeLimitMinutes, ct: ct);
 
         return new ServiceResult<FormAttemptDetailContract>(
             ServiceStatus.Success,
@@ -613,10 +615,12 @@ public class FormAttemptService : IFormAttemptService
             _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.ExpiredEmpty, CreatedAt = deadline });
         }
 
+        Guid? nextFormId = null;
+
         try
         {
             if (!hasDraft && attempt.WorkflowStepId is { } stepId)
-                await _workflowRuntime.TimeOutAsync(stepId, ct);
+                nextFormId = NextFormOf(await _workflowRuntime.TimeOutAsync(stepId, ct));
 
             await _uow.SaveChangesAsync(ct);
         }
@@ -625,7 +629,7 @@ public class FormAttemptService : IFormAttemptService
             return null;
         }
 
-        await _mail.NotifyAttemptAsync(form, attempt.UserId, hasDraft ? AttemptMailKind.Expired : AttemptMailKind.ExpiredEmpty, deadline, ct: ct);
+        await _mail.NotifyAttemptAsync(form, attempt.UserId, hasDraft ? AttemptMailKind.Expired : AttemptMailKind.ExpiredEmpty, deadline, nextFormId: nextFormId, ct: ct);
 
         return attempt;
     }
@@ -828,12 +832,8 @@ public class FormAttemptService : IFormAttemptService
     private static string? NormalizeNote(string? note) =>
         string.IsNullOrWhiteSpace(note) ? null : note.Trim();
 
-    private static string DurationText(int minutes)
-    {
-        if (minutes % 1440 == 0) return $"{minutes / 1440} gün";
-        if (minutes % 60 == 0) return $"{minutes / 60} saat";
-        return minutes > 60 ? $"{minutes / 60} saat {minutes % 60} dakika" : $"{minutes} dakika";
-    }
+    private static Guid? NextFormOf(ServiceResult<WorkflowStepOutcome> routed) =>
+        routed.Data is { State: WorkflowActionState.ShowForm, FormId: { } next } ? next : null;
 
     private static FormAttemptDisplayContract StartClosedDisplay(Form form) =>
         new(FormAttemptState.StartClosed, form.TimeLimitMinutes ?? 0, form.ClosesAt, null, null, 0, null, false, false);

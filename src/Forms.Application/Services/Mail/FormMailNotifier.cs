@@ -1,4 +1,5 @@
 using System.Globalization;
+using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -37,15 +38,14 @@ public class FormMailNotifier : IFormMailNotifier
             })
             .ToList();
 
-        var variables = new Dictionary<string, object>
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
-            ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
-            ["submittedAt"] = response.SubmittedAt.ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["submittedAt"] = ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
             ["answers"] = answers
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public async Task NotifyStatusChangedAsync(Form form, FormResponse response, Guid? nextFormId = null, CancellationToken ct = default)
@@ -64,23 +64,20 @@ public class FormMailNotifier : IFormMailNotifier
         var recipient = await _userService.GetUserAsync(response.UserId.Value, ct);
         if (recipient?.Email is null) return;
 
-        var variables = new Dictionary<string, object>
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
-            ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
             ["status"] = status,
             ["reviewNote"] = response.ReviewNote ?? string.Empty
         };
 
         if (response.ReviewedAt.HasValue)
-            variables["reviewedAt"] = response.ReviewedAt.Value.ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["reviewedAt"] = ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
-        // Değişken adı mail şablonuyla uyumlu kalsın diye korunuyor; kaynağı artık
-        // formun eski bağlantısı değil, akışın seçtiği sonraki adım.
         if (nextFormId.HasValue)
-            variables["linkedFormId"] = nextFormId.Value.ToString();
+            variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateId);
@@ -92,9 +89,8 @@ public class FormMailNotifier : IFormMailNotifier
         var recipient = await _userService.GetUserAsync(userId, ct);
         if (recipient?.Email is null) return;
 
-        var variables = new Dictionary<string, object>
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
-            ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
             ["formId"] = form.Id.ToString(),
             ["kind"] = kind
@@ -104,12 +100,15 @@ public class FormMailNotifier : IFormMailNotifier
             variables["deadlineAt"] = ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
         if (minutes.HasValue)
+        {
             variables["minutes"] = minutes.Value;
+            variables["duration"] = DurationText.Of(minutes.Value);
+        }
 
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, recipient.FullName ?? string.Empty, variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     private static readonly TimeZoneInfo Istanbul = ResolveIstanbul();
