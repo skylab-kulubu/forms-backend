@@ -83,9 +83,8 @@ public class PendingResponseReminderWorker : BackgroundService
         {
             if (!reviewers.TryGetValue(reviewerId, out var reviewer)) continue;
 
-            var variables = new Dictionary<string, object>
+            var variables = new Dictionary<string, object>(MailNames.Of(reviewer))
             {
-                ["recipientName"] = reviewer.FullName ?? string.Empty,
                 ["totalPending"] = forms.Sum(f => f.PendingCount),
                 ["forms"] = forms.Select(f => (object)new Dictionary<string, object>
                 {
@@ -95,7 +94,7 @@ public class PendingResponseReminderWorker : BackgroundService
                 }).ToList()
             };
 
-            _dispatcher.Enqueue(new SingleMailRequest(_options.PendingReminderTemplateId, reviewer.Email!, reviewer.FullName ?? string.Empty, variables));
+            _dispatcher.Enqueue(new SingleMailRequest(_options.PendingReminderTemplateId, reviewer.Email!, MailNames.Full(reviewer), variables));
         }
 
         await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, ct);
