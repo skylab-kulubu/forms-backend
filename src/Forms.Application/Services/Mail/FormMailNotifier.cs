@@ -41,7 +41,7 @@ public class FormMailNotifier : IFormMailNotifier
         {
             ["recipientName"] = recipient.FullName ?? string.Empty,
             ["formTitle"] = form.Title,
-            ["submittedAt"] = response.SubmittedAt.ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["submittedAt"] = ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
             ["answers"] = answers
         };
 
@@ -73,7 +73,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (response.ReviewedAt.HasValue)
-            variables["reviewedAt"] = response.ReviewedAt.Value.ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["reviewedAt"] = ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
         // Değişken adı mail şablonuyla uyumlu kalsın diye korunuyor; kaynağı artık
         // formun eski bağlantısı değil, akışın seçtiği sonraki adım.
