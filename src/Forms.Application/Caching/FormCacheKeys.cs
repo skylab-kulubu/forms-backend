@@ -14,8 +14,4 @@ public static class FormCacheKeys
     /// <summary>Kişinin bütün formlardaki yanıt ve form taslaklarını bulan SCAN kalıpları.</summary>
     public static string[] UserDraftPatterns(Guid userId) =>
         [$"forms:draft:response:*:{userId}", $"forms:draft:form:*:{userId}"];
-
-    public const string ResponseShareTokenPrefix = "response:share:token:";
-    public static string ResponseShareToken(string token) => $"{ResponseShareTokenPrefix}{token}";
-    public static string ResponseShareResponse(Guid responseId) => $"response:share:response:{responseId}";
 }

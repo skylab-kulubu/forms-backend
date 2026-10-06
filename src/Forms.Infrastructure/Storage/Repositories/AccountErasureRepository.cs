@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Skylab.Forms.Application.Abstractions.Storage;
-using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
@@ -20,13 +19,6 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
     {
         _context = context;
     }
-
-    public Task<AccountErasureReceipt?> FindReceiptAsync(Guid requestId, CancellationToken ct = default) =>
-        _context.AccountErasureReceipts.AsNoTracking().FirstOrDefaultAsync(r => r.RequestId == requestId, ct);
-
-    public async Task LockAsync(Guid requestId, CancellationToken ct = default) =>
-        await _context.Database.ExecuteSqlAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({"forms:account-erasure:" + requestId}, 0))", ct);
 
     public Task<List<Guid>> FindGuestResponseCandidatesAsync(IReadOnlyList<string> emails, CancellationToken ct = default) =>
         _context.Database.SqlQueryRaw<Guid>("""
@@ -113,8 +105,6 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
     public Task<int> DetachWorkflowRunsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default) =>
         _context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.UserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.UserId, replacementUserId), ct);
-
-    public void Add(AccountErasureReceipt receipt) => _context.AccountErasureReceipts.Add(receipt);
 
     private static object[] MentionParameters(IReadOnlyList<string> emails, IReadOnlyList<string> fullNames) =>
     [

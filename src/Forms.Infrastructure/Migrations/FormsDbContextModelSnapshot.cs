@@ -22,26 +22,6 @@ namespace Forms.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Skylab.Forms.Domain.Entities.AccountErasureReceipt", b =>
-                {
-                    b.Property<Guid>("RequestId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("request_id");
-
-                    b.Property<DateTime>("CompletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("completed_at");
-
-                    b.Property<string>("Counts")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("counts");
-
-                    b.HasKey("RequestId");
-
-                    b.ToTable("account_erasure_receipts", (string)null);
-                });
-
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.ComponentGroup", b =>
                 {
                     b.Property<Guid>("Id")

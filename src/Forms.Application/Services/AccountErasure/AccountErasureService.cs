@@ -1,10 +1,8 @@
-using System.Text.Json;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Domain.Common;
-using Skylab.Forms.Domain.Entities;
 
 namespace Skylab.Forms.Application.Services.AccountErasure;
 
@@ -21,24 +19,18 @@ public sealed class AccountErasureService : IAccountErasureService
         _cache = cache;
     }
 
-    public Task<AccountErasureReceipt?> FindReceiptAsync(Guid requestId, CancellationToken ct = default) =>
-        _erasures.FindReceiptAsync(requestId, ct);
-
-    public async Task<AccountErasureReceipt> EraseAsync(AccountErasureCommand command, CancellationToken ct = default)
+    public async Task<Dictionary<string, long>> EraseAsync(AccountErasureCommand command, CancellationToken ct = default)
     {
         var userId = command.SubjectId;
 
-        // Redis transaction'a girmez, bu yüzden önce silinir; tekrarında silinecek bir şey kalmaz.
+        // İş doğası gereği idempotenttir: tekrarı silinecek bir şey bulamaz ve her şeyi 0 sayar.
+        // Bu yüzden makbuz ve kilit yoktur (core sözleşmesi §9). Yanıt paylaşım bağlantıları
+        // 1 saatte kendiliğinden düştüğü için silinmez; 7 gün yaşayan taslaklar silinir.
+        // Redis transaction'a girmez, bu yüzden taslaklar önce silinir.
         var drafts = await DeleteDraftsAsync(userId, ct);
-        var shareLinks = await DeleteShareLinksAsync(userId, ct);
 
-        var receipt = await _uow.ExecuteInTransactionAsync(async token =>
+        var counts = await _uow.ExecuteInTransactionAsync(async token =>
         {
-            // Aynı komutun eşzamanlı ikinci çağrısı burada bekler, sonra ilkinin makbuzunu bulur.
-            await _erasures.LockAsync(command.RequestId, token);
-            var existing = await _erasures.FindReceiptAsync(command.RequestId, token);
-            if (existing is not null) return existing;
-
             // Kişinin yanıtları: kendi hesabıyla gönderdikleri ve kimlik e-postası adreslerinden
             // birine eşit olan misafir yanıtları. Adres yalnız başka bir alanda geçiyorsa (ör. takım
             // arkadaşının e-postası) yanıt kişinin sayılmaz; o cevap aşağıda adres taraması ile boşalır.
@@ -86,24 +78,13 @@ public sealed class AccountErasureService : IAccountErasureService
             counts["workflow_runs_detached"] = await _erasures.DetachWorkflowRunsAsync(userId, DeletedUser.Id, token);
 
             counts["drafts_deleted"] = drafts;
-            counts["share_links_deleted"] = shareLinks;
-
-            var created = new AccountErasureReceipt
-            {
-                RequestId = command.RequestId,
-                CompletedAt = DateTime.UtcNow,
-                Counts = JsonSerializer.Serialize(counts)
-            };
-            _erasures.Add(created);
-            await _uow.SaveChangesAsync(token);
-
-            return created;
+            return counts;
         }, ct);
 
         // Önbellekteki form analizleri silinen cevapları içerebilir; sonraki okumada yeniden hesaplanır.
         await _cache.TryRemoveByPrefixAsync(FormCacheKeys.AnalyticsPrefix, ct);
 
-        return receipt;
+        return counts;
     }
 
     private async Task<long> DeleteDraftsAsync(Guid userId, CancellationToken ct)
@@ -116,31 +97,6 @@ public sealed class AccountErasureService : IAccountErasureService
                 await _cache.RemoveAsync(key, ct);
                 deleted++;
             }
-        }
-
-        return deleted;
-    }
-
-    /// <summary>Kişinin açtığı yanıt paylaşım bağlantıları ve onları gösteren yanıt anahtarları.</summary>
-    private async Task<long> DeleteShareLinksAsync(Guid userId, CancellationToken ct)
-    {
-        long deleted = 0;
-        await foreach (var tokenKey in _cache.ScanKeysAsync(FormCacheKeys.ResponseShareTokenPrefix + "*", ct))
-        {
-            var entry = await _cache.TryGetAsync<ShareCacheEntry>(tokenKey, ct);
-            if (entry is null || entry.SharedByUserId != userId) continue;
-
-            var token = tokenKey[FormCacheKeys.ResponseShareTokenPrefix.Length..];
-            var responseIds = (entry.InstanceResponseIds ?? []).Append(entry.ResponseId).Distinct();
-            foreach (var responseId in responseIds)
-            {
-                var responseKey = FormCacheKeys.ResponseShareResponse(responseId);
-                if (await _cache.TryGetAsync<string>(responseKey, ct) == token)
-                    await _cache.RemoveAsync(responseKey, ct);
-            }
-
-            await _cache.RemoveAsync(tokenKey, ct);
-            deleted++;
         }
 
         return deleted;

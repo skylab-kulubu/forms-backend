@@ -1,4 +1,3 @@
-using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Abstractions.Storage;
@@ -9,11 +8,6 @@ namespace Skylab.Forms.Application.Abstractions.Storage;
 /// </summary>
 public interface IAccountErasureRepository
 {
-    Task<AccountErasureReceipt?> FindReceiptAsync(Guid requestId, CancellationToken ct = default);
-
-    /// <summary>Transaction sonuna kadar request_id üzerinde advisory lock tutar.</summary>
-    Task LockAsync(Guid requestId, CancellationToken ct = default);
-
     /// <summary>Cevaplarından biri adreslerden birine eşit olan misafir yanıtları (yalnız aday listesi).</summary>
     Task<List<Guid>> FindGuestResponseCandidatesAsync(IReadOnlyList<string> emails, CancellationToken ct = default);
 
@@ -34,8 +28,6 @@ public interface IAccountErasureRepository
     Task<int> ReplaceOwnersAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default);
     Task<int> CloseWorkflowRunsAsync(Guid userId, DateTime now, CancellationToken ct = default);
     Task<int> DetachWorkflowRunsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default);
-
-    void Add(AccountErasureReceipt receipt);
 }
 
 public sealed record ErasureResponseRow(Guid Id, Guid? UserId, List<FormSchemaItem> Schema, List<FormResponseSchemaItem> Data);

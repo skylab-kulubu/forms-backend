@@ -75,47 +75,43 @@ public static class InternalEndpoints
             if (command is null)
                 return Problem(StatusCodes.Status400BadRequest, "invalid_erasure_command");
 
+            // Ele geçirilmiş bir çağıran, silme istememiş birinin verisini sildiremesin:
+            // core kişiyi önce engeller, Forms engeli kendisi okur. Engel okunamıyorsa iş yapılmaz.
+            if (gate.Mode == AccountAccessGateMode.Off)
+            {
+                logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel kapısı kapalı", command.RequestId);
+                context.Response.Headers.RetryAfter = "300";
+                return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
+            }
+
+            var decision = await gate.CheckSubjectAsync(command.SubjectId.ToString(), ct);
+            if (decision == AccountAccessDecision.Allowed)
+            {
+                logger.LogWarning("Hesap silme {RequestId} yapılmadı: kişi engelli değil", command.RequestId);
+                return Problem(StatusCodes.Status409Conflict, "subject_not_blocked");
+            }
+
+            if (decision == AccountAccessDecision.Unavailable)
+            {
+                logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel okunamadı", command.RequestId);
+                context.Response.Headers.RetryAfter = "30";
+                return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
+            }
+
             try
             {
-                var receipt = await service.FindReceiptAsync(command.RequestId, ct);
-                if (receipt is null)
-                {
-                    // Ele geçirilmiş bir çağıran, silme istememiş birinin verisini sildiremesin:
-                    // core kişiyi önce engeller, Forms engeli kendisi okur. Engel okunamıyorsa iş yapılmaz.
-                    if (gate.Mode == AccountAccessGateMode.Off)
-                    {
-                        logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel kapısı kapalı", command.RequestId);
-                        context.Response.Headers.RetryAfter = "300";
-                        return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
-                    }
-
-                    var decision = await gate.CheckSubjectAsync(command.SubjectId.ToString(), ct);
-                    if (decision == AccountAccessDecision.Allowed)
-                    {
-                        logger.LogWarning("Hesap silme {RequestId} yapılmadı: kişi engelli değil", command.RequestId);
-                        return Problem(StatusCodes.Status409Conflict, "subject_not_blocked");
-                    }
-
-                    if (decision == AccountAccessDecision.Unavailable)
-                    {
-                        logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel okunamadı", command.RequestId);
-                        context.Response.Headers.RetryAfter = "30";
-                        return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
-                    }
-
-                    // İş isteğin iptaline (ct) bağlı değil, 90 sn'lik bütçeye bağlı: core 15 sn'de
-                    // vazgeçse de iş commit edilir ve core'un sonraki denemesi kayıtlı 200'ü alır.
-                    using var timeout = new CancellationTokenSource(ErasureTimeout);
-                    receipt = await service.EraseAsync(command, timeout.Token);
-                    logger.LogInformation("Hesap silme {RequestId} tamamlandı: {Counts}", command.RequestId, receipt.Counts);
-                }
+                // İş isteğin iptaline (ct) bağlı değil, 90 sn'lik bütçeye bağlı: core 15 sn'de vazgeçse de
+                // iş commit edilir; core'un sonraki denemesi 200 ve 0 sayılar alır (sözleşme §9).
+                using var timeout = new CancellationTokenSource(ErasureTimeout);
+                var counts = await service.EraseAsync(command, timeout.Token);
+                logger.LogInformation("Hesap silme {RequestId} tamamlandı: {Counts}", command.RequestId, counts);
 
                 return Results.Json(new
                 {
-                    request_id = receipt.RequestId,
+                    request_id = command.RequestId,
                     status = "completed",
-                    completed_at = receipt.CompletedAt,
-                    counts = JsonSerializer.Deserialize<Dictionary<string, long>>(receipt.Counts)
+                    completed_at = DateTime.UtcNow,
+                    counts
                 });
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)

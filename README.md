@@ -127,17 +127,17 @@ Caller `core-erasure`, role `skyforms:account:erase`.
 
 - The person must be blocked in the account access Redis: otherwise `409 subject_not_blocked`;
   unreadable `503`; `ACCOUNT_ACCESS_GATE_MODE=off` → `503` (`Retry-After: 300`).
-- The work and a receipt (`account_erasure_receipts`: request id, time, counts) commit in one
-  transaction; a repeat returns the stored `200`. The work runs on a server-side 90-second
-  budget, not on the request.
+- The work commits in one transaction. It is idempotent, so there is no receipt or lock (core's
+  contract §9): a repeat answers `200` with zero counts. The work runs on a server-side
+  90-second budget, not on the request.
 - Logs carry the request id, a fixed code and the counts, never the subject, an address or a name.
 
 `Silinmiş kullanıcı` is `00000000-0000-4000-8000-000000000000`. The person's responses move to
 it with their answers and review note emptied; a guest response whose event identity e-mail
 equals one of their addresses is emptied (an address in any other field, e.g. a teammate's
 e-mail, is only cleared by the mention rule below); reviewer/archiver/owner columns move to it
-(each form keeps its single owner); other collaborator rows, timed attempts, drafts and share links they created
-are deleted; active workflow runs are terminated. Other people's answers and notes that
+(each form keeps its single owner); other collaborator rows, timed attempts and drafts are deleted (share links expire
+within an hour and are left to expire); active workflow runs are terminated. Other people's answers and notes that
 mention one of the addresses (on address boundaries) or the full name the person gave on
 event forms (Turkish letters folded, whitespace collapsed, never a single word) are emptied.
 Deleted forms and archived templates are included.
