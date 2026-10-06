@@ -12,6 +12,7 @@ using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
 using Skylab.Forms.Infrastructure.Exports;
 using Skylab.Forms.Infrastructure.Mail;
+using Skylab.Forms.Infrastructure.ResponseNotifications;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
 using StackExchange.Redis;
@@ -76,6 +77,13 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
             client.Timeout = TimeSpan.FromSeconds(10);
         }).AddHttpMessageHandler<ServiceTokenHandler>();
+
+        services.AddHttpClient(ResponseNotificationWorker.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
+        services.AddHostedService<ResponseNotificationWorker>();
 
         services.Configure<ShortLinkOptions>(configuration.GetSection(ShortLinkOptions.SectionName));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<ShortLinkOptions>>().Value);

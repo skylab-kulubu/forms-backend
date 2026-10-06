@@ -114,6 +114,7 @@ Dynamic form creation and response management service.
 - Response and component-group sharing tokens
 - XLSX response export
 - Mail notifications and pending-response reminders
+- Response notifications to core: each new response and each status change is queued in `ResponseNotifications` in the same transaction and posted to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. Undelivered notifications are retried with backoff for seven days
 
 **Database Models:**
 
@@ -129,6 +130,7 @@ Dynamic form creation and response management service.
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on |
 | `WorkflowSteps` | Each position in a run, with its response and the route chosen out of it |
+| `ResponseNotifications` | Response notifications waiting for core; a row is deleted once core accepts it |
 
 ## Form Workflows
 
@@ -390,7 +392,7 @@ Component groups currently have neither a parent lifecycle dependency nor a uniq
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
 - **Current user:** The user ID and realm/client roles come from the validated token. Client roles are read from `forms` and the legacy `dotnet` client.
 - **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
-- **Service authentication:** SkyMail calls use a Keycloak client-credentials token.
+- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. Response notifications need the `ticket:forms` role of core's `core` client on that service account.
 - **Authorization:** Role-based rules are enforced in the Application services:
   - **Owner** - Full control and collaborator management
   - **Editor** - Edit forms and manage responses
@@ -462,9 +464,9 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`) | No, defaults to `http://core:8080` |
 | `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
 | `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
-| `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core user lookup |
-| `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core user lookup |
-| `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core user lookup |
+| `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core calls |
+| `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core calls |
+| `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core calls |
 | `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | Optional |
 | `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template | Optional |
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
