@@ -40,6 +40,10 @@ public sealed class FormResponseRepository : IFormResponseRepository
         _context.Responses.AsNoTracking()
             .AnyAsync(r => r.FormId == formId && r.UserId == userId && !r.IsArchived && r.Status != FormResponseStatus.Provisional, ct);
 
+    public Task<bool> HasGuestResponseBeforeAsync(Guid formId, string email, DateTime submittedAt, CancellationToken ct = default) =>
+        _context.Responses.AsNoTracking()
+            .AnyAsync(r => r.FormId == formId && r.Guest!.Email == email && r.SubmittedAt < submittedAt, ct);
+
     public Task<FormResponse?> GetByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
             .Include(r => r.Form)

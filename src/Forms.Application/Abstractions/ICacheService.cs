@@ -10,4 +10,7 @@ public interface ICacheService
 
     Task<bool> AcquireLockAsync(string key, TimeSpan ttl, CancellationToken ct = default);
     Task ReleaseLockAsync(string key, CancellationToken ct = default);
+
+    /// <summary>Sayacı artırır; ilk artış <paramref name="window"/> süren bir pencere açar, pencere bitince sayaç sıfırdan başlar.</summary>
+    Task<long> IncrementAsync(string key, TimeSpan window, CancellationToken ct = default);
 }

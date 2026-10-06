@@ -487,7 +487,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core user lookup |
 | `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core user lookup |
 | `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core user lookup |
-| `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template | Optional |
+| `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | Optional |
 | `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template | Optional |
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
 | `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID` | Timed task updates: reminder, extension, expiry, accept, close. The team's remind action is refused while it is empty | Optional |

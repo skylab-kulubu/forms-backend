@@ -10,6 +10,7 @@ public interface IFormResponseRepository
     Task<FormResponse?> GetLatestForUserAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<FormResponseCounts> GetCountsAsync(Guid formId, CancellationToken ct = default);
     Task<bool> HasNonArchivedResponseAsync(Guid formId, Guid userId, CancellationToken ct = default);
+    Task<bool> HasGuestResponseBeforeAsync(Guid formId, string email, DateTime submittedAt, CancellationToken ct = default);
 
     Task<FormResponse?> GetByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
     Task<FormResponse?> GetForEditByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
