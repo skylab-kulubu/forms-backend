@@ -72,19 +72,9 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 ## Account access gate
 
-Forms can enforce the shared, permanent account-blocking denylist after JwtBearer has
-validated a credential and before any endpoint runs. Anonymous requests do not query
-the gate, so public form display, metadata/share views, and anonymous response
-submission keep working. Supplying a valid credential makes even those optional-auth
-routes subject to the gate.
+Forms reads the permanent denylist of blocked accounts that core writes (core's `docs/account-access-gate.md`). In `enforce` mode every request carrying a validated token is checked before the endpoint runs; anonymous requests are never checked. The gate opens its own connection to the dedicated access Redis, never to the form cache.
 
-The gate uses its own named StackExchange.Redis connection
-(`account-access-gate`). It must point at the dedicated persistent/no-eviction access
-Redis deployment; it must never point at `Redis__ConnectionString`, the form/draft
-cache, or merely another logical database on that cache process.
-
-`ACCOUNT_ACCESS_GATE_MODE` is required and accepts only `off` or `enforce`. `enforce`
-also requires all of the following values:
+`ACCOUNT_ACCESS_GATE_MODE` accepts `off` or `enforce`; `enforce` requires:
 
 | Variable | Meaning |
 |---|---|
@@ -99,18 +89,9 @@ also requires all of the following values:
 | `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
 | `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
 
-The three mTLS files are mandatory whenever TLS is enabled. Mount them read-only
-(for example under `/run/secrets/account-access`) and never place private-key PEM
-contents in an environment variable.
+The mTLS files are required when TLS is on; mount them read-only and never put key contents in an environment variable.
 
-Authenticated blocked subjects receive a generic `401`. A missing/wrong contract,
-malformed marker, timeout, or Redis failure returns `503` with `Cache-Control:
-no-store` and `Retry-After`, without invoking the endpoint. Logs contain only the
-decision and request correlation id, never a subject or digest.
-
-- `GET /health/live` is process-only and never queries Redis.
-- `GET /health/ready` validates the exact access-gate contract through the gate
-  connection and reports non-ready on mismatch or outage.
+A blocked subject gets `401`. A missing contract, malformed marker, timeout, or Redis failure gets `503` with `Retry-After`, without reaching the endpoint. `GET /health/live` never touches Redis; `GET /health/ready` reports `503` until the gate contract reads back.
 
 ## Forms Capabilities
 
