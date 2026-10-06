@@ -133,9 +133,10 @@ Caller `core-erasure`, role `skyforms:account:erase`.
 - Logs carry the request id, a fixed code and the counts, never the subject, an address or a name.
 
 `Silinmiş kullanıcı` is `00000000-0000-4000-8000-000000000000`. The person's responses move to
-it with their answers and review note emptied; guest responses whose answer equals one of
-their addresses are emptied; reviewer/archiver/owner columns move to it (each form keeps its
-single owner); other collaborator rows, timed attempts, drafts and share links they created
+it with their answers and review note emptied; a guest response whose event identity e-mail
+equals one of their addresses is emptied (an address in any other field, e.g. a teammate's
+e-mail, is only cleared by the mention rule below); reviewer/archiver/owner columns move to it
+(each form keeps its single owner); other collaborator rows, timed attempts, drafts and share links they created
 are deleted; active workflow runs are terminated. Other people's answers and notes that
 mention one of the addresses (on address boundaries) or the full name the person gave on
 event forms (Turkish letters folded, whitespace collapsed, never a single word) are emptied.

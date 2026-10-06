@@ -55,6 +55,10 @@ public class ExternalUserService : IExternalUserService
         return users;
     }
 
+    /// <summary>
+    /// Core silinen ya da silinmesi süren kişiyi status deleted|deletion_pending ve boş adresle
+    /// döner; etkin olmayan her kişi adressiz "Silinmiş kullanıcı" olur, ona posta gitmez.
+    /// </summary>
     private static UserContract MapToContract(ExternalUserResponse user)
     {
         if (user.Status is not null && user.Status != "active")

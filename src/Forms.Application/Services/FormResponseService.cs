@@ -22,8 +22,6 @@ namespace Skylab.Forms.Application.Services;
 public class FormResponseService : IFormResponseService
 {
     private static readonly TimeSpan ShareTokenLifetime = TimeSpan.FromHours(1);
-    private const string TokenKeyPrefix = FormCacheKeys.ResponseShareTokenPrefix;
-    private const string ResponseKeyPrefix = FormCacheKeys.ResponseShareResponsePrefix;
 
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
@@ -74,12 +72,6 @@ public class FormResponseService : IFormResponseService
         _guestApply = guestApply;
         _events = events;
     }
-
-    /// <param name="InstanceResponseIds">
-    /// Paylasim, cevabin ait oldugu basvurunun butun adimlarini kapsar: inceleyen
-    /// baslangictan itibaren tum cevaplari gorebilsin.
-    /// </param>
-    private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
     public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
     {
@@ -296,7 +288,7 @@ public class FormResponseService : IFormResponseService
             if (string.IsNullOrEmpty(token))
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı görüntüleme yetkiniz yok.");
 
-            shareEntry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+            shareEntry = await _cache.GetAsync<ShareCacheEntry>(FormCacheKeys.ResponseShareToken(token), ct: cancellationToken);
             if (shareEntry == null || (shareEntry.ResponseId != responseId && !shareEntry.InstanceResponseIds.Contains(responseId)))
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Paylaşım bağlantısı geçersiz veya süresi dolmuş.");
         }
@@ -574,17 +566,17 @@ public class FormResponseService : IFormResponseService
             .Select(step => step.ResponseId!.Value)
             .ToList();
 
-        var existingToken = await _cache.GetAsync<string>(ResponseKeyPrefix + responseId, ct: cancellationToken);
+        var existingToken = await _cache.GetAsync<string>(FormCacheKeys.ResponseShareResponse(responseId), ct: cancellationToken);
         var token = existingToken ?? GenerateToken();
 
         var entry = new ShareCacheEntry(responseId, relatedResponseIds, userId);
         var expiresAt = DateTime.UtcNow.Add(ShareTokenLifetime);
 
-        await _cache.SetAsync(TokenKeyPrefix + token, entry, ShareTokenLifetime, cancellationToken);
-        await _cache.SetAsync(ResponseKeyPrefix + responseId, token, ShareTokenLifetime, cancellationToken);
+        await _cache.SetAsync(FormCacheKeys.ResponseShareToken(token), entry, ShareTokenLifetime, cancellationToken);
+        await _cache.SetAsync(FormCacheKeys.ResponseShareResponse(responseId), token, ShareTokenLifetime, cancellationToken);
 
         foreach (var relatedId in relatedResponseIds)
-            await _cache.SetAsync(ResponseKeyPrefix + relatedId, token, ShareTokenLifetime, cancellationToken);
+            await _cache.SetAsync(FormCacheKeys.ResponseShareResponse(relatedId), token, ShareTokenLifetime, cancellationToken);
 
         return new ServiceResult<ShareTokenContract>(ServiceStatus.Success, Data: new ShareTokenContract(token, expiresAt));
     }
@@ -600,17 +592,17 @@ public class FormResponseService : IFormResponseService
         if (!isCollaborator)
             return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu yanıtın paylaşımını iptal etme yetkiniz yok.");
 
-        var token = await _cache.GetAsync<string>(ResponseKeyPrefix + responseId, ct: cancellationToken);
+        var token = await _cache.GetAsync<string>(FormCacheKeys.ResponseShareResponse(responseId), ct: cancellationToken);
         if (string.IsNullOrEmpty(token))
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Aktif paylaşım yok.");
 
-        var entry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+        var entry = await _cache.GetAsync<ShareCacheEntry>(FormCacheKeys.ResponseShareToken(token), ct: cancellationToken);
 
-        await _cache.RemoveAsync(TokenKeyPrefix + token, cancellationToken);
-        await _cache.RemoveAsync(ResponseKeyPrefix + (entry?.ResponseId ?? responseId), cancellationToken);
+        await _cache.RemoveAsync(FormCacheKeys.ResponseShareToken(token), cancellationToken);
+        await _cache.RemoveAsync(FormCacheKeys.ResponseShareResponse(entry?.ResponseId ?? responseId), cancellationToken);
 
         foreach (var relatedId in entry?.InstanceResponseIds ?? [])
-            await _cache.RemoveAsync(ResponseKeyPrefix + relatedId, cancellationToken);
+            await _cache.RemoveAsync(FormCacheKeys.ResponseShareResponse(relatedId), cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Paylaşım iptal edildi.");
     }
@@ -620,7 +612,7 @@ public class FormResponseService : IFormResponseService
         if (string.IsNullOrEmpty(token))
             return new ServiceResult<ResponseMetaContract>(ServiceStatus.NotFound);
 
-        var entry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+        var entry = await _cache.GetAsync<ShareCacheEntry>(FormCacheKeys.ResponseShareToken(token), ct: cancellationToken);
         if (entry == null || (entry.ResponseId != responseId && !entry.InstanceResponseIds.Contains(responseId)))
             return new ServiceResult<ResponseMetaContract>(ServiceStatus.NotFound);
 

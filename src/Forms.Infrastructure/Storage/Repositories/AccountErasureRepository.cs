@@ -1,116 +1,131 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Skylab.Forms.Application;
 using Skylab.Forms.Application.Abstractions.Storage;
-using Skylab.Forms.Application.Contracts.AccountErasure;
-using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
-public sealed class AccountErasureRepository(FormsDbContext context) : IAccountErasureRepository
+public sealed class AccountErasureRepository : IAccountErasureRepository
 {
+    // İ/I/ı lower()'dan önce eşlenir, sonuç veritabanının yerel ayarına bağlı kalmaz.
+    // SQL'deki translate ile NormalizeName aynı kuraldır; ikisi birlikte değişir.
     private const string TurkishFrom = "İIıŞĞÇÖÜÂÎÛşğçöüâîû";
     private const string TurkishTo = "iiisgcouaiusgcouaiu";
 
+    private readonly FormsDbContext _context;
+
+    public AccountErasureRepository(FormsDbContext context)
+    {
+        _context = context;
+    }
+
     public Task<AccountErasureReceipt?> FindReceiptAsync(Guid requestId, CancellationToken ct = default) =>
-        context.AccountErasureReceipts.AsNoTracking().FirstOrDefaultAsync(r => r.RequestId == requestId, ct);
+        _context.AccountErasureReceipts.AsNoTracking().FirstOrDefaultAsync(r => r.RequestId == requestId, ct);
 
     public async Task LockAsync(Guid requestId, CancellationToken ct = default) =>
-        await context.Database.ExecuteSqlAsync(
+        await _context.Database.ExecuteSqlAsync(
             $"SELECT pg_advisory_xact_lock(hashtextextended({"forms:account-erasure:" + requestId}, 0))", ct);
 
-    public async Task AddReceiptAsync(AccountErasureReceipt receipt, CancellationToken ct = default) =>
-        await context.Database.ExecuteSqlAsync($"""
-            INSERT INTO account_erasure_receipts (request_id, completed_at, counts)
-            VALUES ({receipt.RequestId}, {receipt.CompletedAt}, {receipt.Counts}::jsonb)
-            """, ct);
-
-    public async Task<Dictionary<string, long>> EraseAsync(AccountErasureCommand command, CancellationToken ct = default)
-    {
-        Guid? subject = command.SubjectId;
-        Guid? deleted = DeletedUser.Id;
-        var now = DateTime.UtcNow;
-        var counts = new Dictionary<string, long>();
-
-        var guestIds = command.Emails.Count == 0 ? [] : await context.Database.SqlQueryRaw<Guid>("""
+    public Task<List<Guid>> FindGuestResponseCandidatesAsync(IReadOnlyList<string> emails, CancellationToken ct = default) =>
+        _context.Database.SqlQueryRaw<Guid>("""
             SELECT r."Id" AS "Value" FROM "Responses" r
             WHERE r."UserId" IS NULL AND EXISTS (
                 SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r."Data") = 'array' THEN r."Data" ELSE '[]' END) item
                 WHERE lower(btrim(item ->> 'answer')) = ANY (@emails))
-            """, new NpgsqlParameter("emails", command.Emails.ToArray())).ToListAsync(ct);
+            """, new NpgsqlParameter("emails", emails.ToArray())).ToListAsync(ct);
 
-        var identities = await context.Responses.IgnoreQueryFilters().AsNoTracking()
-            .Where(r => r.UserId == subject || guestIds.Contains(r.Id))
-            .Select(r => new { r.Form.Schema, r.Data })
+    public Task<List<ErasureResponseRow>> GetResponsesAsync(Guid userId, IReadOnlyList<Guid> responseIds, CancellationToken ct = default) =>
+        _context.Responses.IgnoreQueryFilters().AsNoTracking()
+            .Where(r => r.UserId == userId || responseIds.Contains(r.Id))
+            .Select(r => new ErasureResponseRow(r.Id, r.UserId, r.Form.Schema, r.Data))
             .ToListAsync(ct);
-        var names = identities
-            .Select(r => EventIdentity.Extract(r.Schema, r.Data))
-            .Where(identity => identity is not null)
-            .Select(identity => NormalizeName($"{identity!.FirstName} {identity.LastName}"))
-            .Where(name => name.Contains(' '))
-            .Distinct()
-            .ToArray();
-        var patterns = command.Emails.Select(EmailPattern).ToArray();
 
-        var responses = context.Responses.IgnoreQueryFilters();
-        counts["responses_redacted"] = await responses.Where(r => r.UserId == subject).ExecuteUpdateAsync(s => s
-            .SetProperty(r => r.UserId, deleted)
-            .SetProperty(r => r.Data, new List<FormResponseSchemaItem>())
-            .SetProperty(r => r.ReviewNote, (string?)null), ct);
-        counts["guest_responses_redacted"] = await responses.Where(r => guestIds.Contains(r.Id)).ExecuteUpdateAsync(s => s
+    public Task<int> RedactResponsesAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default) =>
+        _context.Responses.IgnoreQueryFilters().Where(r => r.UserId == userId).ExecuteUpdateAsync(s => s
+            .SetProperty(r => r.UserId, (Guid?)replacementUserId)
             .SetProperty(r => r.Data, new List<FormResponseSchemaItem>())
             .SetProperty(r => r.ReviewNote, (string?)null), ct);
 
-        counts["attempts_deleted"] = await context.Attempts.IgnoreQueryFilters()
-            .Where(a => a.UserId == command.SubjectId).ExecuteDeleteAsync(ct);
+    public Task<int> RedactGuestResponsesAsync(IReadOnlyList<Guid> responseIds, CancellationToken ct = default) =>
+        _context.Responses.IgnoreQueryFilters().Where(r => responseIds.Contains(r.Id)).ExecuteUpdateAsync(s => s
+            .SetProperty(r => r.Data, new List<FormResponseSchemaItem>())
+            .SetProperty(r => r.ReviewNote, (string?)null), ct);
 
-        counts["answers_cleared"] = 0;
-        counts["review_notes_cleared"] = 0;
-        if (patterns.Length > 0 || names.Length > 0)
-        {
-            object[] Terms() =>
-            [
-                new NpgsqlParameter("patterns", patterns), new NpgsqlParameter("names", names),
-                new NpgsqlParameter("from", TurkishFrom), new NpgsqlParameter("to", TurkishTo)
-            ];
-            foreach (var (table, column) in new[] { ("Responses", "Data"), ("Attempts", "DraftSnapshot") })
-                counts["answers_cleared"] += (await context.Database.SqlQueryRaw<long>(ClearAnswers(table, column), Terms()).ToListAsync(ct)).Single();
-            foreach (var (table, column) in new[] { ("Responses", "ReviewNote"), ("AttemptEvents", "Note") })
-                counts["review_notes_cleared"] += await context.Database.ExecuteSqlRawAsync(ClearNotes(table, column), Terms(), ct);
-        }
+    // Taslak kopyası kişinin cevaplarıdır ve (form, kişi) başına tek deneme olabilir; olayları da gider.
+    public Task<int> DeleteAttemptsAsync(Guid userId, CancellationToken ct = default) =>
+        _context.Attempts.IgnoreQueryFilters().Where(a => a.UserId == userId).ExecuteDeleteAsync(ct);
 
-        counts["actor_columns_replaced"] =
-            await responses.Where(r => r.ReviewedBy == subject).ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedBy, deleted), ct) +
-            await responses.Where(r => r.ArchivedBy == subject).ExecuteUpdateAsync(s => s.SetProperty(r => r.ArchivedBy, deleted), ct) +
-            await context.ComponentGroups.IgnoreQueryFilters().Where(g => g.OwnedBy == command.SubjectId)
-                .ExecuteUpdateAsync(s => s.SetProperty(g => g.OwnedBy, DeletedUser.Id), ct) +
-            await context.ComponentGroups.IgnoreQueryFilters().Where(g => g.ArchivedBy == subject)
-                .ExecuteUpdateAsync(s => s.SetProperty(g => g.ArchivedBy, deleted), ct) +
-            await context.Workflows.IgnoreQueryFilters().Where(w => w.OwnerUserId == command.SubjectId)
-                .ExecuteUpdateAsync(s => s.SetProperty(w => w.OwnerUserId, DeletedUser.Id), ct) +
-            await context.AttemptEvents.IgnoreQueryFilters().Where(e => e.ActorUserId == subject)
-                .ExecuteUpdateAsync(s => s.SetProperty(e => e.ActorUserId, deleted), ct);
+    public async Task<int> ClearAnswerMentionsAsync(IReadOnlyList<string> emails, IReadOnlyList<string> fullNames, CancellationToken ct = default) =>
+        await _context.Database.ExecuteSqlRawAsync(ClearAnswers("Responses", "Data"), MentionParameters(emails, fullNames), ct) +
+        await _context.Database.ExecuteSqlRawAsync(ClearAnswers("Attempts", "DraftSnapshot"), MentionParameters(emails, fullNames), ct);
 
-        var collaborators = context.Collaborators.IgnoreQueryFilters().Where(c => c.UserId == command.SubjectId);
-        counts["collaborators_deleted"] = await collaborators.Where(c => c.Role != CollaboratorRole.Owner).ExecuteDeleteAsync(ct);
-        counts["form_owners_replaced"] = await collaborators.ExecuteUpdateAsync(s => s.SetProperty(c => c.UserId, DeletedUser.Id), ct);
+    public async Task<int> ClearNoteMentionsAsync(IReadOnlyList<string> emails, IReadOnlyList<string> fullNames, CancellationToken ct = default) =>
+        await _context.Database.ExecuteSqlRawAsync(ClearNotes("Responses", "ReviewNote"), MentionParameters(emails, fullNames), ct) +
+        await _context.Database.ExecuteSqlRawAsync(ClearNotes("AttemptEvents", "Note"), MentionParameters(emails, fullNames), ct);
 
-        var runs = context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.UserId == command.SubjectId);
-        await context.WorkflowSteps.IgnoreQueryFilters()
-            .Where(s => s.CompletedAt == null && s.WorkflowInstance.UserId == command.SubjectId && s.WorkflowInstance.Status == WorkflowInstanceStatus.Active)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CompletedAt, now).SetProperty(x => x.UpdatedAt, now), ct);
-        counts["workflow_runs_cancelled"] = await runs.Where(i => i.Status == WorkflowInstanceStatus.Active).ExecuteUpdateAsync(s => s
-            .SetProperty(i => i.Status, WorkflowInstanceStatus.Terminated)
-            .SetProperty(i => i.CompletedAt, now)
-            .SetProperty(i => i.UpdatedAt, now), ct);
-        counts["workflow_runs_detached"] = await runs.ExecuteUpdateAsync(s => s.SetProperty(i => i.UserId, DeletedUser.Id), ct);
+    public async Task<int> ReplaceActorColumnsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default)
+    {
+        var responses = _context.Responses.IgnoreQueryFilters();
+        var groups = _context.ComponentGroups.IgnoreQueryFilters();
 
-        return counts;
+        return await responses.Where(r => r.ReviewedBy == userId).ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedBy, (Guid?)replacementUserId), ct) +
+               await responses.Where(r => r.ArchivedBy == userId).ExecuteUpdateAsync(s => s.SetProperty(r => r.ArchivedBy, (Guid?)replacementUserId), ct) +
+               await groups.Where(g => g.OwnedBy == userId).ExecuteUpdateAsync(s => s.SetProperty(g => g.OwnedBy, replacementUserId), ct) +
+               await groups.Where(g => g.ArchivedBy == userId).ExecuteUpdateAsync(s => s.SetProperty(g => g.ArchivedBy, (Guid?)replacementUserId), ct) +
+               await _context.Workflows.IgnoreQueryFilters().Where(w => w.OwnerUserId == userId)
+                   .ExecuteUpdateAsync(s => s.SetProperty(w => w.OwnerUserId, replacementUserId), ct) +
+               await _context.AttemptEvents.IgnoreQueryFilters().Where(e => e.ActorUserId == userId)
+                   .ExecuteUpdateAsync(s => s.SetProperty(e => e.ActorUserId, (Guid?)replacementUserId), ct);
     }
 
+    public Task<int> RemoveCollaboratorsAsync(Guid userId, CancellationToken ct = default) =>
+        _context.Collaborators.IgnoreQueryFilters()
+            .Where(c => c.UserId == userId && c.Role != CollaboratorRole.Owner)
+            .ExecuteDeleteAsync(ct);
+
+    public Task<int> ReplaceOwnersAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default) =>
+        _context.Collaborators.IgnoreQueryFilters()
+            .Where(c => c.UserId == userId && c.Role == CollaboratorRole.Owner)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.UserId, replacementUserId), ct);
+
+    /// <summary>
+    /// Kişinin aktif koşularını Terminated yapar ve açık adımlarını kapatır. FormWorkflowRuntime'ın
+    /// koşuyu sonlandırırken değiştirdiği alanlar (koşuda Status, CompletedAt; adımda CompletedAt)
+    /// burada da değişir; runtime'daki kural değişirse bu metot da değişmeli. Outcome None kalır:
+    /// koşu onaylanmadı ya da reddedilmedi, kişi silindi.
+    /// </summary>
+    public async Task<int> CloseWorkflowRunsAsync(Guid userId, DateTime now, CancellationToken ct = default)
+    {
+        await _context.WorkflowSteps.IgnoreQueryFilters()
+            .Where(s => s.CompletedAt == null && s.WorkflowInstance.UserId == userId && s.WorkflowInstance.Status == WorkflowInstanceStatus.Active)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CompletedAt, now).SetProperty(x => x.UpdatedAt, now), ct);
+
+        return await _context.WorkflowInstances.IgnoreQueryFilters()
+            .Where(i => i.UserId == userId && i.Status == WorkflowInstanceStatus.Active)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(i => i.Status, WorkflowInstanceStatus.Terminated)
+                .SetProperty(i => i.CompletedAt, now)
+                .SetProperty(i => i.UpdatedAt, now), ct);
+    }
+
+    public Task<int> DetachWorkflowRunsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default) =>
+        _context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.UserId, replacementUserId), ct);
+
+    public void Add(AccountErasureReceipt receipt) => _context.AccountErasureReceipts.Add(receipt);
+
+    private static object[] MentionParameters(IReadOnlyList<string> emails, IReadOnlyList<string> fullNames) =>
+    [
+        new NpgsqlParameter("patterns", emails.Select(EmailPattern).ToArray()),
+        // Tek kelime aranmaz: yalnız ad ve soyadı birlikte olan tam ad.
+        new NpgsqlParameter("names", fullNames.Select(NormalizeName).Where(name => name.Contains(' ')).Distinct().ToArray()),
+        new NpgsqlParameter("from", TurkishFrom),
+        new NpgsqlParameter("to", TurkishTo)
+    ];
+
+    /// <summary>Metin bir adresi (adres sınırlarıyla) ya da düzleştirilmiş tam adı içeriyor mu.</summary>
     private static string Mentions(string text) => $"""
         ({text} IS NOT NULL AND (
             EXISTS (SELECT 1 FROM unnest(@patterns) p WHERE lower({text}) ~ p)
@@ -121,24 +136,21 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
     private static string ClearNotes(string table, string column) =>
         $"""UPDATE "{table}" SET "{column}" = NULL WHERE {Mentions($"\"{column}\"")}""";
 
+    /// <summary>jsonb cevap dizisinde kişiyi anan cevapları "" yapar; değişen satır sayısını döner.</summary>
     private static string ClearAnswers(string table, string column) => $$"""
-        WITH hit AS (
-            SELECT t."Id", count(*) AS answers
-            FROM "{{table}}" t
-            CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(t."{{column}}") = 'array' THEN t."{{column}}" ELSE '[]' END) item
-            WHERE jsonb_typeof(item -> 'answer') = 'string' AND {{Mentions("item ->> 'answer'")}}
-            GROUP BY t."Id"
-        ), cleared AS (
-            UPDATE "{{table}}" t SET "{{column}}" = (
-                SELECT jsonb_agg(CASE WHEN jsonb_typeof(e.item -> 'answer') = 'string' AND {{Mentions("e.item ->> 'answer'")}}
-                                      THEN jsonb_set(e.item, ARRAY['answer'], '""') ELSE e.item END ORDER BY e.position)
-                FROM jsonb_array_elements(t."{{column}}") WITH ORDINALITY AS e(item, position))
-            FROM hit WHERE t."Id" = hit."Id"
-            RETURNING hit.answers
-        )
-        SELECT coalesce(sum(answers), 0)::bigint AS "Value" FROM cleared
+        UPDATE "{{table}}" t SET "{{column}}" = (
+            SELECT jsonb_agg(CASE WHEN jsonb_typeof(e.item -> 'answer') = 'string' AND {{Mentions("e.item ->> 'answer'")}}
+                                  THEN jsonb_set(e.item, ARRAY['answer'], '""') ELSE e.item END ORDER BY e.position)
+            FROM jsonb_array_elements(t."{{column}}") WITH ORDINALITY AS e(item, position))
+        WHERE EXISTS (
+            SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(t."{{column}}") = 'array' THEN t."{{column}}" ELSE '[]' END) item
+            WHERE jsonb_typeof(item -> 'answer') = 'string' AND {{Mentions("item ->> 'answer'")}})
         """;
 
+    /// <summary>
+    /// Adresin kendisi; önünde ya da arkasında adres karakteri olmamalı. Örnek: ali@x.com,
+    /// "vali@x.com" ve "ali@x.com.tr" içinde bulunmaz; "&lt;ali@x.com&gt;" içinde ve cümle sonunda bulunur.
+    /// </summary>
     internal static string EmailPattern(string email) =>
         "(?<![[:alnum:]._%+'-])" +
         string.Concat(email.Select(c => char.IsLetterOrDigit(c) ? c.ToString() : "\\" + c)) +
@@ -146,7 +158,13 @@ public sealed class AccountErasureRepository(FormsDbContext context) : IAccountE
 
     internal static string NormalizeName(string name)
     {
-        var mapped = new string(name.Select(c => TurkishFrom.IndexOf(c) is var i and >= 0 ? TurkishTo[i] : c).ToArray());
-        return string.Join(' ', mapped.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var mapped = new string(name.Select(c =>
+        {
+            var index = TurkishFrom.IndexOf(c);
+            return index >= 0 ? TurkishTo[index] : c;
+        }).ToArray());
+
+        var words = mapped.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', words);
     }
 }
