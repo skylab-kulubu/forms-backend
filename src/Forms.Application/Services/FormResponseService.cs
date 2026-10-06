@@ -94,7 +94,7 @@ public class FormResponseService : IFormResponseService
         if (!form.AllowAnonymousResponses && userId == null && form.EventId is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
 
         var guestTicket = await WriteGuestTicketAsync(form, contract.Responses, cancellationToken);
-        if (guestTicket is not null) return guestTicket;
+        if (guestTicket.Rejection is not null) return guestTicket.Rejection;
 
         Guid? attemptId = null;
 
@@ -125,7 +125,7 @@ public class FormResponseService : IFormResponseService
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, userId is null ? guestTicket.Guest : null);
 
         _responses.Add(response);
         await _uow.SaveChangesAsync(cancellationToken);
@@ -142,7 +142,7 @@ public class FormResponseService : IFormResponseService
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
     }
 
-    private async Task<ServiceResult<ResponseSubmitResult>?> WriteGuestTicketAsync(
+    private async Task<GuestTicket> WriteGuestTicketAsync(
         Form form,
         List<FormResponseSchemaItem> answers,
         CancellationToken cancellationToken)
@@ -226,7 +226,8 @@ public class FormResponseService : IFormResponseService
             return new ResponseSummaryContract(
                 r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt,
                 r.TimeSpent,
-                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null);
+                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null,
+                r.Guest);
         }).ToList();
 
         var resultData = new PagedResult<ResponseSummaryContract>(
@@ -483,7 +484,7 @@ public class FormResponseService : IFormResponseService
         return _excelService.GenerateExcel(exportRequest);
     }
 
-    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution)
+    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, EventGuestIdentity? guest = null)
     {
         var responseData = new List<FormResponseSchemaItem>();
 
@@ -511,7 +512,8 @@ public class FormResponseService : IFormResponseService
             TimeSpent = timeSpent,
             Status = form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict,
             SubmittedAt = DateTime.UtcNow,
-            Attribution = AttributionNormalizer.Normalize(attribution)
+            Attribution = AttributionNormalizer.Normalize(attribution),
+            Guest = guest is null ? null : new ResponseGuest { FirstName = guest.FirstName, LastName = guest.LastName, Email = guest.Email.ToLowerInvariant() }
         };
     }
 
@@ -533,7 +535,8 @@ public class FormResponseService : IFormResponseService
             response.ReviewedAt,
             response.ArchivedAt,
             sharedByUser,
-            response.Attribution
+            response.Attribution,
+            Guest: response.Guest
         );
     }
 

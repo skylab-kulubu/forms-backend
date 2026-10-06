@@ -139,7 +139,7 @@ Dynamic form creation and response management service.
 | Table | Description |
 |-------|-------------|
 | `Forms` | Form definitions, JSONB schema, status, and response settings |
-| `Responses` | User responses, review information, archive state, and timing |
+| `Responses` | User responses, the name and email a guest typed on an event form, review information, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
 | `Workflows` | Workflow header: name, owner, repeat-run setting, and intake |

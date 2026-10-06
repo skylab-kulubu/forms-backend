@@ -1,6 +1,7 @@
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Abstractions.Storage;
 
@@ -38,7 +39,8 @@ public sealed record ResponseRowProjection(
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
     int? TimeSpent,
-    ResponseAttemptProjection? Attempt
+    ResponseAttemptProjection? Attempt,
+    ResponseGuest? Guest = null
 );
 
 public sealed record ResponseAttemptProjection(

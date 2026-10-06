@@ -6,9 +6,17 @@ using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application;
 
+/// <param name="Guest">Bilete yazılan kimlik; form bir etkinliğe bağlı değilse null.</param>
+public sealed record GuestTicket(EventGuestIdentity? Guest, ServiceResult<ResponseSubmitResult>? Rejection)
+{
+    public static readonly GuestTicket None = new(null, null);
+    public static GuestTicket Written(EventGuestIdentity guest) => new(guest, null);
+    public static GuestTicket Reject(ServiceResult<ResponseSubmitResult> rejection) => new(null, rejection);
+}
+
 public static class GuestTicketWriter
 {
-    public static async Task<ServiceResult<ResponseSubmitResult>?> WriteAsync(
+    public static async Task<GuestTicket> WriteAsync(
         Form form,
         IReadOnlyList<FormResponseSchemaItem> answers,
         ICoreEventLookup events,
@@ -18,16 +26,16 @@ public static class GuestTicketWriter
         var eventId = form.EventId;
         if (eventId is null)
             eventId = (await events.FindByFormIdAsync(form.Id, cancellationToken))?.Id;
-        if (eventId is not Guid id) return null;
+        if (eventId is not Guid id) return GuestTicket.None;
         form.EventId = id;
 
         var identity = EventIdentity.Extract(form.Schema, answers);
         if (identity is null)
-            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
+            return GuestTicket.Reject(new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur."));
 
         if (!await apply.ApplyAsync(id, identity, cancellationToken))
-            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Başvuru kaydedilemedi.");
+            return GuestTicket.Reject(new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Başvuru kaydedilemedi."));
 
-        return null;
+        return GuestTicket.Written(identity);
     }
 }

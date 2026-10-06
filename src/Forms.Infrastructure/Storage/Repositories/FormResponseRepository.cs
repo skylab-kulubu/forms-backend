@@ -147,7 +147,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
         var responseItems = wantResponses
             ? await (ascending ? responses.OrderBy(r => r.SubmittedAt) : responses.OrderByDescending(r => r.SubmittedAt))
                 .Take(take)
-                .Select(r => new { r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent })
+                .Select(r => new { r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, r.Guest })
                 .ToListAsync(ct)
             : [];
 
@@ -238,7 +238,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 }
 
                 return new ResponseRowProjection(
-                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt);
+                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt, r.Guest);
             }
 
             var a = attemptItems.First(item => item.Id == row.AttemptId);

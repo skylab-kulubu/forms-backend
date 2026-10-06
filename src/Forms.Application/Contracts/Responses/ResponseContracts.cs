@@ -24,7 +24,8 @@ public record ResponseContract(
     UserContract? SharedBy = null,
     ResponseAttribution? Attribution = null,
     FormAttemptDetailContract? Attempt = null,
-    FormTask? Task = null
+    FormTask? Task = null,
+    ResponseGuest? Guest = null
 );
 
 /// <summary>
@@ -84,7 +85,8 @@ public record ResponseSummaryContract(
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
     int? TimeSpent = null,
-    ResponseAttemptSummaryContract? Attempt = null
+    ResponseAttemptSummaryContract? Attempt = null,
+    ResponseGuest? Guest = null
 );
 
 public record ResponseAttemptSummaryContract(
