@@ -28,8 +28,8 @@ var app = builder.Build();
 
 await app.Services.ApplyDatabaseMigrationsAsync();
 
-app.UseFormsJwtAuthentication("AllowFrontend");
 app.UseCors("AllowFrontend");
+app.UseFormsJwtAuthentication();
 app.UseAccountAccessGate();
 app.UseSwagger();
 app.UseSwaggerUI();

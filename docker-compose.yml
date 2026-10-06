@@ -9,8 +9,6 @@ services:
       ALLOWED_ORIGIN: "${ALLOWED_ORIGIN:-http://localhost:5000}"
       Authentication__Issuer: "${AUTH_ISSUER:-https://e.yildizskylab.com/realms/e-skylab}"
       Authentication__Audience: "${AUTH_AUDIENCE:-forms}"
-      Authentication__ClockSkewSeconds: "${AUTH_CLOCK_SKEW_SECONDS:-30}"
-      Authentication__MetadataTimeoutSeconds: "${AUTH_METADATA_TIMEOUT_SECONDS:-5}"
       ACCOUNT_ACCESS_GATE_MODE: "${ACCOUNT_ACCESS_GATE_MODE:-off}"
       ACCOUNT_ACCESS_REDIS_ENDPOINT: "${ACCOUNT_ACCESS_REDIS_ENDPOINT:-}"
       ACCOUNT_ACCESS_REDIS_USERNAME: "${ACCOUNT_ACCESS_REDIS_USERNAME:-}"
