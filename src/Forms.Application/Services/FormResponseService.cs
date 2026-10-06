@@ -75,10 +75,6 @@ public class FormResponseService : IFormResponseService
         _events = events;
     }
 
-    /// <param name="InstanceResponseIds">
-    /// Paylasim, cevabin ait oldugu basvurunun butun adimlarini kapsar: inceleyen
-    /// baslangictan itibaren tum cevaplari gorebilsin.
-    /// </param>
     private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
     public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
@@ -154,10 +150,6 @@ public class FormResponseService : IFormResponseService
         return await GuestTicketWriter.WriteAsync(form, answers, _events, _guestApply, cancellationToken);
     }
 
-    /// <summary>
-    /// Form yayındaki bir akışın parçasıysa cevabı akış motoru kaydeder ve rotayı
-    /// seçer. Akışa ait değilse null döner; tekil form yolu işlemeye devam eder.
-    /// </summary>
     private async Task<ServiceResult<ResponseSubmitResult>?> SubmitThroughWorkflowAsync(
         Form form,
         ResponseSubmitRequest contract,
@@ -172,15 +164,12 @@ public class FormResponseService : IFormResponseService
         if (workflow.Data is not { } outcome)
             return new ServiceResult<ResponseSubmitResult>(workflow.Status, Message: workflow.Message);
 
-        // Reddedilen gönderimde cevap kaydedilmedi; yan etkiler çalışmamalı. Sonuç yine
-        // de döner: istemci "kaldığın yerden devam et" için başlangıç formuna ihtiyaç duyar.
         var rejected = workflow.Status.IsFailure();
 
         if (!rejected) await AfterResponseSavedAsync(form, response, cancellationToken);
 
         var result = new ResponseSubmitResult(
             rejected ? null : response.Id,
-            // Eski istemci sonraki formu bu alandan okuyor.
             LinkedFormId: outcome.IsLegacyTwoStepFlow ? outcome.FormId : null,
             LegacyStep.From(outcome),
             outcome.InstanceId,
@@ -194,7 +183,6 @@ public class FormResponseService : IFormResponseService
         return new ServiceResult<ResponseSubmitResult>(workflow.Status, result, workflow.Message);
     }
 
-    /// <summary>Kayıt sonrası yan etkiler: rota kararı yazılmadan mail gitmemeli.</summary>
     private async Task AfterResponseSavedAsync(Form form, FormResponse response, CancellationToken cancellationToken)
     {
         await _cache.TryRemoveAsync(FormCacheKeys.Analytics(form.Id), cancellationToken);
@@ -343,7 +331,6 @@ public class FormResponseService : IFormResponseService
         if (response.IsArchived)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş yanıtlar üzerinde değişiklik yapılamaz.");
 
-        // Kolon sınırını aşan not kayıtta 22001 ile patlar; istek 500 olur ve durum değişmez.
         if (contract.Note?.Length > FormResponse.ReviewNoteMaxLength)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Açıklama en fazla {FormResponse.ReviewNoteMaxLength} karakter olabilir.");
 
@@ -353,8 +340,6 @@ public class FormResponseService : IFormResponseService
         if (contract.NewStatus == FormResponseStatus.Provisional)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap geçici duruma alınamaz.");
 
-        // Akış içindeki bir cevapta durum ve rota birlikte yazılır; ikisini ayırmak
-        // onaylanmış ama ilerlememiş bir başvuru bırakırdı.
         var workflow = await _workflowRuntime.ReviewAsync(response, contract.NewStatus, reviewerId, contract.Note, cancellationToken);
 
         if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
@@ -396,8 +381,6 @@ public class FormResponseService : IFormResponseService
 
         if (response.Status == FormResponseStatus.Pending)
         {
-            // Arşivleme bekleyen cevabı sessizce reddediyor. Akışa bağlı bir cevapta
-            // bu, rota kararını atlayıp başvuruyu açık adımda kilitlerdi.
             if (await _workflowRuntime.HasPendingRouteAsync(responseId, cancellationToken))
             {
                 return new ServiceResult<bool>(
@@ -488,8 +471,6 @@ public class FormResponseService : IFormResponseService
             foreach (var schemaItem in form.Schema)
             {
                 var answerItem = response.Data.FirstOrDefault(d => d.Id == schemaItem.Id);
-
-                // Çoklu seçim JSON dizisi olarak gelmiş olabilir; hücreye ham JSON düşmesin.
                 row.Add(FormAnswerText.ToDisplayText(answerItem?.Answer));
             }
 
