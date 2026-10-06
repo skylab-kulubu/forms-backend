@@ -19,4 +19,10 @@ public static class CacheServiceExtensions
         try { await cache.RemoveAsync(key, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { }
     }
+
+    public static async Task TryRemoveByPrefixAsync(this ICacheService cache, string prefix, CancellationToken ct = default)
+    {
+        try { await cache.RemoveByPrefixAsync(prefix, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
 }

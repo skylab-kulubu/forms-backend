@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts.Draft;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
@@ -41,7 +42,7 @@ public class FormDraftService : IFormDraftService
                 return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Süre işlemediği için taslak kaydedilmedi.");
         }
 
-        var key = $"forms:draft:response:{formId}:{userId}";
+        var key = FormCacheKeys.ResponseDraft(formId, userId);
 
         if (!HasAnswers(draft.Responses))
         {
@@ -60,7 +61,7 @@ public class FormDraftService : IFormDraftService
         var form = await _forms.GetByIdAsync(formId, ct);
         var stored = new ResponseDraftContract(responses, timeSpent, DateTime.UtcNow, submission);
 
-        await _cache.SetAsync($"forms:draft:response:{formId}:{userId}", stored, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
+        await _cache.SetAsync(FormCacheKeys.ResponseDraft(formId, userId), stored, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
     }
 
     private static TimeSpan DraftTtlFor(Form form)
@@ -72,7 +73,7 @@ public class FormDraftService : IFormDraftService
     }
     public async Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
-        var key = $"forms:draft:response:{formId}:{userId}";
+        var key = FormCacheKeys.ResponseDraft(formId, userId);
 
         var draft = await _cache.GetAsync<ResponseDraftContract>(key, ResponseDraftTtl, ct);
 
@@ -120,7 +121,7 @@ public class FormDraftService : IFormDraftService
     };
     public async Task<ServiceResult<bool>> DeleteResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
-        var key = $"forms:draft:response:{formId}:{userId}";
+        var key = FormCacheKeys.ResponseDraft(formId, userId);
 
         await _cache.RemoveAsync(key, ct);
 
@@ -128,7 +129,7 @@ public class FormDraftService : IFormDraftService
     }
     public async Task<ServiceResult<bool>> ClearResponseDraftsAsync(Guid formId, CancellationToken ct = default)
     {
-        var prefix = $"forms:draft:response:{formId}:";
+        var prefix = FormCacheKeys.ResponseDraftPrefix(formId);
 
         await _cache.RemoveByPrefixAsync(prefix, ct);
 
@@ -137,7 +138,7 @@ public class FormDraftService : IFormDraftService
 
     public async Task<ServiceResult<bool>> SaveFormDraftAsync(Guid formId, Guid userId, FormDraftRequest draft, CancellationToken ct = default)
     {
-        var key = $"forms:draft:form:{formId}:{userId}";
+        var key = FormCacheKeys.FormDraft(formId, userId);
 
         await _cache.SetAsync(key, draft, FormDraftTtl, ct);
 
@@ -146,7 +147,7 @@ public class FormDraftService : IFormDraftService
 
     public async Task<ServiceResult<FormDraftContract?>> GetFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
-        var key = $"forms:draft:form:{formId}:{userId}";
+        var key = FormCacheKeys.FormDraft(formId, userId);
 
         var draftRequest = await _cache.GetAsync<FormDraftRequest>(key, FormDraftTtl, ct);
 
@@ -189,7 +190,7 @@ public class FormDraftService : IFormDraftService
 
     public async Task<ServiceResult<bool>> DeleteFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
-        var key = $"forms:draft:form:{formId}:{userId}";
+        var key = FormCacheKeys.FormDraft(formId, userId);
 
         await _cache.RemoveAsync(key, ct);
 
@@ -197,7 +198,7 @@ public class FormDraftService : IFormDraftService
     }
     public async Task<ServiceResult<bool>> ClearFormDraftsAsync(Guid formId, CancellationToken ct = default)
     {
-        var prefix = $"forms:draft:form:{formId}:";
+        var prefix = FormCacheKeys.FormDraftPrefix(formId);
 
         await _cache.RemoveByPrefixAsync(prefix, ct);
 

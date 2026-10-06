@@ -7,4 +7,5 @@ internal sealed class ExternalUserResponse
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? ProfilePictureUrl { get; set; }
+    public string? Status { get; set; }
 }
