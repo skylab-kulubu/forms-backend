@@ -389,20 +389,10 @@ public static class FormAdminEndpoints
         group.MapDelete("/component-groups/{id:guid}", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu arşivlemek için giriş yapmalısınız.");
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu silmek için giriş yapmalısınız.");
 
             var result = await service.DeleteGroupAsync(id, userId.Value, ct);
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
         });
-
-        group.MapPost("/component-groups/{id:guid}/restore", async (Guid id, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
-        {
-            var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu geri yüklemek için giriş yapmalısınız.");
-
-            var result = await service.RestoreGroupAsync(id, userId.Value, ct);
-            return result.ToApiResult();
-        });
-
     }
 }
