@@ -20,7 +20,6 @@ public class Form : BaseEntity
     /// </summary>
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
-    public Guid? EventId { get; set; }
     public FormTask? Task { get; set; }
     public DateTime? ClosesAt { get; set; }
     public int? TimeLimitMinutes { get; set; }
