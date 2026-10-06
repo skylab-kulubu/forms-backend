@@ -29,7 +29,6 @@ public class FormService : IFormService
     private readonly ICacheService _cache;
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowRuntime _workflowRuntime;
-    private readonly ICoreEventLookup _events;
     private readonly IFormAttemptService _attempts;
 
     public FormService(
@@ -42,7 +41,6 @@ public class FormService : IFormService
         ICacheService cache,
         IFormWorkflowRepository workflows,
         IFormWorkflowRuntime workflowRuntime,
-        ICoreEventLookup events,
         IFormAttemptService attempts)
     {
         _forms = forms;
@@ -54,30 +52,21 @@ public class FormService : IFormService
         _cache = cache;
         _workflows = workflows;
         _workflowRuntime = workflowRuntime;
-        _events = events;
         _attempts = attempts;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
         var schema = contract.Schema ?? new();
-        var allowAnonymous = contract.AllowAnonymousResponses;
-        var allowMultiple = contract.AllowMultipleResponses;
-        if (contract.EventId.HasValue)
-        {
-            schema = EventIdentity.Ensure(schema);
-            allowAnonymous = true;
-            allowMultiple = true;
-        }
 
-        var validation = FormValidator.ValidateUpsert(allowAnonymous, allowMultiple, schema);
+        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
         var task = NormalizeTask(contract.Task);
         var timeLimit = NormalizeTimeLimit(contract.TimeLimitMinutes);
 
-        var timing = FormValidator.ValidateTiming(allowAnonymous, allowMultiple, task, timeLimit);
+        var timing = FormValidator.ValidateTiming(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, task, timeLimit);
         if (timing.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(timing.Status, Message: timing.Message);
 
@@ -90,10 +79,9 @@ public class FormService : IFormService
             Description = contract.Description,
             Schema = schema,
             Status = contract.Status,
-            AllowAnonymousResponses = allowAnonymous,
-            AllowMultipleResponses = allowMultiple,
+            AllowAnonymousResponses = contract.AllowAnonymousResponses,
+            AllowMultipleResponses = contract.AllowMultipleResponses,
             RequiresManualReview = contract.RequiresManualReview,
-            EventId = contract.EventId,
             Task = task,
             ClosesAt = UtcDate.Normalize(contract.ClosesAt),
             TimeLimitMinutes = timeLimit
@@ -123,7 +111,7 @@ public class FormService : IFormService
         var collaboratorIds = newForm.Collaborators.Select(c => c.UserId).ToList();
         var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
 
-        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: await MapToContractAsync(newForm, users, CollaboratorRole.Owner, cancellationToken: cancellationToken));
+        return new ServiceResult<FormContract>(ServiceStatus.Success, Data: MapToContract(newForm, users, CollaboratorRole.Owner));
     }
 
     public async Task<ServiceResult<FormContract>> UpdateFormAsync(Guid formId, FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -137,17 +125,8 @@ public class FormService : IFormService
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
 
         var schema = contract.Schema ?? new();
-        var allowAnonymous = contract.AllowAnonymousResponses;
-        var allowMultiple = contract.AllowMultipleResponses;
-        var eventId = contract.EventId ?? existingForm.EventId;
-        if (eventId.HasValue)
-        {
-            schema = EventIdentity.Ensure(schema);
-            allowAnonymous = true;
-            allowMultiple = true;
-        }
 
-        var validation = FormValidator.ValidateUpsert(allowAnonymous, allowMultiple, schema);
+        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -171,7 +150,7 @@ public class FormService : IFormService
                 Message: $"Bu form '{membership.WorkflowName}' akışında kullanılıyor ve akış tekrar başlatılabiliyor; kişisel süre kullanılamaz.");
         }
 
-        var timing = FormValidator.ValidateTiming(allowAnonymous, membership is { IsPublished: true } ? false : allowMultiple, task, timeLimit);
+        var timing = FormValidator.ValidateTiming(contract.AllowAnonymousResponses, membership is { IsPublished: true } ? false : contract.AllowMultipleResponses, task, timeLimit);
         if (timing.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(timing.Status, Message: timing.Message);
 
@@ -187,14 +166,12 @@ public class FormService : IFormService
         existingForm.Schema = schema;
         existingForm.Status = contract.Status;
 
-        existingForm.AllowAnonymousResponses = allowAnonymous;
-        existingForm.AllowMultipleResponses = allowMultiple;
+        existingForm.AllowAnonymousResponses = contract.AllowAnonymousResponses;
+        existingForm.AllowMultipleResponses = contract.AllowMultipleResponses;
         existingForm.RequiresManualReview = contract.RequiresManualReview;
         existingForm.Task = task;
         existingForm.ClosesAt = UtcDate.Normalize(contract.ClosesAt);
         existingForm.TimeLimitMinutes = timeLimit;
-        if (eventId.HasValue)
-            existingForm.EventId = eventId;
 
         if (contract.Collaborators != null)
         {
@@ -221,7 +198,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: await MapToContractAsync(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken)), cancellationToken));
+            Data: MapToContract(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken))));
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -241,7 +218,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: await MapToContractAsync(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken)), cancellationToken));
+            Data: MapToContract(form, users, userRole, ToWorkflowRef(await FindMembershipAsync(id, cancellationToken))));
     }
 
     public async Task<ServiceResult<FormDisplayPayload>> GetDisplayFormByIdAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
@@ -260,7 +237,7 @@ public class FormService : IFormService
         if (!form.HasTimeLimit && form.HasClosedAt(now))
             return ClosesAtPassed(form, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
 
-        if (userId == null && !form.AllowAnonymousResponses && form.EventId is null)
+        if (userId == null && !form.AllowAnonymousResponses)
         {
             return new ServiceResult<FormDisplayPayload>(
                 ServiceStatus.Unauthorized,
@@ -308,12 +285,6 @@ public class FormService : IFormService
                 _ => new ServiceResult<FormDisplayPayload>(
                     ServiceStatus.Created, answered, "Bu formu daha önce doldurdunuz.")
             };
-        }
-
-        if (form.EventId is null)
-        {
-            var linked = await _events.FindByFormIdAsync(form.Id, cancellationToken);
-            if (linked is not null) form.EventId = linked.Id;
         }
 
         return new ServiceResult<FormDisplayPayload>(ServiceStatus.Success, MapToDisplayPayload(form, 0) with { ServerNow = now, ClosesAt = form.ClosesAt });
@@ -425,8 +396,6 @@ public class FormService : IFormService
             })
             .ToList();
 
-        items = await AttachEventsAsync(items, cancellationToken);
-
         return new ServiceResult<PagedResult<FormSummaryContract>>(
             ServiceStatus.Success,
             Data: new PagedResult<FormSummaryContract>(items, data.TotalCount, data.Page, data.PageSize));
@@ -461,18 +430,6 @@ public class FormService : IFormService
             );
         }).ToList();
 
-        var byForm = (await _events.FindByFormIdsAsync(forms.Select(f => f.Id), cancellationToken))
-            .ToDictionary(kv => kv.Key, kv => kv.Value);
-        foreach (var row in raw.Items)
-        {
-            if (byForm.ContainsKey(row.Id) || row.EventId is not Guid eventId) continue;
-            var ev = await _events.FindByIdAsync(eventId, cancellationToken);
-            if (ev is not null) byForm[row.Id] = ev;
-        }
-        forms = forms
-            .Select(f => f with { Event = byForm.TryGetValue(f.Id, out var ev) ? ev : f.Event })
-            .ToList();
-
         return new ServiceResult<PagedResult<FormAllSummaryContract>>(
             ServiceStatus.Success,
             Data: new PagedResult<FormAllSummaryContract>(forms, raw.TotalCount, raw.Page, raw.PageSize)
@@ -502,29 +459,7 @@ public class FormService : IFormService
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Form silindi.");
     }
 
-    private async Task<List<FormSummaryContract>> AttachEventsAsync(
-        List<FormSummaryContract> items,
-        CancellationToken cancellationToken)
-    {
-        var byForm = (await _events.FindByFormIdsAsync(items.Select(form => form.Id), cancellationToken))
-            .ToDictionary(kv => kv.Key, kv => kv.Value);
-        foreach (var form in items)
-        {
-            if (byForm.ContainsKey(form.Id) || form.EventId is not Guid eventId) continue;
-            var ev = await _events.FindByIdAsync(eventId, cancellationToken);
-            if (ev is not null) byForm[form.Id] = ev;
-        }
-        return items
-            .Select(form => form with { Event = byForm.TryGetValue(form.Id, out var ev) ? ev : form.Event })
-            .ToList();
-    }
-
-    private async Task<FormContract> MapToContractAsync(
-        Form form,
-        List<UserContract> users,
-        CollaboratorRole userRole = CollaboratorRole.None,
-        FormWorkflowRefContract? workflow = null,
-        CancellationToken cancellationToken = default)
+    private static FormContract MapToContract(Form form, List<UserContract> users, CollaboratorRole userRole = CollaboratorRole.None, FormWorkflowRefContract? workflow = null)
     {
         var collaboratorContracts = new List<FormCollaboratorContract>();
 
@@ -540,16 +475,11 @@ public class FormService : IFormService
             }
         }
 
-        var ev = form.EventId is Guid eventId
-            ? await _events.FindByIdAsync(eventId, cancellationToken)
-            : null;
-        ev ??= await _events.FindByFormIdAsync(form.Id, cancellationToken);
-
         return new FormContract(
             form.Id,
             form.Title,
             form.Description,
-            DisplaySchema(form),
+            form.Schema,
             form.Status,
             form.AllowAnonymousResponses,
             form.AllowMultipleResponses,
@@ -559,7 +489,6 @@ public class FormService : IFormService
             collaboratorContracts,
             form.CreatedAt,
             form.UpdatedAt,
-            ev,
             form.Task,
             form.ClosesAt,
             form.TimeLimitMinutes
@@ -661,9 +590,6 @@ public class FormService : IFormService
                 membership.RequiresManualReview,
                 [.. membership.LockedQuestions.Select(question => new FormLockedQuestionContract(question.QuestionId, [.. question.Values]))]);
 
-    private static List<FormSchemaItem> DisplaySchema(Form form) =>
-        form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
-
     private FormDisplayPayload MapToDisplayPayload(Form form, int step, string? reviewNote = null, DateTime? reviewedAt = null) =>
         new(ToDisplayContract(form, form.RequiresManualReview), step, reviewNote, reviewedAt);
 
@@ -672,8 +598,7 @@ public class FormService : IFormService
             form.Id,
             form.Title,
             form.Description,
-            DisplaySchema(form),
-            form.EventId,
+            form.Schema,
             requiresManualReview,
             form.Task,
             form.ClosesAt,

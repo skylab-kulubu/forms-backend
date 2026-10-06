@@ -71,16 +71,6 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
         }).AddHttpMessageHandler<ServiceTokenHandler>();
 
-        services.AddHttpClient<ICoreEventLookup, CoreEventLookup>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        });
-
-        services.AddHttpClient<ICoreGuestApply, CoreGuestApply>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        });
-
         services.AddHttpClient<ICoreShortLinks, CoreShortLinks>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");

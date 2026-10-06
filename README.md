@@ -108,7 +108,7 @@ Dynamic form creation and response management service.
 - Response archiving
 - Form metrics and answer analytics
 - Reusable component groups with archive and restore
-- Anonymous response support
+- Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response
 - Single or multiple response control
 - Redis-backed form and response drafts
 - Response and component-group sharing tokens
@@ -120,7 +120,7 @@ Dynamic form creation and response management service.
 | Table | Description |
 |-------|-------------|
 | `Forms` | Form definitions, JSONB schema, status, and response settings |
-| `Responses` | User responses, the name and email a guest typed on an event form, review information, archive state, and timing |
+| `Responses` | User responses, the name and email a guest typed into the identity fields, review information, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
 | `Workflows` | Workflow header: name, owner, repeat-run setting, and intake |
@@ -338,7 +338,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 | `PUT` | `/api/admin/forms/{id}` | Update a form |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
-| `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing the schema the editor loads (with event identity fields) regardless of property order |
+| `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses |

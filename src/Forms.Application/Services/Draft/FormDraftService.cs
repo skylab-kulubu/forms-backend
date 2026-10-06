@@ -164,7 +164,6 @@ public class FormDraftService : IFormDraftService
     }
 
     /// <summary>
-    /// Editör etkinlik formunu kimlik alanları eklenmiş şemayla açar; taslak da onunla kıyaslanır.
     /// jsonb anahtar sırasını değiştirdiği için şemalar metin olarak değil, ağaç olarak karşılaştırılır.
     /// </summary>
     private static bool IsDraftIdenticalToForm(FormDraftContract draft, Form form)
@@ -179,9 +178,7 @@ public class FormDraftService : IFormDraftService
         if (draft.ClosesAt != form.ClosesAt) return false;
         if (JsonSerializer.Serialize(draft.Task, CamelCase) != JsonSerializer.Serialize(form.Task, CamelCase)) return false;
 
-        var formSchema = form.EventId.HasValue ? EventIdentity.Ensure(form.Schema) : form.Schema;
-
-        return JsonNode.DeepEquals(ToJsonNode(draft.Schema), ToJsonNode(formSchema));
+        return JsonNode.DeepEquals(ToJsonNode(draft.Schema), ToJsonNode(form.Schema));
     }
 
     private static JsonNode? ToJsonNode(IReadOnlyList<FormSchemaItem>? schema) =>

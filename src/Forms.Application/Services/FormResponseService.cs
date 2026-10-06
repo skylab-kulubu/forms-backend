@@ -36,8 +36,6 @@ public class FormResponseService : IFormResponseService
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
-    private readonly ICoreGuestApply _guestApply;
-    private readonly ICoreEventLookup _events;
     private readonly IFormAttemptService _attempts;
     private readonly IFormAttemptRepository _attemptRecords;
 
@@ -53,8 +51,6 @@ public class FormResponseService : IFormResponseService
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
-        ICoreGuestApply guestApply,
-        ICoreEventLookup events,
         IFormAttemptService attempts,
         IFormAttemptRepository attemptRecords)
     {
@@ -71,8 +67,6 @@ public class FormResponseService : IFormResponseService
         _currentUserService = currentUserService;
         _workflowRuntime = workflowRuntime;
         _instances = instances;
-        _guestApply = guestApply;
-        _events = events;
     }
 
     private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
@@ -91,10 +85,15 @@ public class FormResponseService : IFormResponseService
                 "Bu form kapanış saatinde kendiliğinden kapandı.");
         }
 
-        if (!form.AllowAnonymousResponses && userId == null && form.EventId is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+        if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
 
-        var guestTicket = await WriteGuestTicketAsync(form, contract.Responses, cancellationToken);
-        if (guestTicket.Rejection is not null) return guestTicket.Rejection;
+        ResponseGuest? guest = null;
+
+        if (userId == null && ResponseGuest.IsAskedBy(form.Schema))
+        {
+            guest = ResponseGuest.From(form.Schema, contract.Responses);
+            if (guest is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
+        }
 
         Guid? attemptId = null;
 
@@ -125,7 +124,7 @@ public class FormResponseService : IFormResponseService
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, userId is null ? guestTicket.Guest : null);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
 
         _responses.Add(response);
         await _uow.SaveChangesAsync(cancellationToken);
@@ -140,14 +139,6 @@ public class FormResponseService : IFormResponseService
 
         var result = new ResponseSubmitResult(response.Id, LinkedFormId: null, Step: 0);
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
-    }
-
-    private async Task<GuestTicket> WriteGuestTicketAsync(
-        Form form,
-        List<FormResponseSchemaItem> answers,
-        CancellationToken cancellationToken)
-    {
-        return await GuestTicketWriter.WriteAsync(form, answers, _events, _guestApply, cancellationToken);
     }
 
     private async Task<ServiceResult<ResponseSubmitResult>?> SubmitThroughWorkflowAsync(
@@ -484,7 +475,7 @@ public class FormResponseService : IFormResponseService
         return _excelService.GenerateExcel(exportRequest);
     }
 
-    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, EventGuestIdentity? guest = null)
+    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, ResponseGuest? guest = null)
     {
         var responseData = new List<FormResponseSchemaItem>();
 
@@ -513,7 +504,7 @@ public class FormResponseService : IFormResponseService
             Status = form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict,
             SubmittedAt = DateTime.UtcNow,
             Attribution = AttributionNormalizer.Normalize(attribution),
-            Guest = guest is null ? null : new ResponseGuest { FirstName = guest.FirstName, LastName = guest.LastName, Email = guest.Email.ToLowerInvariant() }
+            Guest = guest
         };
     }
 
