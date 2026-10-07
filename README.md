@@ -401,6 +401,15 @@ A guest answer **without a token** is accepted only while Forms itself cannot re
 
 Core purges a guest file that is never linked after 24 hours; Forms runs no cleanup job of its own.
 
+### Reviewing files
+
+| Method | Endpoint | Answers |
+|--------|----------|---------|
+| `GET` | `/api/admin/forms/responses/{responseId}/files/{mediaId}` | `status` (`ready`, `scanning`, `rejected` or `deleted`), `isPrivate`, name, type, size, and `url` only for a public file |
+| `POST` | `/api/admin/forms/responses/{responseId}/files/{mediaId}/link` | A five-minute download link core issues for the reviewer, sent with `Cache-Control: no-store` |
+
+Both follow the rule for viewing the response: a collaborator, `skyforms:*`, or a share token covering the response through `?token=`. The media id must also be the answer of a file question in that response. A link is refused with `scanning` (`409`, with `retryAfterSeconds`), `rejected` (`410`, with `scanResult`), `deleted` (`404`), `subjectInactive` (`403`, core cannot issue a link for the reviewer's account) or `unavailable` (`503`).
+
 ### Client address
 
 `UseForwardedHeaders` runs first in the pipeline and takes `X-Forwarded-For` only from `TRUSTED_PROXY_RANGES`. Production sits behind Traefik on a private overlay network that rewrites the header to a single entry. The address feeds only the counters and Turnstile's `remoteip`; nothing is authorized by it.
@@ -476,6 +485,8 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
 | `GET` | `/api/admin/forms/responses/{id}` | Get one response |
+| `GET` | `/api/admin/forms/responses/{responseId}/files/{mediaId}` | Metadata of a file answer, see [Reviewing files](#reviewing-files) |
+| `POST` | `/api/admin/forms/responses/{responseId}/files/{mediaId}/link` | Five-minute download link for a private file answer |
 | `POST` | `/api/admin/forms/responses/{id}/share` | Create or refresh a response share token |
 | `POST` | `/api/admin/forms/responses/{id}/revoke-token` | Revoke a response share token |
 | `PATCH` | `/api/admin/forms/responses/{id}/status` | Update response review status |
@@ -514,7 +525,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
 - **Current user:** The user ID and realm/client roles come from the validated token. Client roles are read from `forms` and the legacy `dotnet` client.
 - **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
-- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads and their links to responses.
+- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
 - **Authorization:** Role-based rules are enforced in the Application services:
   - **Owner** - Full control and collaborator management
   - **Editor** - Edit forms and manage responses

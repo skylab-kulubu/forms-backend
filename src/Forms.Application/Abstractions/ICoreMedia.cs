@@ -6,6 +6,7 @@ public interface ICoreMedia
     Task<CoreMediaRead> GetAsync(Guid mediaId, CancellationToken ct = default);
     Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, CancellationToken ct = default);
     Task<bool> DetachAsync(Guid mediaId, Guid attachmentId, CancellationToken ct = default);
+    Task<CoreMediaLink> CreateLinkAsync(Guid mediaId, Guid onBehalfOf, CancellationToken ct = default);
 }
 
 public sealed record CoreMedia(Guid Id, string? Name, string? Type, long Size, string? Url, string? Purpose, string? Visibility, string? Status, string? ScanResult);
@@ -20,6 +21,9 @@ public enum CoreMediaOutcome
     RateLimited,
     Unavailable,
     NotLinkable,
+    Scanning,
+    Rejected,
+    SubjectInactive,
     Failed
 }
 
@@ -28,6 +32,8 @@ public sealed record CoreMediaUpload(CoreMediaOutcome Outcome, CoreMedia? Media 
 public sealed record CoreMediaRead(CoreMediaOutcome Outcome, CoreMedia? Media = null);
 
 public sealed record CoreMediaAttach(CoreMediaOutcome Outcome, Guid? AttachmentId = null);
+
+public sealed record CoreMediaLink(CoreMediaOutcome Outcome, string? Url = null, DateTime? ExpiresAt = null, string? ScanResult = null, int? RetryAfterSeconds = null);
 
 public static class CoreMediaStatus
 {
@@ -41,4 +47,9 @@ public static class CoreMediaStatus
 public static class CoreMediaPurpose
 {
     public const string AnswerFileGuest = "answer_file_guest";
+}
+
+public static class CoreMediaVisibility
+{
+    public const string Private = "private";
 }

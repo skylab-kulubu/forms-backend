@@ -211,6 +211,26 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/responses/{responseId:guid}/files/{mediaId:guid}", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Dosyayı görmek için giriş yapmalısınız.");
+
+            var result = await service.GetResponseFileAsync(responseId, mediaId, userId.Value, token, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/responses/{responseId:guid}/files/{mediaId:guid}/link", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IFormResponseService service, ICurrentUserService userService, HttpContext httpContext, CancellationToken ct) =>
+        {
+            httpContext.Response.Headers.CacheControl = "no-store";
+
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Dosyayı açmak için giriş yapmalısınız.");
+
+            var result = await service.CreateResponseFileLinkAsync(responseId, mediaId, userId.Value, token, ct);
+            return result.ToApiResult();
+        });
+
         group.MapPost("/responses/{id:guid}/share", async (Guid id, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);

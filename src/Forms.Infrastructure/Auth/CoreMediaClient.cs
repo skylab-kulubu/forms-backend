@@ -157,6 +157,47 @@ public sealed class CoreMediaClient : ICoreMedia
         }
     }
 
+    public async Task<CoreMediaLink> CreateLinkAsync(Guid mediaId, Guid onBehalfOf, CancellationToken ct = default)
+    {
+        using var timeout = LinkedTimeout(ct);
+        try
+        {
+            using var response = await _httpClient.PostAsJsonAsync($"/v1/media/{mediaId}/links", new { onBehalfOf }, Json, timeout.Token);
+            if (response.StatusCode == HttpStatusCode.Created)
+            {
+                var link = await response.Content.ReadFromJsonAsync<LinkReply>(Json, timeout.Token);
+                if (link is { Url.Length: > 0 }) return new CoreMediaLink(CoreMediaOutcome.Ok, link.Url, link.ExpiresAt);
+
+                _logger.LogError("Core okuma bağlantısı yanıtında adres yok (medya {MediaId})", mediaId);
+                return new CoreMediaLink(CoreMediaOutcome.Failed);
+            }
+
+            var problem = await ReadProblemAsync(response, timeout.Token);
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.Conflict:
+                    return new CoreMediaLink(CoreMediaOutcome.Scanning, RetryAfterSeconds: problem?.RetryAfterSeconds ?? RetryAfterOf(response));
+                case HttpStatusCode.Gone:
+                    return new CoreMediaLink(CoreMediaOutcome.Rejected, ScanResult: problem?.ScanResult);
+                case HttpStatusCode.NotFound:
+                    return new CoreMediaLink(CoreMediaOutcome.NotFound);
+                case HttpStatusCode.UnprocessableEntity when problem?.Code == SubjectInactiveCode:
+                    return new CoreMediaLink(CoreMediaOutcome.SubjectInactive);
+                case HttpStatusCode.ServiceUnavailable:
+                    _logger.LogWarning("Core okuma bağlantısı veremedi: {Code} (medya {MediaId})", problem?.Code, mediaId);
+                    return new CoreMediaLink(CoreMediaOutcome.Unavailable, RetryAfterSeconds: problem?.RetryAfterSeconds ?? RetryAfterOf(response));
+                default:
+                    _logger.LogError("Core okuma bağlantısı vermedi: {Status} {Code} (medya {MediaId})", (int)response.StatusCode, problem?.Code, mediaId);
+                    return new CoreMediaLink(CoreMediaOutcome.Failed);
+            }
+        }
+        catch (Exception ex) when (Classify(ex, ct) is { } failure)
+        {
+            _logger.LogWarning(ex, "Core'dan okuma bağlantısı istenemedi (medya {MediaId})", mediaId);
+            return new CoreMediaLink(failure);
+        }
+    }
+
     private static CancellationTokenSource LinkedTimeout(CancellationToken ct)
     {
         var source = CancellationTokenSource.CreateLinkedTokenSource(ct);
