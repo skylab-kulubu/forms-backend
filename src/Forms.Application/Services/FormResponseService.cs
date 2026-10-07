@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Cryptography;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Attribution;
@@ -11,7 +12,9 @@ using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.GuestUploads;
 using Skylab.Forms.Application.Services.Attempts;
+using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -38,6 +41,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormAttemptService _attempts;
     private readonly IFormAttemptRepository _attemptRecords;
+    private readonly IGuestUploadService _guestUploads;
 
     public FormResponseService(
         IFormRepository forms,
@@ -52,10 +56,12 @@ public class FormResponseService : IFormResponseService
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
         IFormAttemptService attempts,
-        IFormAttemptRepository attemptRecords)
+        IFormAttemptRepository attemptRecords,
+        IGuestUploadService guestUploads)
     {
         _attempts = attempts;
         _attemptRecords = attemptRecords;
+        _guestUploads = guestUploads;
         _forms = forms;
         _responses = responses;
         _uow = uow;
@@ -71,7 +77,7 @@ public class FormResponseService : IFormResponseService
 
     private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
-    public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, IPAddress? clientAddress, CancellationToken cancellationToken = default)
     {
         var form = await _forms.GetByIdAsync(contract.FormId, cancellationToken);
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
@@ -93,6 +99,13 @@ public class FormResponseService : IFormResponseService
         {
             guest = ResponseGuest.From(form.Schema, contract.Responses);
             if (guest is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
+        }
+
+        var guestGate = GuestSubmitGate.Pass;
+        if (userId == null)
+        {
+            guestGate = await _guestUploads.CheckSubmitAsync(form, contract, clientAddress, cancellationToken);
+            if (guestGate.Rejection is not null) return guestGate.Rejection;
         }
 
         Guid? attemptId = null;
@@ -126,8 +139,28 @@ public class FormResponseService : IFormResponseService
 
         var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
 
-        _responses.Add(response);
-        await _uow.SaveChangesAsync(cancellationToken);
+        IReadOnlyList<GuestAttachment> attachments = [];
+        if (guestGate.Files.Count > 0)
+        {
+            var attach = await _guestUploads.AttachAsync(guestGate.Files, response.Id, cancellationToken);
+            if (attach.Rejection is not null) return attach.Rejection;
+
+            attachments = attach.Attachments;
+        }
+
+        try
+        {
+            _responses.Add(response);
+            await _uow.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            await _guestUploads.DetachAsync(attachments);
+            throw;
+        }
+
+        if (guestGate.SessionId is { } guestSessionId)
+            await _guestUploads.ConsumeAsync(guestSessionId, guestGate.Files);
 
         if (attemptId.HasValue)
             await _attempts.MarkSubmittedAsync(attemptId.Value, response.Id, cancellationToken);

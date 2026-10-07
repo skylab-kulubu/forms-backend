@@ -9,6 +9,7 @@ using Skylab.Forms.Application.Contracts.Collaborators;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Application.Services.Attempts;
+using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Application.Validators;
 using Skylab.Forms.Domain.Entities;
@@ -30,6 +31,7 @@ public class FormService : IFormService
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormAttemptService _attempts;
+    private readonly IGuestUploadService _guestUploads;
 
     public FormService(
         IFormRepository forms,
@@ -41,7 +43,8 @@ public class FormService : IFormService
         ICacheService cache,
         IFormWorkflowRepository workflows,
         IFormWorkflowRuntime workflowRuntime,
-        IFormAttemptService attempts)
+        IFormAttemptService attempts,
+        IGuestUploadService guestUploads)
     {
         _forms = forms;
         _responses = responses;
@@ -53,13 +56,14 @@ public class FormService : IFormService
         _workflows = workflows;
         _workflowRuntime = workflowRuntime;
         _attempts = attempts;
+        _guestUploads = guestUploads;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
         var schema = contract.Schema ?? new();
 
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema);
+        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema, _guestUploads.Capability is not null);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -126,7 +130,7 @@ public class FormService : IFormService
 
         var schema = contract.Schema ?? new();
 
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema);
+        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema, _guestUploads.Capability is not null);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -287,7 +291,9 @@ public class FormService : IFormService
             };
         }
 
-        return new ServiceResult<FormDisplayPayload>(ServiceStatus.Success, MapToDisplayPayload(form, 0) with { ServerNow = now, ClosesAt = form.ClosesAt });
+        return new ServiceResult<FormDisplayPayload>(
+            ServiceStatus.Success,
+            MapToDisplayPayload(form, 0) with { ServerNow = now, ClosesAt = form.ClosesAt, GuestUploads = _guestUploads.CapabilityFor(form) });
     }
 
     private async Task<ServiceResult<FormDisplayPayload>> TimedDisplayAsync(

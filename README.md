@@ -28,6 +28,7 @@
 | Cache & Drafts | Redis |
 | API | ASP.NET Core Minimal APIs |
 | Service Authentication | Keycloak client credentials |
+| Bot Protection | Cloudflare Turnstile |
 | Excel Export | ClosedXML |
 | Documentation | Swagger / OpenAPI |
 | Container | Docker (multi-stage build) |
@@ -109,6 +110,7 @@ Dynamic form creation and response management service.
 - Form metrics and answer analytics
 - Reusable component groups
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response
+- Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
 - Redis-backed form and response drafts
 - Response and component-group sharing tokens
@@ -314,6 +316,110 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 > **Legacy:** `Forms.LinkedFormId` and the `step` and `linkedFormId` fields in the public payloads survive from the older two-form chaining. Nothing reads the column any more, and the payload fields are filled only for two-step workflows so the previous client keeps working. Both go away once the frontend reads `state` and `stage`.
 
+## Guest uploads and Turnstile
+
+Signed-out respondents (guests) can attach files on forms that take answers without sign-in (`allowAnonymousResponses`). A guest's browser never sends the file to core. It sends it to Forms, which checks the guest's upload session, uploads the file to core with its own service account (purpose `answer_file_guest`: private, encrypted and malware-scanned) and links it to the response in core when the answer is saved. Signed-in respondents keep uploading to core themselves; nothing in this section applies to them.
+
+Cloudflare Turnstile guards the two guest entry points: opening an upload session (action `guest-upload`) and submitting an answer (action `guest-submit`).
+
+### When it is active
+
+Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTILE_SECRET_KEY` is set. With the mode on and no secret, Forms logs a warning at startup and keeps guest uploads off, because a session without verification would let anyone push files into core through the Forms service account. Forms logs the effective state (Turnstile on or off, guest uploads on or off) once at startup.
+
+- `GET /api/forms/guest-uploads` returns `{ "maxBytes": 52428800, "types": ["application/pdf", "image/jpeg", "image/png"] }` while guest uploads are active and `data: null` otherwise. The form editor reads it to decide whether an anonymous form may have file questions.
+- `GET /api/forms/{id}` adds the same object as `guestUploads` for a form that takes signed-out answers.
+- While guest uploads are active, anonymous forms may have file questions. While they are off, saving such a form is refused as before.
+
+### Flow
+
+1. **Session.** `POST /api/forms/{id}/guest-uploads/sessions` with `{ "turnstileToken": "..." }` returns `{ sessionId, expiresAt }`. A session belongs to one form and lives `FORMS_GUEST_UPLOAD_SESSION_MINUTES`.
+2. **Upload.** `POST /api/forms/{id}/guest-uploads` as `multipart/form-data` with `questionId` and `file`, the session in the `X-Guest-Upload-Session` header. Forms checks the question, the size and type, and the counters, uploads the file to core and answers with the media `id` and `status: "scanning"`.
+3. **Scan.** `GET /api/forms/{id}/guest-uploads/{mediaId}` with the same header answers `status` `scanning`, `ready`, `rejected` (with `scanResult`) or `missing` (core no longer has the file).
+4. **Submit.** The answer to a file question is the media id. `POST /api/forms/responses` carries `turnstileToken` and, when it has file answers, `guestUploadSession`. Forms accepts a file only when the session holds it for that question and core reports it clean and unattached. It links the files to the new response id in core **before** saving; if the save fails, it removes those links again, and after a successful save the session forgets the files.
+
+### Limits
+
+| Limit | Value |
+|-------|-------|
+| File size | 50 MiB, or the question's `maxSize` when that is smaller |
+| File types | PDF, JPEG and PNG, narrowed by the question's `acceptedFiles`. Core checks the content again |
+| Request body | 52 MiB, larger bodies get `413` |
+| Files per session | `FORMS_GUEST_UPLOAD_SESSION_MAX_FILES` (10) |
+| Sessions per client address and minute | `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` (30) |
+| Files per client address and minute | `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` (60) |
+| Guest files per form and minute | `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` (200) |
+
+The counters run on clock minutes, so `retryAfterSeconds` is at most 60. Short windows let a burst through (an event where everyone uploads at once from one network) and keep anyone over a limit waiting seconds, not an hour. Sessions are counted **before** Turnstile is asked, so a flood of session requests never reaches Cloudflare. A client address counts as itself for IPv4 and as its `/64` for IPv6, and is kept only as a hash. Every guest upload is also charged to the Forms service account's budget in core (100 uploads per 10 minutes and 2 GiB a day by default, shared by all guests; at 50 MiB a file that is about 40 files a day); a refusal there reaches the guest as `tooManyUploads` with core's `retryAfterSeconds`.
+
+### Reason codes
+
+Refusals use the usual envelope with the code in `data.reason`. Submit refusals also name the `questionId` and, where it applies, `scanResult` and `retryAfterSeconds`.
+
+| `reason` | Status | When |
+|----------|--------|------|
+| `verificationFailed` | 400 | Turnstile refused the token, or none was sent |
+| `guestUploadsDisabled` | 403 | Guest uploads are off, or the form takes no signed-out answers or has no file question. On submit: a file answer while guest uploads are off |
+| `guestUploadsUnavailable` | 503 | Redis or core cannot be reached, or Cloudflare while a session opens. `retryAfterSeconds` is 5 unless core sent its own |
+| `sessionExpired` | 410 | The session is missing, expired or belongs to another form |
+| `tooManySessions` | 429 | The client address opened too many sessions this minute |
+| `tooManyUploads` | 429 | The client address or the form reached its file count for this minute, or core's budget refused |
+| `sessionFileLimit` | 429 | The session used up its file count |
+| `questionNotFound` | 400 | `questionId` is not a top-level file question of the form |
+| `fileEmpty` | 400 | No file, or an empty one |
+| `fileTooLarge` | 400 | Over the limit; on upload, `maxBytes` gives the limit that applied |
+| `fileTypeNotAllowed` | 400 | Neither the extension nor the declared type is allowed, or core detected another type |
+| `fileNameInvalid` | 400 | Core refused the file name |
+| `fileScanning` | 409 | On submit: the scan has not finished |
+| `fileRejected` | 400 | On submit: the scan rejected the file |
+| `fileExpired` | 410 | On submit: the session does not hold the file, core purged it, or it is already linked. The status check answers `404` with this code for a file the session does not hold |
+
+A closed form answers `410` with `reason: "closed"`, as the display payload does.
+
+### Failure behavior
+
+Uploads **fail closed**. Sessions and counters live in Redis, and every Redis call has a one-second budget; when Redis or core cannot be reached, the upload endpoints answer `503` instead of letting a file through unchecked. Opening a session also needs Cloudflare to answer.
+
+Submit verification **fails open**. When Cloudflare does not answer after one retry (about six seconds in total), answers with a `5xx` or reports `internal-error`, Forms logs a warning and accepts the answer without verification, so a Cloudflare outage does not lose guest answers. A token Cloudflare refuses is always rejected, and so is every answer while siteverify returns a `4xx` (a block or rate-limit page): Cloudflare answered, so that is a refusal, not an outage. An answer with files still needs Redis and core, so its files fail closed.
+
+A guest answer **without a token** is accepted only while Forms itself cannot reach Cloudflare. During a full outage the browser cannot load the widget, so it sends the answer without a token; Forms then checks siteverify itself and accepts the answer only when that check gets no reply. When Cloudflare answers, the missing token is the browser's own problem (an ad blocker, a firewall) and the answer is refused with `verificationFailed`, so leaving the token out never skips verification. The result of that check is kept for 60 seconds while Cloudflare is reachable and for 15 seconds while it is not; answers that arrive while it runs wait for that one check instead of starting their own. `GET /api/forms/turnstile` returns `{ enabled, reachable }` from the same check, so the page can tell an outage from a blocked script.
+
+Core purges a guest file that is never linked after 24 hours; Forms runs no cleanup job of its own.
+
+### Client address
+
+`UseForwardedHeaders` runs first in the pipeline and takes `X-Forwarded-For` only from `TRUSTED_PROXY_RANGES`. Production sits behind Traefik on a private overlay network that rewrites the header to a single entry. The address feeds only the counters and Turnstile's `remoteip`; nothing is authorized by it.
+
+### Rollout
+
+1. **Core.** `answer_file_guest` needs private media and the malware scanner on that side, and the `forms` service account needs the `media:attach` role on the core client with `aud` `core` in Keycloak. Until then core refuses guest uploads and Forms answers `503`.
+2. **Frontend.** Deploy the frontend with `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, so every guest submission carries a token.
+3. **Turnstile secret.** Set `TURNSTILE_SECRET_KEY` (and `TURNSTILE_ALLOWED_HOSTNAMES`) on Forms. From then on every guest submission needs a valid token; setting the secret before the frontend sends tokens rejects every guest answer with `verificationFailed`.
+4. **Guest uploads.** Set `FORMS_GUEST_UPLOADS=on`.
+
+### Test keys
+
+Cloudflare's test keys work on any host name, `localhost` included. Site keys go to the frontend (`NEXT_PUBLIC_TURNSTILE_SITE_KEY`):
+
+| Site key | Widget |
+|----------|--------|
+| `1x00000000000000000000AA` | Visible, always passes |
+| `2x00000000000000000000AB` | Visible, always fails |
+| `1x00000000000000000000BB` | Invisible, always passes |
+| `2x00000000000000000000BB` | Invisible, always fails |
+| `3x00000000000000000000FF` | Visible, forces an interactive challenge |
+
+Secret keys go to Forms (`TURNSTILE_SECRET_KEY`):
+
+| Secret key | Verification |
+|------------|--------------|
+| `1x0000000000000000000000000000000AA` | Always passes |
+| `2x0000000000000000000000000000000AA` | Always fails |
+| `3x0000000000000000000000000000000AA` | Fails as an already spent token |
+
+Test tokens come back with host name `localhost` and action `test`, so with a test secret Forms skips the host name and action checks and logs a warning at startup. **A test secret must never reach production**: `1x0000000000000000000000000000000AA` accepts any dummy token. Outside the `Development` environment Forms therefore refuses to start with a test secret unless `TURNSTILE_ALLOW_TEST_SECRET=true` is set.
+
+> **Invisible mode:** Cloudflare enables the invisible widget only on the condition that the site's privacy policy references the [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/). Add that reference before the frontend switches to an invisible site key.
+
 ## API Endpoints
 
 ### Forms - Public
@@ -322,7 +428,12 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 |--------|----------|-------------|
 | `GET` | `/api/forms/{id}` | Get a form for display |
 | `GET` | `/api/forms/{id}/meta` | Get public form metadata |
-| `POST` | `/api/forms/responses` | Submit a response |
+| `POST` | `/api/forms/responses` | Submit a response; a guest also sends `turnstileToken` and, with file answers, `guestUploadSession` |
+| `GET` | `/api/forms/guest-uploads` | Guest upload capability: `{ maxBytes, types }` while guest uploads are active, `data: null` otherwise |
+| `GET` | `/api/forms/turnstile` | Whether Turnstile is on and Forms can reach Cloudflare: `{ enabled, reachable }` |
+| `POST` | `/api/forms/{id}/guest-uploads/sessions` | Open a guest upload session with a Turnstile token |
+| `POST` | `/api/forms/{id}/guest-uploads` | Upload a guest file (`multipart/form-data` with `questionId` and `file`, header `X-Guest-Upload-Session`) |
+| `GET` | `/api/forms/{id}/guest-uploads/{mediaId}` | Scan status of a file in the guest's upload session |
 | `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft; a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
 | `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft with its `savedAt`; a stored draft with only blank answers is deleted and answers 404 |
 | `DELETE` | `/api/forms/responses/draft/{formId}` | Delete an authenticated user's response draft |
@@ -387,7 +498,7 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
 - **Current user:** The user ID and realm/client roles come from the validated token. Client roles are read from `forms` and the legacy `dotnet` client.
 - **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
-- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. Response notifications need the `ticket:forms` role of core's `core` client on that service account.
+- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads and their links to responses.
 - **Authorization:** Role-based rules are enforced in the Application services:
   - **Owner** - Full control and collaborator management
   - **Editor** - Edit forms and manage responses
@@ -456,7 +567,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
 | `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | No, defaults to `https://e.yildizskylab.com/realms/e-skylab` |
 | `Authentication__Audience` (Compose: `AUTH_AUDIENCE`) | Incoming-token audience | No, defaults to `forms` |
-| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`) | No, defaults to `http://core:8080` |
+| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`; guest files under `/v1/media` need `media:attach`) | No, defaults to `http://core:8080` |
 | `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
 | `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
 | `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core calls |
@@ -466,6 +577,18 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template | Optional |
 | `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template | Optional |
 | `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID` | Timed task updates: reminder, extension, expiry, accept, close. The team's remind action is refused while it is empty | Optional |
+| `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on` (anything else stops startup). Active only together with `TURNSTILE_SECRET_KEY`, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, defaults to `off` |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest submissions are not verified and guest uploads stay off | No |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |
+| `FORMS_GUEST_UPLOAD_SESSION_MINUTES` | Guest upload session lifetime in minutes, from 10 to 1440 | No, defaults to `360` |
+| `FORMS_GUEST_UPLOAD_SESSION_MAX_FILES` | Files one guest upload session may upload, from 1 to 100 | No, defaults to `10` |
+| `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` | Guest upload sessions one client address may open per minute, from 1 to 10000 | No, defaults to `30` |
+| `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` | Guest files one client address may upload per minute, from 1 to 10000 | No, defaults to `60` |
+| `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` | Guest files one form may receive per minute, from 1 to 100000 | No, defaults to `200` |
+| `TURNSTILE_ALLOW_TEST_SECRET` | `true` lets a Cloudflare test secret run outside `Development` | No |
+| `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; an invalid entry stops startup | No, defaults to `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
+
+The guest upload, Turnstile and proxy settings read the environment variable first and then the configuration key: `GuestUploads:Mode`, `GuestUploads:SessionMinutes`, `GuestUploads:SessionMaxFiles`, `GuestUploads:IpSessionsPerHour`, `GuestUploads:IpFilesPerHour`, `GuestUploads:FormFilesPerHour`, `Turnstile:SecretKey`, `Turnstile:AllowedHostnames` and `ForwardedHeaders:TrustedProxyRanges`. A number outside its range stops startup even while guest uploads are off.
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 

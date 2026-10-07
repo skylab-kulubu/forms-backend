@@ -1,3 +1,4 @@
+using System.Net;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
@@ -7,7 +8,7 @@ namespace Skylab.Forms.Application.Services;
 
 public interface IFormResponseService
 {
-    Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, IPAddress? clientAddress, CancellationToken cancellationToken = default);
     Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default);
     Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, string? token, CancellationToken cancellationToken = default);
     Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default);
