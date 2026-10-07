@@ -168,8 +168,14 @@ public class GuestUploadService : IGuestUploadService
 
     public async Task<GuestSubmitGate> CheckSubmitAsync(Form form, ResponseSubmitRequest request, IPAddress? client, CancellationToken ct = default)
     {
+        var subject = GuestUploadKeys.ClientSubject(client);
+        if (await CountSubmitAsync(subject, form.Id, ct) is { } busy) return Reject(busy);
+
         var verdict = await _turnstile.VerifyAsync(request.TurnstileToken, TurnstileActions.GuestSubmit, client, ct);
         if (verdict == TurnstileVerdict.Rejected) return Reject(Refuse(GuestUploadReason.VerificationFailed));
+
+        var verified = verdict != TurnstileVerdict.Unavailable;
+        if (!verified && await CountUnverifiedSubmitAsync(subject, form.Id, ct) is { } held) return Reject(held);
 
         var answers = form.Schema
             .Where(GuestUploadRules.IsFileQuestion)
@@ -177,7 +183,7 @@ public class GuestUploadService : IGuestUploadService
             .Where(pair => !string.IsNullOrWhiteSpace(pair.Answer))
             .ToList();
 
-        if (answers.Count == 0) return GuestSubmitGate.Pass;
+        if (answers.Count == 0) return verified ? GuestSubmitGate.Pass : GuestSubmitGate.PassUnverified;
 
         var firstQuestionId = answers[0].Question.Id;
         if (!IsActive) return Reject(Refuse(GuestUploadReason.GuestUploadsDisabled, questionId: firstQuestionId));
@@ -202,7 +208,7 @@ public class GuestUploadService : IGuestUploadService
                 if (await CheckSubmittedFileAsync(question, file, ct) is { } refusal) return Reject(refusal);
             }
 
-            return new GuestSubmitGate(null, session.Id, [.. files.Select(pair => new GuestSubmitFile(pair.Question.Id, pair.File.MediaId))]);
+            return new GuestSubmitGate(null, session.Id, [.. files.Select(pair => new GuestSubmitFile(pair.Question.Id, pair.File.MediaId))], verified);
         }
         catch (GuestUploadStoreUnavailableException)
         {
@@ -309,6 +315,46 @@ public class GuestUploadService : IGuestUploadService
         return null;
     }
 
+    private async Task<Refusal?> CountSubmitAsync(string subject, Guid formId, CancellationToken ct)
+    {
+        var (bucket, retryAfter) = MinuteBucket(DateTime.UtcNow);
+
+        try
+        {
+            var fromClient = await _store.CountAsync(GuestUploadKeys.IpSubmits(subject, bucket), MinuteWindow, ct);
+            if (fromClient > _options.IpSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+
+            var toForm = await _store.CountAsync(GuestUploadKeys.FormSubmits(formId, bucket), MinuteWindow, ct);
+            if (toForm > _options.FormSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+        }
+        catch (GuestUploadStoreUnavailableException) { }
+
+        return null;
+    }
+
+    private async Task<Refusal?> CountUnverifiedSubmitAsync(string subject, Guid formId, CancellationToken ct)
+    {
+        var (bucket, retryAfter) = MinuteBucket(DateTime.UtcNow);
+
+        try
+        {
+            var fromClient = await _store.CountAsync(GuestUploadKeys.UnverifiedIpSubmits(subject, bucket), MinuteWindow, ct);
+            if (fromClient > _options.UnverifiedIpSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+
+            var toForm = await _store.CountAsync(GuestUploadKeys.UnverifiedFormSubmits(formId, bucket), MinuteWindow, ct);
+            if (toForm > _options.UnverifiedFormSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+
+            var total = await _store.CountAsync(GuestUploadKeys.UnverifiedSubmits(bucket), MinuteWindow, ct);
+            if (total > _options.UnverifiedSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+        }
+        catch (GuestUploadStoreUnavailableException)
+        {
+            return Refuse(GuestUploadReason.SubmitUnavailable);
+        }
+
+        return null;
+    }
+
     private async Task<Refusal?> CheckSubmittedFileAsync(FormSchemaItem question, GuestUploadedFile file, CancellationToken ct)
     {
         var read = await _media.GetAsync(file.MediaId, ct);
@@ -370,10 +416,12 @@ public class GuestUploadService : IGuestUploadService
             GuestUploadReason.FileScanning => (ServiceStatus.Conflict, "Dosyanız hâlâ taranıyor. Birkaç saniye sonra tekrar gönderin."),
             GuestUploadReason.FileRejected => (ServiceStatus.NotAcceptable, "Dosyanız güvenlik taramasından geçmedi. Başka bir dosya yükleyin."),
             GuestUploadReason.FileExpired => (ServiceStatus.NotAvailable, "Yüklediğiniz dosyanın süresi doldu. Dosyayı yeniden yükleyin."),
+            GuestUploadReason.TooManySubmissions => (ServiceStatus.TooManyRequests, "Şu an çok yoğun. Birkaç saniye sonra tekrar gönderin."),
+            GuestUploadReason.SubmitUnavailable => (ServiceStatus.ServiceUnavailable, "Şu an gönderilemiyor. Biraz sonra tekrar deneyin."),
             _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null)
         };
 
-        if (reason == GuestUploadReason.GuestUploadsUnavailable) retryAfterSeconds ??= UnavailableRetryAfterSeconds;
+        if (reason is GuestUploadReason.GuestUploadsUnavailable or GuestUploadReason.SubmitUnavailable) retryAfterSeconds ??= UnavailableRetryAfterSeconds;
 
         return new Refusal(status, message, reason, retryAfterSeconds, questionId, scanResult, maxBytes);
     }

@@ -42,6 +42,8 @@ public static class GuestUploadReason
     public const string FileScanning = "fileScanning";
     public const string FileRejected = "fileRejected";
     public const string FileExpired = "fileExpired";
+    public const string TooManySubmissions = "tooManySubmissions";
+    public const string SubmitUnavailable = "submitUnavailable";
 }
 
 public static class GuestUploadStatus

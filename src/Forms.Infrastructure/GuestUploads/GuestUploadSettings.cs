@@ -22,6 +22,11 @@ public sealed class GuestUploadSettings
         var ipSessionsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE", "IpSessionsPerMinute", 30, minimum: 1, maximum: 10_000);
         var ipFilesPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE", "IpFilesPerMinute", 60, minimum: 1, maximum: 10_000);
         var formFilesPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE", "FormFilesPerMinute", 200, minimum: 1, maximum: 100_000);
+        var ipSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_SUBMIT_IP_PER_MINUTE", "IpSubmitsPerMinute", 300, minimum: 1, maximum: 100_000);
+        var formSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_SUBMIT_FORM_PER_MINUTE", "FormSubmitsPerMinute", 1000, minimum: 1, maximum: 100_000);
+        var unverifiedIpSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE", "UnverifiedIpSubmitsPerMinute", 20, minimum: 1, maximum: 100_000);
+        var unverifiedFormSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE", "UnverifiedFormSubmitsPerMinute", 60, minimum: 1, maximum: 100_000);
+        var unverifiedSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UNVERIFIED_PER_MINUTE", "UnverifiedSubmitsPerMinute", 300, minimum: 1, maximum: 1_000_000);
 
         return new GuestUploadSettings
         {
@@ -33,7 +38,12 @@ public sealed class GuestUploadSettings
                 SessionMaxFiles = sessionMaxFiles,
                 IpSessionsPerMinute = ipSessionsPerMinute,
                 IpFilesPerMinute = ipFilesPerMinute,
-                FormFilesPerMinute = formFilesPerMinute
+                FormFilesPerMinute = formFilesPerMinute,
+                IpSubmitsPerMinute = ipSubmitsPerMinute,
+                FormSubmitsPerMinute = formSubmitsPerMinute,
+                UnverifiedIpSubmitsPerMinute = unverifiedIpSubmitsPerMinute,
+                UnverifiedFormSubmitsPerMinute = unverifiedFormSubmitsPerMinute,
+                UnverifiedSubmitsPerMinute = unverifiedSubmitsPerMinute
             }
         };
     }

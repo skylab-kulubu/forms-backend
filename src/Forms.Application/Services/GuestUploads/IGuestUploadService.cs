@@ -25,9 +25,10 @@ public sealed record GuestFile(string FileName, string? ContentType, long Length
 
 public sealed record GuestSubmitFile(string QuestionId, Guid MediaId);
 
-public sealed record GuestSubmitGate(ServiceResult<ResponseSubmitResult>? Rejection, string? SessionId, IReadOnlyList<GuestSubmitFile> Files)
+public sealed record GuestSubmitGate(ServiceResult<ResponseSubmitResult>? Rejection, string? SessionId, IReadOnlyList<GuestSubmitFile> Files, bool Verified = true)
 {
     public static readonly GuestSubmitGate Pass = new(null, null, []);
+    public static readonly GuestSubmitGate PassUnverified = new(null, null, [], Verified: false);
     public static GuestSubmitGate Reject(ServiceResult<ResponseSubmitResult> rejection) => new(rejection, null, []);
 }
 

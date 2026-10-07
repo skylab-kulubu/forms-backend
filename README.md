@@ -351,6 +351,20 @@ Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTI
 
 The counters run on clock minutes, so `retryAfterSeconds` is at most 60. Short windows let a burst through (an event where everyone uploads at once from one network) and keep anyone over a limit waiting seconds, not an hour. Sessions are counted **before** Turnstile is asked, so a flood of session requests never reaches Cloudflare. A client address counts as itself for IPv4 and as its `/64` for IPv6, and is kept only as a hash. Every guest upload is also charged to the Forms service account's budget in core (100 uploads per 10 minutes and 2 GiB a day by default, shared by all guests; at 50 MiB a file that is about 40 files a day); a refusal there reaches the guest as `tooManyUploads` with core's `retryAfterSeconds`.
 
+### Guest answers
+
+Every guest answer is counted per client address and per form, with or without files, **before** Turnstile is asked: an answer refused here never spends its token, and a flood never reaches Cloudflare.
+
+| Limit | Verified answer | Answer accepted without verification |
+|-------|-----------------|--------------------------------------|
+| Per client address and minute | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` (300) | `FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE` (20) |
+| Per form and minute | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` (1000) | `FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE` (60) |
+| All forms per minute | none | `FORMS_GUEST_UNVERIFIED_PER_MINUTE` (300) |
+
+The verified limits are wide because an event's check-in form can get a few hundred answers within a minute from one network. An answer accepted without verification (see [Failure behavior](#failure-behavior)) is counted again against the tight limits, because during an outage nothing else stops a script. Over a limit, the answer is refused with `429` `tooManySubmissions` and `retryAfterSeconds`; the frontend waits and sends it again by itself.
+
+When Redis cannot be reached, verified answers skip the counters, so a Redis outage does not lose answers, and unverified answers are refused with `503` `submitUnavailable`, because nothing would bound them. An answer accepted without verification gets **no response copy mail**: the address it would go to was typed by someone Forms could not check.
+
 ### Reason codes
 
 Refusals use the usual envelope with the code in `data.reason`. Submit refusals also name the `questionId` and, where it applies, `scanResult` and `retryAfterSeconds`.
@@ -363,6 +377,8 @@ Refusals use the usual envelope with the code in `data.reason`. Submit refusals 
 | `sessionExpired` | 410 | The session is missing, expired or belongs to another form |
 | `tooManySessions` | 429 | The client address opened too many sessions this minute |
 | `tooManyUploads` | 429 | The client address or the form reached its file count for this minute, or core's budget refused |
+| `tooManySubmissions` | 429 | The client address or the form reached its answer count for this minute, see [Guest answers](#guest-answers) |
+| `submitUnavailable` | 503 | An answer that would be accepted without verification while Redis cannot be reached. `retryAfterSeconds` is 5 |
 | `sessionFileLimit` | 429 | The session used up its file count |
 | `questionNotFound` | 400 | `questionId` is not a top-level file question of the form |
 | `fileEmpty` | 400 | No file, or an empty one |
@@ -379,7 +395,7 @@ A closed form answers `410` with `reason: "closed"`, as the display payload does
 
 Uploads **fail closed**. Sessions and counters live in Redis, and every Redis call has a one-second budget; when Redis or core cannot be reached, the upload endpoints answer `503` instead of letting a file through unchecked. Opening a session also needs Cloudflare to answer.
 
-Submit verification **fails open**. When Cloudflare does not answer after one retry (about six seconds in total), answers with a `5xx` or reports `internal-error`, Forms logs a warning and accepts the answer without verification, so a Cloudflare outage does not lose guest answers. A token Cloudflare refuses is always rejected, and so is every answer while siteverify returns a `4xx` (a block or rate-limit page): Cloudflare answered, so that is a refusal, not an outage. An answer with files still needs Redis and core, so its files fail closed.
+Submit verification **fails open**. When Cloudflare does not answer after one retry (about six seconds in total), answers with a `5xx` or reports `internal-error`, Forms logs a warning and accepts the answer without verification, so a Cloudflare outage does not lose guest answers. A token Cloudflare refuses is always rejected, and so is every answer while siteverify returns a `4xx` (a block or rate-limit page): Cloudflare answered, so that is a refusal, not an outage. Answers accepted without verification face the tight limits in [Guest answers](#guest-answers). An answer with files still needs Redis and core, so its files fail closed.
 
 A guest answer **without a token** is accepted only while Forms itself cannot reach Cloudflare. During a full outage the browser cannot load the widget, so it sends the answer without a token; Forms then checks siteverify itself and accepts the answer only when that check gets no reply. When Cloudflare answers, the missing token is the browser's own problem (an ad blocker, a firewall) and the answer is refused with `verificationFailed`, so leaving the token out never skips verification. The result of that check is kept for 60 seconds while Cloudflare is reachable and for 15 seconds while it is not; answers that arrive while it runs wait for that one check instead of starting their own. `GET /api/forms/turnstile` returns `{ enabled, reachable }` from the same check, so the page can tell an outage from a blocked script.
 
@@ -585,6 +601,11 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` | Guest upload sessions one client address may open per minute, from 1 to 10000 | No, defaults to `30` |
 | `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` | Guest files one client address may upload per minute, from 1 to 10000 | No, defaults to `60` |
 | `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` | Guest files one form may receive per minute, from 1 to 100000 | No, defaults to `200` |
+| `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, defaults to `300` |
+| `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, defaults to `1000` |
+| `FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE` | Guest answers accepted without verification from one client address per minute, from 1 to 100000 | No, defaults to `20` |
+| `FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE` | Guest answers accepted without verification for one form per minute, from 1 to 100000 | No, defaults to `60` |
+| `FORMS_GUEST_UNVERIFIED_PER_MINUTE` | Guest answers accepted without verification across all forms per minute, from 1 to 1000000 | No, defaults to `300` |
 | `TURNSTILE_ALLOW_TEST_SECRET` | `true` lets a Cloudflare test secret run outside `Development` | No |
 | `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; an invalid entry stops startup | No, defaults to `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
 

@@ -9,6 +9,7 @@ namespace Skylab.Forms.Application.GuestUploads;
 public static class GuestUploadKeys
 {
     private const string Prefix = "forms:guest-upload:";
+    private const string SubmitPrefix = "forms:guest-submit:";
     private const int SessionIdBytes = 32;
     private const int SessionIdLength = 43;
     private const int SubjectLength = 32;
@@ -25,6 +26,16 @@ public static class GuestUploadKeys
     public static string IpFiles(string subject, long bucket) => $"{Prefix}ip:{subject}:files:{bucket}";
 
     public static string FormFiles(Guid formId, long bucket) => $"{Prefix}form:{formId}:files:{bucket}";
+
+    public static string IpSubmits(string subject, long bucket) => $"{SubmitPrefix}ip:{subject}:{bucket}";
+
+    public static string FormSubmits(Guid formId, long bucket) => $"{SubmitPrefix}form:{formId}:{bucket}";
+
+    public static string UnverifiedIpSubmits(string subject, long bucket) => $"{SubmitPrefix}unverified:ip:{subject}:{bucket}";
+
+    public static string UnverifiedFormSubmits(Guid formId, long bucket) => $"{SubmitPrefix}unverified:form:{formId}:{bucket}";
+
+    public static string UnverifiedSubmits(long bucket) => $"{SubmitPrefix}unverified:all:{bucket}";
 
     public static string NewSessionId() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(SessionIdBytes)).Replace('+', '-').Replace('/', '_').TrimEnd('=');

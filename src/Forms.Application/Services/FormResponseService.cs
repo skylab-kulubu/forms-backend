@@ -165,7 +165,7 @@ public class FormResponseService : IFormResponseService
         if (attemptId.HasValue)
             await _attempts.MarkSubmittedAsync(attemptId.Value, response.Id, cancellationToken);
 
-        await AfterResponseSavedAsync(form, response, cancellationToken);
+        await AfterResponseSavedAsync(form, response, cancellationToken, sendCopy: guestGate.Verified);
 
         var status = form.RequiresManualReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
         var message = form.RequiresManualReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
@@ -207,14 +207,15 @@ public class FormResponseService : IFormResponseService
         return new ServiceResult<ResponseSubmitResult>(workflow.Status, result, workflow.Message);
     }
 
-    private async Task AfterResponseSavedAsync(Form form, FormResponse response, CancellationToken cancellationToken)
+    private async Task AfterResponseSavedAsync(Form form, FormResponse response, CancellationToken cancellationToken, bool sendCopy = true)
     {
         await _cache.TryRemoveAsync(FormCacheKeys.Analytics(form.Id), cancellationToken);
 
         if (response.UserId.HasValue)
             await _draftService.DeleteResponseDraftAsync(form.Id, response.UserId.Value, cancellationToken);
 
-        await _mailNotifier.NotifyResponseCopyAsync(form, response, cancellationToken);
+        if (sendCopy)
+            await _mailNotifier.NotifyResponseCopyAsync(form, response, cancellationToken);
     }
 
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
