@@ -28,7 +28,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .GroupBy(_ => 1)
             .Select(g => new FormResponseCounts(
                 g.Count(),
-                g.Count(r => r.Status == FormResponseStatus.Pending),
+                g.Count(r => r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged),
                 g.Average(r => (double?)r.TimeSpent)
             ))
             .FirstOrDefaultAsync(ct);
@@ -125,7 +125,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
             ResponsesWith(FormResponseStatus.Provisional),
             AttemptsWith(FormAttemptStatus.Started),
             AttemptsWith(FormAttemptStatus.Opened),
-            AttemptsWith(FormAttemptStatus.NoSubmission));
+            AttemptsWith(FormAttemptStatus.NoSubmission),
+            ResponsesWith(FormResponseStatus.Flagged));
 
         var wantResponses = responsesAllowed;
         var wantAttempts = attemptsAllowed;
@@ -284,7 +285,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public async Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default)
     {
         var formCounts = await _context.Responses.AsNoTracking()
-            .Where(r => r.Status == FormResponseStatus.Pending
+            .Where(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged)
                 && !r.IsArchived
                 && r.PendingReminderSentAt == null
                 && r.SubmittedAt <= cutoff)
@@ -318,7 +319,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default) =>
         _context.Responses
             .IgnoreQueryFilters()
-            .Where(r => r.Status == FormResponseStatus.Pending
+            .Where(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged)
                 && !r.IsArchived
                 && r.PendingReminderSentAt == null
                 && r.SubmittedAt <= cutoff)

@@ -24,7 +24,7 @@ public class ResponseNotification
         var status = response.Status switch
         {
             FormResponseStatus.NonRestrict or FormResponseStatus.Approved => "accepted",
-            FormResponseStatus.Pending => "pending",
+            FormResponseStatus.Pending or FormResponseStatus.Flagged => "pending",
             FormResponseStatus.Declined => "declined",
             _ => null
         };

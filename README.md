@@ -363,7 +363,15 @@ Every guest answer is counted per client address and per form, with or without f
 
 The verified limits are wide because an event's check-in form can get a few hundred answers within a minute from one network. An answer accepted without verification (see [Failure behavior](#failure-behavior)) is counted again against the tight limits, because during an outage nothing else stops a script. Over a limit, the answer is refused with `429` `tooManySubmissions` and `retryAfterSeconds`; the frontend waits and sends it again by itself.
 
-When Redis cannot be reached, verified answers skip the counters, so a Redis outage does not lose answers, and unverified answers are refused with `503` `submitUnavailable`, because nothing would bound them. An answer accepted without verification gets **no response copy mail**: the address it would go to was typed by someone Forms could not check.
+When Redis cannot be reached, verified answers skip the counters, so a Redis outage does not lose answers, and unverified answers are refused with `503` `submitUnavailable`, because nothing would bound them.
+
+An answer accepted without verification is saved as **`Flagged`** (`5`), whatever the form's review setting, and the guest is told it is under review (`PendingApproval`). Nobody checked that a person sent it or that the typed address belongs to them, so until a reviewer decides:
+
+- it gets **no response copy mail**;
+- it is reported to core as `pending`, so an Event form writes no ticket for it;
+- it counts as waiting in the response counts and the pending reminders, and has its own status in the list filter.
+
+Approving it sends the usual approval mail and reports it to core as `accepted`. Declining it, or archiving it (which declines it), sends **no mail**, because the address may be someone else's. A reviewer cannot move an answer into `Flagged`.
 
 ### Reason codes
 

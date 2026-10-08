@@ -20,7 +20,7 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
             .GroupBy(_ => 1)
             .Select(g => new FormBasicStats(
                 g.Count(),
-                g.Count(r => r.Status == FormResponseStatus.Pending),
+                g.Count(r => r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged),
                 g.Count(r => r.Status == FormResponseStatus.Approved),
                 g.Count(r => r.Status == FormResponseStatus.Declined),
                 g.Average(r => (double?)r.TimeSpent),
@@ -66,7 +66,7 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
 
     public Task<int> GetPendingNonArchivedResponsesCountAsync(CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
-            .CountAsync(r => r.Status == FormResponseStatus.Pending && !r.IsArchived, ct);
+            .CountAsync(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged) && !r.IsArchived, ct);
 
     public async Task<IReadOnlyList<DateTime>> GetFormCreatedDatesAsync(DateTime sinceDate, CancellationToken ct = default) =>
         await _context.Forms.AsNoTracking()

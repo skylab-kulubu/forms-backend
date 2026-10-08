@@ -114,5 +114,6 @@ public record ResponseStatusCountsContract(
     int Provisional,
     int Running,
     int Opened,
-    int NoSubmission
+    int NoSubmission,
+    int Flagged
 );

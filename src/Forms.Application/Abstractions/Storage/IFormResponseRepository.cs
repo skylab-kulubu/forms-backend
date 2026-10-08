@@ -66,7 +66,8 @@ public sealed record ResponseStatusCounts(
     int Provisional,
     int Running,
     int Opened,
-    int NoSubmission
+    int NoSubmission,
+    int Flagged
 );
 
 public sealed record PagedResponsesProjection(

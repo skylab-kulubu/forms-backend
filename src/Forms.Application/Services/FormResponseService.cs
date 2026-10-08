@@ -141,6 +141,7 @@ public class FormResponseService : IFormResponseService
         }
 
         var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
+        if (!guestGate.Verified) response.Status = FormResponseStatus.Flagged;
 
         IReadOnlyList<GuestAttachment> attachments = [];
         if (guestGate.Files.Count > 0)
@@ -170,8 +171,9 @@ public class FormResponseService : IFormResponseService
 
         await AfterResponseSavedAsync(form, response, cancellationToken, sendCopy: guestGate.Verified);
 
-        var status = form.RequiresManualReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
-        var message = form.RequiresManualReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
+        var underReview = form.RequiresManualReview || response.Status == FormResponseStatus.Flagged;
+        var status = underReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
+        var message = underReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
 
         var result = new ResponseSubmitResult(response.Id, LinkedFormId: null, Step: 0);
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
@@ -269,7 +271,7 @@ public class FormResponseService : IFormResponseService
         var finalResult = new FormResponsesListResult(
             resultData,
             paged.AverageTimeSpent,
-            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission),
+            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission, counts.Flagged),
             paged.AverageTaskSeconds,
             hasTimeLimit);
 
@@ -467,6 +469,9 @@ public class FormResponseService : IFormResponseService
         if (contract.NewStatus == FormResponseStatus.Provisional)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap geçici duruma alınamaz.");
 
+        if (contract.NewStatus == FormResponseStatus.Flagged)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap doğrulanmamış duruma alınamaz.");
+
         var workflow = await _workflowRuntime.ReviewAsync(response, contract.NewStatus, reviewerId, contract.Note, cancellationToken);
 
         if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
@@ -479,11 +484,14 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu güncellendi ve akış ilerletildi.");
         }
 
+        var declinesFlagged = response.Status == FormResponseStatus.Flagged && contract.NewStatus == FormResponseStatus.Declined;
+
         response.ApplyReview(contract.NewStatus, reviewerId, contract.Note, DateTime.UtcNow);
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, ct: cancellationToken);
+        if (!declinesFlagged)
+            await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, ct: cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu başarıyla güncellendi.");
     }
@@ -506,7 +514,7 @@ public class FormResponseService : IFormResponseService
         if (response.Status == FormResponseStatus.Provisional)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Geçici cevap arşivlenemez; önce karar verin.");
 
-        if (response.Status == FormResponseStatus.Pending)
+        if (response.Status is FormResponseStatus.Pending or FormResponseStatus.Flagged)
         {
             if (await _workflowRuntime.HasPendingRouteAsync(responseId, cancellationToken))
             {
