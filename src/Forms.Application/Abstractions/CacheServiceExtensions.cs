@@ -19,4 +19,10 @@ public static class CacheServiceExtensions
         try { await cache.RemoveAsync(key, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { }
     }
+
+    public static async Task<long?> TryIncrementAsync(this ICacheService cache, string key, TimeSpan window, CancellationToken ct = default)
+    {
+        try { return await cache.IncrementAsync(key, window, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
+    }
 }

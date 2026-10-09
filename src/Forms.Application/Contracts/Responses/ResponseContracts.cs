@@ -24,7 +24,8 @@ public record ResponseContract(
     UserContract? SharedBy = null,
     ResponseAttribution? Attribution = null,
     FormAttemptDetailContract? Attempt = null,
-    FormTask? Task = null
+    FormTask? Task = null,
+    ResponseGuest? Guest = null
 );
 
 /// <summary>
@@ -70,7 +71,10 @@ public record ResponseSubmitResult(
     Guid? NextFormId = null,
     Guid? StartFormId = null,
     string? Reason = null,
-    WorkflowJourneyContract? Workflow = null
+    WorkflowJourneyContract? Workflow = null,
+    string? QuestionId = null,
+    string? ScanResult = null,
+    int? RetryAfterSeconds = null
 );
 
 public record ResponseSummaryContract(
@@ -84,7 +88,8 @@ public record ResponseSummaryContract(
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
     int? TimeSpent = null,
-    ResponseAttemptSummaryContract? Attempt = null
+    ResponseAttemptSummaryContract? Attempt = null,
+    ResponseGuest? Guest = null
 );
 
 public record ResponseAttemptSummaryContract(
@@ -109,5 +114,6 @@ public record ResponseStatusCountsContract(
     int Provisional,
     int Running,
     int Opened,
-    int NoSubmission
+    int NoSubmission,
+    int Flagged
 );
