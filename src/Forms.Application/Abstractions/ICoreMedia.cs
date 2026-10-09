@@ -4,12 +4,12 @@ public interface ICoreMedia
 {
     Task<CoreMediaUpload> UploadGuestAnswerAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default);
     Task<CoreMediaRead> GetAsync(Guid mediaId, CancellationToken ct = default);
-    Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, CancellationToken ct = default);
+    Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default);
     Task<bool> DetachAsync(Guid mediaId, Guid attachmentId, CancellationToken ct = default);
     Task<CoreMediaLink> CreateLinkAsync(Guid mediaId, Guid onBehalfOf, CancellationToken ct = default);
 }
 
-public sealed record CoreMedia(Guid Id, string? Name, string? Type, long Size, string? Url, string? Purpose, string? Visibility, string? Status, string? ScanResult);
+public sealed record CoreMedia(Guid Id, string? Name, string? Type, long Size, string? Url, string? Purpose, string? Visibility, string? Status, string? ScanResult, Guid? UploadedBy);
 
 public enum CoreMediaOutcome
 {
@@ -46,7 +46,9 @@ public static class CoreMediaStatus
 
 public static class CoreMediaPurpose
 {
+    public const string AnswerFile = "answer_file";
     public const string AnswerFileGuest = "answer_file_guest";
+    public const string Legacy = "legacy";
 }
 
 public static class CoreMediaVisibility
