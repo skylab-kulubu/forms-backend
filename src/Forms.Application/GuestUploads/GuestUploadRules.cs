@@ -12,27 +12,35 @@ public static class GuestUploadRules
     public const string Pdf = "application/pdf";
     public const string Jpeg = "image/jpeg";
     public const string Png = "image/png";
+    public const string Docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     private const double BytesPerMegabyte = 1024 * 1024;
     private const string FallbackFileName = "dosya";
 
     public static readonly IReadOnlyList<string> Types = [Pdf, Jpeg, Png];
 
+    /// <summary>Girişli kişinin yükleyebildiği türler: core'un answer_file amacının türleri.</summary>
+    public static readonly IReadOnlyList<string> AccountTypes = [Pdf, Jpeg, Png, Docx];
+
     public static bool IsFileQuestion(FormSchemaItem item) =>
         string.Equals(item.Type, FileQuestionType, StringComparison.Ordinal);
 
-    public static IReadOnlyList<string> EffectiveTypes(FormSchemaItem item)
+    public static IReadOnlyList<string> EffectiveTypes(FormSchemaItem item) => EffectiveTypes(item, Types);
+
+    public static IReadOnlyList<string> EffectiveAccountTypes(FormSchemaItem item) => EffectiveTypes(item, AccountTypes);
+
+    private static IReadOnlyList<string> EffectiveTypes(FormSchemaItem item, IReadOnlyList<string> supported)
     {
         var rules = (ReadText(item, "acceptedFiles") ?? string.Empty)
             .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
-        if (rules.Length == 0) return Types;
+        if (rules.Length == 0) return supported;
 
         var wanted = rules
             .SelectMany(rule => TypesOfRule(rule.ToLowerInvariant()))
             .ToHashSet(StringComparer.Ordinal);
 
-        return [.. Types.Where(wanted.Contains)];
+        return [.. supported.Where(wanted.Contains)];
     }
 
     public static long EffectiveMaxBytes(FormSchemaItem item)
@@ -74,7 +82,9 @@ public static class GuestUploadRules
 
     private static string[] TypesOfRule(string rule) => rule switch
     {
-        ".pdf" or "application/pdf" or "application/*" => [Pdf],
+        ".pdf" or "application/pdf" => [Pdf],
+        ".docx" or Docx => [Docx],
+        "application/*" => [Pdf, Docx],
         ".jpg" or ".jpeg" or ".jpe" or ".jfif" or "image/jpeg" or "image/jpg" or "image/pjpeg" => [Jpeg],
         ".png" or "image/png" => [Png],
         "image/*" => [Jpeg, Png],

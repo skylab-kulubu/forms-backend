@@ -406,6 +406,13 @@ public class GuestUploadService : IGuestUploadService
         if (!string.Equals(media.Purpose, CoreMediaPurpose.AnswerFile, StringComparison.Ordinal) || media.UploadedBy != userId)
             return Refuse(GuestUploadReason.FileExpired, questionId: question.Id);
 
+        if (media.Type is not { } type || !GuestUploadRules.EffectiveAccountTypes(question).Contains(type, StringComparer.OrdinalIgnoreCase))
+            return Refuse(GuestUploadReason.FileTypeNotAllowed, questionId: question.Id);
+
+        // Core görseli yeniden kodlayıp sakladığı için görselde sınır saklanan boyuta uygulanır.
+        var maxBytes = GuestUploadRules.EffectiveMaxBytes(question);
+        if (media.Size > maxBytes) return Refuse(GuestUploadReason.FileTooLarge, questionId: question.Id, maxBytes: maxBytes);
+
         return media.Status switch
         {
             CoreMediaStatus.Scanning => Refuse(GuestUploadReason.FileScanning, ScanningRetryAfterSeconds, question.Id),

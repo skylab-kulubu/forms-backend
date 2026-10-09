@@ -325,7 +325,7 @@ A signed-in respondent's browser uploads a file answer to core itself, as `answe
 
 Forms keeps each link in `AnswerFileLinks` with core's attachment id, which removing the link needs. `AnswerFileLinkWorker` applies them every 10 seconds and retries a failure with a growing delay of up to an hour, so a core outage delays a link but loses none; a file that was linked once stays in core for 30 days after its last link goes. A file core no longer has, one uploaded without a purpose (`legacy`), someone else's, or one the scan rejected is not linked.
 
-On submit Forms reads each file answer from core and refuses one that is not the respondent's `answer_file` (`fileExpired`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
+On submit Forms reads each file answer from core and refuses one that is not the respondent's `answer_file` (`fileExpired`), whose type or size the question does not allow (`fileTypeNotAllowed`, `fileTooLarge`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). Signed-in respondents can upload PDF, JPEG, PNG and DOCX of at most 50 MiB, narrowed by the question's `acceptedFiles` and `maxSize`; for an image, which core re-encodes, the size checked is the stored one. A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
 
 ## Guest uploads and Turnstile
 
