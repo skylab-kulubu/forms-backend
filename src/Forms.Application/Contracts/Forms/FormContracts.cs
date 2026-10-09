@@ -32,7 +32,8 @@ public record FormDisplayContract(
     bool RequiresManualReview = false,
     FormTask? Task = null,
     DateTime? ClosesAt = null,
-    int? TimeLimitMinutes = null
+    int? TimeLimitMinutes = null,
+    bool AllowAnonymousResponses = false
 );
 
 public record FormSummaryContract(

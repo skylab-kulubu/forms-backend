@@ -278,7 +278,7 @@ A workflow that lets people apply again keeps the **last result** in view. When 
 
 `state` is `3` for a completed application and `4` for a declined one, and `workflow` is that application's own journey. A faulted application adds nothing, so it never stands between the applicant and a new start.
 
-Forms used on their own get the smaller part of the same information. The display payload's `form.requiresManualReview` tells the client whether an answer goes to review; answered states (`201`, `600`, `601`, `602`) add `formTitle` and `submittedAt`; `401` and `410` add `formTitle`, so every status screen can name the form. A signed-in user who already answered a form that takes one response gets `201` or the review status, never the form again.
+Forms used on their own get the smaller part of the same information. The display payload's `form.requiresManualReview` tells the client whether an answer goes to review, and `form.allowAnonymousResponses` whether the form also takes answers without sign-in, so a respondent whose session ends mid-form can be offered to go on as a guest; answered states (`201`, `600`, `601`, `602`) add `formTitle` and `submittedAt`; `401` and `410` add `formTitle`, so every status screen can name the form. A signed-in user who already answered a form that takes one response gets `201` or the review status, never the form again.
 
 ### Intake
 

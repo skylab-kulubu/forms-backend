@@ -608,7 +608,8 @@ public class FormService : IFormService
             requiresManualReview,
             form.Task,
             form.ClosesAt,
-            form.TimeLimitMinutes);
+            form.TimeLimitMinutes,
+            form.AllowAnonymousResponses);
 
     private static FormTask? NormalizeTask(FormTask? task) =>
         task is null || string.IsNullOrWhiteSpace(task.Content)
