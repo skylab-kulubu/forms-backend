@@ -94,6 +94,22 @@ The mTLS files are required when TLS is on; mount them read-only and never put k
 
 A blocked subject gets `401`. A missing contract, malformed marker, timeout, or Redis failure gets `503` with `Retry-After`, without reaching the endpoint. `GET /health/live` never touches Redis; `GET /health/ready` reports `503` until the gate contract reads back.
 
+## Account erasure
+
+Core sends its account erasure command to `PUT /internal/v1/account-erasures/{request_id}` (core's [`docs/account-erasure-command.md`](https://github.com/skylab-kulubu/core-backend/blob/main/docs/account-erasure-command.md), Forms in §10). The route is for core on the internal Docker network: a request that came through Traefik (`X-Forwarded-*`, `Forwarded`, `X-Real-Ip`) gets `404` before the token is read, and the token must carry `azp` `core-erasure` and the `skyforms:account:erase` role in `resource_access.forms.roles`. It is not in Swagger.
+
+- The person must be blocked in the account access Redis, otherwise `409 subject_not_blocked`. An unreadable gate gets `503` (`Retry-After: 30`); `ACCOUNT_ACCESS_GATE_MODE=off` gets `503` (`Retry-After: 300`).
+- The work commits in one transaction and runs on a server-side 90-second budget, not on the request. It is idempotent, so there is no receipt or lock: a repeat answers `200` with zero counts.
+- Logs carry the request id, a fixed code and the counts, never the subject or an address.
+
+What changes, deleted forms and archived templates included:
+
+- The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay.
+- Reviewer, archiver and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts and answer file links are deleted; active workflow runs are terminated.
+- The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending core notification loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
+- Pending core notifications of the person's own responses are deleted, and a response owned by `Silinmiş kullanıcı` is never reported to core again.
+- Names are not searched. Response share links expire within an hour and are left to expire.
+
 ## Forms Capabilities
 
 Dynamic form creation and response management service.

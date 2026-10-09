@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 
@@ -21,6 +22,9 @@ public class ResponseNotification
     /// <summary>Henüz kesinleşmemiş (geçici) cevap için null; o, teslim edildiğinde bildirilir.</summary>
     public static ResponseNotification? For(FormResponse response, DateTime now)
     {
+        // Silinmiş kullanıcıya geçmiş yanıtın durumu sonradan değişse de core onun adına bilet yazmamalı.
+        if (response.UserId == DeletedUser.Id) return null;
+
         var status = response.Status switch
         {
             FormResponseStatus.NonRestrict or FormResponseStatus.Approved => "accepted",

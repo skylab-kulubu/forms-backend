@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Skylab.Forms.Application.Services;
+using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.ShortLinks;
@@ -22,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IFormShortLinkService, FormShortLinkService>();
         services.AddScoped<IFormAttemptService, FormAttemptService>();
         services.AddScoped<IGuestUploadService, GuestUploadService>();
+        services.AddScoped<IAccountErasureService, AccountErasureService>();
 
         return services;
     }

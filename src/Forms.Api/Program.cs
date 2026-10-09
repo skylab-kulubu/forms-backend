@@ -28,6 +28,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
+app.UseInternalEndpointGuard();
 app.UseForwardedHeaders();
 
 await app.Services.ApplyDatabaseMigrationsAsync();
@@ -42,5 +43,6 @@ app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
 app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();
+app.MapInternalEndpoints();
 
 app.Run();

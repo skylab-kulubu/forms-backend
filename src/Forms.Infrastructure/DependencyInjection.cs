@@ -56,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<IFormWorkflowRepository, FormWorkflowRepository>();
         services.AddScoped<IFormWorkflowInstanceRepository, FormWorkflowInstanceRepository>();
         services.AddScoped<IFormAttemptRepository, FormAttemptRepository>();
+        services.AddScoped<IAccountErasureRepository, AccountErasureRepository>();
         services.AddScoped<IFormsUnitOfWork, FormsUnitOfWork>();
 
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
