@@ -6,5 +6,6 @@ public enum FormResponseStatus
     Pending = 1,
     Approved = 2,
     Declined = 3,
-    Provisional = 4
+    Provisional = 4,
+    Flagged = 5
 }

@@ -56,4 +56,16 @@ public class RedisCacheService : ICacheService
         await _db.KeyDeleteAsync(key);
     }
 
+    // INCR ile PEXPIRE tek betikte: arada kopan bağlantı süresiz bir sayaç bırakmasın.
+    private const string IncrementScript = """
+        local count = redis.call('INCR', KEYS[1])
+        if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+        return count
+        """;
+
+    public async Task<long> IncrementAsync(string key, TimeSpan window, CancellationToken ct)
+    {
+        var count = await _db.ScriptEvaluateAsync(IncrementScript, [key], [(long)window.TotalMilliseconds]);
+        return (long)count;
+    }
 }

@@ -28,7 +28,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .GroupBy(_ => 1)
             .Select(g => new FormResponseCounts(
                 g.Count(),
-                g.Count(r => r.Status == FormResponseStatus.Pending),
+                g.Count(r => r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged),
                 g.Average(r => (double?)r.TimeSpent)
             ))
             .FirstOrDefaultAsync(ct);
@@ -39,6 +39,10 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public Task<bool> HasNonArchivedResponseAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
             .AnyAsync(r => r.FormId == formId && r.UserId == userId && !r.IsArchived && r.Status != FormResponseStatus.Provisional, ct);
+
+    public Task<bool> HasGuestResponseBeforeAsync(Guid formId, string email, DateTime submittedAt, CancellationToken ct = default) =>
+        _context.Responses.AsNoTracking()
+            .AnyAsync(r => r.FormId == formId && r.Guest!.Email == email && r.SubmittedAt < submittedAt, ct);
 
     public Task<FormResponse?> GetByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
@@ -121,7 +125,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
             ResponsesWith(FormResponseStatus.Provisional),
             AttemptsWith(FormAttemptStatus.Started),
             AttemptsWith(FormAttemptStatus.Opened),
-            AttemptsWith(FormAttemptStatus.NoSubmission));
+            AttemptsWith(FormAttemptStatus.NoSubmission),
+            ResponsesWith(FormResponseStatus.Flagged));
 
         var wantResponses = responsesAllowed;
         var wantAttempts = attemptsAllowed;
@@ -147,7 +152,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
         var responseItems = wantResponses
             ? await (ascending ? responses.OrderBy(r => r.SubmittedAt) : responses.OrderByDescending(r => r.SubmittedAt))
                 .Take(take)
-                .Select(r => new { r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent })
+                .Select(r => new { r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, r.Guest })
                 .ToListAsync(ct)
             : [];
 
@@ -238,7 +243,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 }
 
                 return new ResponseRowProjection(
-                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt);
+                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt, r.Guest);
             }
 
             var a = attemptItems.First(item => item.Id == row.AttemptId);
@@ -280,7 +285,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public async Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default)
     {
         var formCounts = await _context.Responses.AsNoTracking()
-            .Where(r => r.Status == FormResponseStatus.Pending
+            .Where(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged)
                 && !r.IsArchived
                 && r.PendingReminderSentAt == null
                 && r.SubmittedAt <= cutoff)
@@ -314,7 +319,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default) =>
         _context.Responses
             .IgnoreQueryFilters()
-            .Where(r => r.Status == FormResponseStatus.Pending
+            .Where(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged)
                 && !r.IsArchived
                 && r.PendingReminderSentAt == null
                 && r.SubmittedAt <= cutoff)

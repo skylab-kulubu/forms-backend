@@ -1,5 +1,6 @@
 using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Forms;
+using Skylab.Forms.Application.Contracts.GuestUploads;
 using Skylab.Forms.Application.Contracts.Workflows;
 
 namespace Skylab.Forms.Application.Contracts;
@@ -24,5 +25,6 @@ public record FormDisplayPayload(
     WorkflowLastRunContract? LastRun = null,
     FormAttemptDisplayContract? Attempt = null,
     DateTime? ServerNow = null,
-    DateTime? ClosesAt = null
+    DateTime? ClosesAt = null,
+    GuestUploadsContract? GuestUploads = null
 );

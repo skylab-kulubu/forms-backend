@@ -11,4 +11,5 @@ public class FormMailOptions
 
     public int ReminderThresholdHours { get; set; } = 36;
     public int ReminderScanIntervalMinutes { get; set; } = 30;
+    public int GuestCopyDailyLimit { get; set; } = 3;
 }

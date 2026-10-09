@@ -19,18 +19,16 @@ public record FormContract(
     List<FormCollaboratorContract> Collaborators,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    EventRefContract? Event = null,
     FormTask? Task = null,
     DateTime? ClosesAt = null,
     int? TimeLimitMinutes = null
 );
 
-    public record FormDisplayContract(
+public record FormDisplayContract(
     Guid Id,
     string Title,
     string? Description,
     List<FormSchemaItem> Schema,
-    Guid? EventId = null,
     bool RequiresManualReview = false,
     FormTask? Task = null,
     DateTime? ClosesAt = null,
@@ -47,9 +45,7 @@ public record FormSummaryContract(
     bool RequiresManualReview,
     FormWorkflowRefContract? Workflow,
     DateTime? UpdatedAt,
-    int ResponseCount,
-    Guid? EventId,
-    EventRefContract? Event = null
+    int ResponseCount
 );
 
 public record FormAllSummaryContract(
@@ -63,8 +59,7 @@ public record FormAllSummaryContract(
     FormWorkflowRefContract? Workflow,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    int ResponseCount,
-    EventRefContract? Event = null
+    int ResponseCount
 );
 
 public record FormWorkflowRefContract(
@@ -86,9 +81,4 @@ public record FormLockedQuestionContract(
 public record FormMetaContract(
     string Title,
     string? Description
-);
-
-public record EventRefContract(
-    Guid Id,
-    string? Name
 );

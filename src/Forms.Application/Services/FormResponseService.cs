@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Cryptography;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Attribution;
@@ -11,7 +12,9 @@ using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.GuestUploads;
 using Skylab.Forms.Application.Services.Attempts;
+using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -36,10 +39,10 @@ public class FormResponseService : IFormResponseService
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
-    private readonly ICoreGuestApply _guestApply;
-    private readonly ICoreEventLookup _events;
     private readonly IFormAttemptService _attempts;
     private readonly IFormAttemptRepository _attemptRecords;
+    private readonly IGuestUploadService _guestUploads;
+    private readonly ICoreMedia _media;
 
     public FormResponseService(
         IFormRepository forms,
@@ -53,13 +56,15 @@ public class FormResponseService : IFormResponseService
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
-        ICoreGuestApply guestApply,
-        ICoreEventLookup events,
         IFormAttemptService attempts,
-        IFormAttemptRepository attemptRecords)
+        IFormAttemptRepository attemptRecords,
+        IGuestUploadService guestUploads,
+        ICoreMedia media)
     {
         _attempts = attempts;
         _attemptRecords = attemptRecords;
+        _guestUploads = guestUploads;
+        _media = media;
         _forms = forms;
         _responses = responses;
         _uow = uow;
@@ -71,17 +76,11 @@ public class FormResponseService : IFormResponseService
         _currentUserService = currentUserService;
         _workflowRuntime = workflowRuntime;
         _instances = instances;
-        _guestApply = guestApply;
-        _events = events;
     }
 
-    /// <param name="InstanceResponseIds">
-    /// Paylasim, cevabin ait oldugu basvurunun butun adimlarini kapsar: inceleyen
-    /// baslangictan itibaren tum cevaplari gorebilsin.
-    /// </param>
     private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
-    public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, IPAddress? clientAddress, CancellationToken cancellationToken = default)
     {
         var form = await _forms.GetByIdAsync(contract.FormId, cancellationToken);
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
@@ -95,10 +94,22 @@ public class FormResponseService : IFormResponseService
                 "Bu form kapanış saatinde kendiliğinden kapandı.");
         }
 
-        if (!form.AllowAnonymousResponses && userId == null && form.EventId is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
+        if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");
 
-        var guestTicket = await WriteGuestTicketAsync(form, contract.Responses, cancellationToken);
-        if (guestTicket is not null) return guestTicket;
+        ResponseGuest? guest = null;
+
+        if (userId == null && ResponseGuest.IsAskedBy(form.Schema))
+        {
+            guest = ResponseGuest.From(form.Schema, contract.Responses);
+            if (guest is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
+        }
+
+        var guestGate = GuestSubmitGate.Pass;
+        if (userId == null)
+        {
+            guestGate = await _guestUploads.CheckSubmitAsync(form, contract, clientAddress, cancellationToken);
+            if (guestGate.Rejection is not null) return guestGate.Rejection;
+        }
 
         Guid? attemptId = null;
 
@@ -129,35 +140,45 @@ public class FormResponseService : IFormResponseService
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
+        if (!guestGate.Verified) response.Status = FormResponseStatus.Flagged;
 
-        _responses.Add(response);
-        await _uow.SaveChangesAsync(cancellationToken);
+        IReadOnlyList<GuestAttachment> attachments = [];
+        if (guestGate.Files.Count > 0)
+        {
+            var attach = await _guestUploads.AttachAsync(guestGate.Files, response.Id, cancellationToken);
+            if (attach.Rejection is not null) return attach.Rejection;
+
+            attachments = attach.Attachments;
+        }
+
+        try
+        {
+            _responses.Add(response);
+            await _uow.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            await _guestUploads.DetachAsync(attachments);
+            throw;
+        }
+
+        if (guestGate.SessionId is { } guestSessionId)
+            await _guestUploads.ConsumeAsync(guestSessionId, guestGate.Files);
 
         if (attemptId.HasValue)
             await _attempts.MarkSubmittedAsync(attemptId.Value, response.Id, cancellationToken);
 
-        await AfterResponseSavedAsync(form, response, cancellationToken);
+        await AfterResponseSavedAsync(form, response, cancellationToken, sendCopy: guestGate.Verified);
 
-        var status = form.RequiresManualReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
-        var message = form.RequiresManualReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
+        var underReview = form.RequiresManualReview || response.Status == FormResponseStatus.Flagged;
+        var status = underReview ? ServiceStatus.PendingApproval : ServiceStatus.Success;
+        var message = underReview ? "Yanıtınız incelemeye alındı." : "Yanıt kaydedildi.";
 
         var result = new ResponseSubmitResult(response.Id, LinkedFormId: null, Step: 0);
         return new ServiceResult<ResponseSubmitResult>(status, Data: result, Message: message);
     }
 
-    private async Task<ServiceResult<ResponseSubmitResult>?> WriteGuestTicketAsync(
-        Form form,
-        List<FormResponseSchemaItem> answers,
-        CancellationToken cancellationToken)
-    {
-        return await GuestTicketWriter.WriteAsync(form, answers, _events, _guestApply, cancellationToken);
-    }
-
-    /// <summary>
-    /// Form yayındaki bir akışın parçasıysa cevabı akış motoru kaydeder ve rotayı
-    /// seçer. Akışa ait değilse null döner; tekil form yolu işlemeye devam eder.
-    /// </summary>
     private async Task<ServiceResult<ResponseSubmitResult>?> SubmitThroughWorkflowAsync(
         Form form,
         ResponseSubmitRequest contract,
@@ -172,15 +193,12 @@ public class FormResponseService : IFormResponseService
         if (workflow.Data is not { } outcome)
             return new ServiceResult<ResponseSubmitResult>(workflow.Status, Message: workflow.Message);
 
-        // Reddedilen gönderimde cevap kaydedilmedi; yan etkiler çalışmamalı. Sonuç yine
-        // de döner: istemci "kaldığın yerden devam et" için başlangıç formuna ihtiyaç duyar.
         var rejected = workflow.Status.IsFailure();
 
         if (!rejected) await AfterResponseSavedAsync(form, response, cancellationToken);
 
         var result = new ResponseSubmitResult(
             rejected ? null : response.Id,
-            // Eski istemci sonraki formu bu alandan okuyor.
             LinkedFormId: outcome.IsLegacyTwoStepFlow ? outcome.FormId : null,
             LegacyStep.From(outcome),
             outcome.InstanceId,
@@ -194,15 +212,15 @@ public class FormResponseService : IFormResponseService
         return new ServiceResult<ResponseSubmitResult>(workflow.Status, result, workflow.Message);
     }
 
-    /// <summary>Kayıt sonrası yan etkiler: rota kararı yazılmadan mail gitmemeli.</summary>
-    private async Task AfterResponseSavedAsync(Form form, FormResponse response, CancellationToken cancellationToken)
+    private async Task AfterResponseSavedAsync(Form form, FormResponse response, CancellationToken cancellationToken, bool sendCopy = true)
     {
         await _cache.TryRemoveAsync(FormCacheKeys.Analytics(form.Id), cancellationToken);
 
         if (response.UserId.HasValue)
             await _draftService.DeleteResponseDraftAsync(form.Id, response.UserId.Value, cancellationToken);
 
-        await _mailNotifier.NotifyResponseCopyAsync(form, response, cancellationToken);
+        if (sendCopy)
+            await _mailNotifier.NotifyResponseCopyAsync(form, response, cancellationToken);
     }
 
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
@@ -238,7 +256,8 @@ public class FormResponseService : IFormResponseService
             return new ResponseSummaryContract(
                 r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt,
                 r.TimeSpent,
-                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null);
+                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null,
+                r.Guest);
         }).ToList();
 
         var resultData = new PagedResult<ResponseSummaryContract>(
@@ -252,7 +271,7 @@ public class FormResponseService : IFormResponseService
         var finalResult = new FormResponsesListResult(
             resultData,
             paged.AverageTimeSpent,
-            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission),
+            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission, counts.Flagged),
             paged.AverageTaskSeconds,
             hasTimeLimit);
 
@@ -328,6 +347,104 @@ public class FormResponseService : IFormResponseService
         );
     }
 
+    public async Task<ServiceResult<ResponseFileContract>> GetResponseFileAsync(Guid responseId, Guid mediaId, Guid userId, string? token, CancellationToken cancellationToken = default)
+    {
+        if (await CheckFileAccessAsync(responseId, mediaId, userId, token, cancellationToken) is { } denied)
+            return new ServiceResult<ResponseFileContract>(denied.Status, Message: denied.Message);
+
+        var read = await _media.GetAsync(mediaId, cancellationToken);
+
+        if (read.Outcome == CoreMediaOutcome.NotFound)
+        {
+            return new ServiceResult<ResponseFileContract>(
+                ServiceStatus.Success,
+                new ResponseFileContract(mediaId, null, null, null, ResponseFileStatus.Deleted, null, false, null));
+        }
+
+        if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } media)
+            return new ServiceResult<ResponseFileContract>(ServiceStatus.ServiceUnavailable, Message: "Dosya bilgisi şu an alınamıyor. Biraz sonra tekrar deneyin.");
+
+        var isPrivate = string.Equals(media.Visibility, CoreMediaVisibility.Private, StringComparison.Ordinal);
+        var status = media.Status switch
+        {
+            CoreMediaStatus.Scanning => ResponseFileStatus.Scanning,
+            CoreMediaStatus.Rejected => ResponseFileStatus.Rejected,
+            _ => ResponseFileStatus.Ready
+        };
+
+        return new ServiceResult<ResponseFileContract>(
+            ServiceStatus.Success,
+            new ResponseFileContract(
+                mediaId,
+                media.Name,
+                media.Type,
+                media.Size,
+                status,
+                media.ScanResult,
+                isPrivate,
+                !isPrivate && !string.IsNullOrEmpty(media.Url) ? media.Url : null));
+    }
+
+    public async Task<ServiceResult<ResponseFileLinkContract>> CreateResponseFileLinkAsync(Guid responseId, Guid mediaId, Guid userId, string? token, CancellationToken cancellationToken = default)
+    {
+        if (await CheckFileAccessAsync(responseId, mediaId, userId, token, cancellationToken) is { } denied)
+            return new ServiceResult<ResponseFileLinkContract>(denied.Status, Message: denied.Message);
+
+        var link = await _media.CreateLinkAsync(mediaId, userId, cancellationToken);
+
+        return link.Outcome switch
+        {
+            CoreMediaOutcome.Ok when !string.IsNullOrEmpty(link.Url) => new ServiceResult<ResponseFileLinkContract>(
+                ServiceStatus.Success,
+                new ResponseFileLinkContract(link.Url, link.ExpiresAt)),
+            CoreMediaOutcome.Scanning => new ServiceResult<ResponseFileLinkContract>(
+                ServiceStatus.Conflict,
+                new ResponseFileLinkContract(Reason: ResponseFileReason.Scanning, RetryAfterSeconds: link.RetryAfterSeconds),
+                "Dosya hâlâ taranıyor. Biraz sonra tekrar deneyin."),
+            CoreMediaOutcome.Rejected => new ServiceResult<ResponseFileLinkContract>(
+                ServiceStatus.NotAvailable,
+                new ResponseFileLinkContract(Reason: ResponseFileReason.Rejected, ScanResult: link.ScanResult),
+                "Dosya güvenlik taramasından geçmedi."),
+            CoreMediaOutcome.NotFound => new ServiceResult<ResponseFileLinkContract>(
+                ServiceStatus.NotFound,
+                new ResponseFileLinkContract(Reason: ResponseFileReason.Deleted),
+                "Dosya artık mevcut değil."),
+            CoreMediaOutcome.SubjectInactive => new ServiceResult<ResponseFileLinkContract>(
+                ServiceStatus.NotAuthorized,
+                new ResponseFileLinkContract(Reason: ResponseFileReason.SubjectInactive),
+                "Hesabınız için dosya bağlantısı oluşturulamadı."),
+            _ => new ServiceResult<ResponseFileLinkContract>(
+                ServiceStatus.ServiceUnavailable,
+                new ResponseFileLinkContract(Reason: ResponseFileReason.Unavailable),
+                "Dosya şu an açılamıyor. Biraz sonra tekrar deneyin.")
+        };
+    }
+
+    private async Task<(ServiceStatus Status, string Message)?> CheckFileAccessAsync(Guid responseId, Guid mediaId, Guid userId, string? token, CancellationToken cancellationToken)
+    {
+        var response = await _responses.GetByIdWithFormAndCollaboratorsAsync(responseId, cancellationToken);
+        if (response == null) return (ServiceStatus.NotFound, "Yanıt bulunamadı.");
+
+        var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
+        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+
+        if (!canView)
+        {
+            if (string.IsNullOrEmpty(token)) return (ServiceStatus.NotAuthorized, "Bu yanıtı görüntüleme yetkiniz yok.");
+
+            var shareEntry = await _cache.GetAsync<ShareCacheEntry>(TokenKeyPrefix + token, ct: cancellationToken);
+            if (shareEntry == null || (shareEntry.ResponseId != responseId && !shareEntry.InstanceResponseIds.Contains(responseId)))
+                return (ServiceStatus.NotAuthorized, "Paylaşım bağlantısı geçersiz veya süresi dolmuş.");
+        }
+
+        var holdsFile = response.Data.Any(item =>
+            item.Type == GuestUploadRules.FileQuestionType
+            && Guid.TryParse(item.Answer, out var answer)
+            && answer == mediaId);
+
+        return holdsFile ? null : (ServiceStatus.NotFound, "Dosya bulunamadı.");
+    }
+
     public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default)
     {
         var response = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(contract.ResponseId, cancellationToken);
@@ -343,7 +460,6 @@ public class FormResponseService : IFormResponseService
         if (response.IsArchived)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş yanıtlar üzerinde değişiklik yapılamaz.");
 
-        // Kolon sınırını aşan not kayıtta 22001 ile patlar; istek 500 olur ve durum değişmez.
         if (contract.Note?.Length > FormResponse.ReviewNoteMaxLength)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Açıklama en fazla {FormResponse.ReviewNoteMaxLength} karakter olabilir.");
 
@@ -353,8 +469,9 @@ public class FormResponseService : IFormResponseService
         if (contract.NewStatus == FormResponseStatus.Provisional)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap geçici duruma alınamaz.");
 
-        // Akış içindeki bir cevapta durum ve rota birlikte yazılır; ikisini ayırmak
-        // onaylanmış ama ilerlememiş bir başvuru bırakırdı.
+        if (contract.NewStatus == FormResponseStatus.Flagged)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap doğrulanmamış duruma alınamaz.");
+
         var workflow = await _workflowRuntime.ReviewAsync(response, contract.NewStatus, reviewerId, contract.Note, cancellationToken);
 
         if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
@@ -367,11 +484,14 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu güncellendi ve akış ilerletildi.");
         }
 
+        var declinesFlagged = response.Status == FormResponseStatus.Flagged && contract.NewStatus == FormResponseStatus.Declined;
+
         response.ApplyReview(contract.NewStatus, reviewerId, contract.Note, DateTime.UtcNow);
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, ct: cancellationToken);
+        if (!declinesFlagged)
+            await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, ct: cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu başarıyla güncellendi.");
     }
@@ -394,10 +514,8 @@ public class FormResponseService : IFormResponseService
         if (response.Status == FormResponseStatus.Provisional)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Geçici cevap arşivlenemez; önce karar verin.");
 
-        if (response.Status == FormResponseStatus.Pending)
+        if (response.Status is FormResponseStatus.Pending or FormResponseStatus.Flagged)
         {
-            // Arşivleme bekleyen cevabı sessizce reddediyor. Akışa bağlı bir cevapta
-            // bu, rota kararını atlayıp başvuruyu açık adımda kilitlerdi.
             if (await _workflowRuntime.HasPendingRouteAsync(responseId, cancellationToken))
             {
                 return new ServiceResult<bool>(
@@ -488,8 +606,6 @@ public class FormResponseService : IFormResponseService
             foreach (var schemaItem in form.Schema)
             {
                 var answerItem = response.Data.FirstOrDefault(d => d.Id == schemaItem.Id);
-
-                // Çoklu seçim JSON dizisi olarak gelmiş olabilir; hücreye ham JSON düşmesin.
                 row.Add(FormAnswerText.ToDisplayText(answerItem?.Answer));
             }
 
@@ -502,7 +618,7 @@ public class FormResponseService : IFormResponseService
         return _excelService.GenerateExcel(exportRequest);
     }
 
-    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution)
+    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, ResponseGuest? guest = null)
     {
         var responseData = new List<FormResponseSchemaItem>();
 
@@ -530,7 +646,8 @@ public class FormResponseService : IFormResponseService
             TimeSpent = timeSpent,
             Status = form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict,
             SubmittedAt = DateTime.UtcNow,
-            Attribution = AttributionNormalizer.Normalize(attribution)
+            Attribution = AttributionNormalizer.Normalize(attribution),
+            Guest = guest
         };
     }
 
@@ -552,7 +669,8 @@ public class FormResponseService : IFormResponseService
             response.ReviewedAt,
             response.ArchivedAt,
             sharedByUser,
-            response.Attribution
+            response.Attribution,
+            Guest: response.Guest
         );
     }
 

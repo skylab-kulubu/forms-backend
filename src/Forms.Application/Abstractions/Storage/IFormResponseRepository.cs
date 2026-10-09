@@ -1,6 +1,7 @@
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Abstractions.Storage;
 
@@ -9,6 +10,7 @@ public interface IFormResponseRepository
     Task<FormResponse?> GetLatestForUserAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<FormResponseCounts> GetCountsAsync(Guid formId, CancellationToken ct = default);
     Task<bool> HasNonArchivedResponseAsync(Guid formId, Guid userId, CancellationToken ct = default);
+    Task<bool> HasGuestResponseBeforeAsync(Guid formId, string email, DateTime submittedAt, CancellationToken ct = default);
 
     Task<FormResponse?> GetByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
     Task<FormResponse?> GetForEditByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
@@ -38,7 +40,8 @@ public sealed record ResponseRowProjection(
     DateTime? ReviewedAt,
     DateTime? ArchivedAt,
     int? TimeSpent,
-    ResponseAttemptProjection? Attempt
+    ResponseAttemptProjection? Attempt,
+    ResponseGuest? Guest = null
 );
 
 public sealed record ResponseAttemptProjection(
@@ -63,7 +66,8 @@ public sealed record ResponseStatusCounts(
     int Provisional,
     int Running,
     int Opened,
-    int NoSubmission
+    int NoSubmission,
+    int Flagged
 );
 
 public sealed record PagedResponsesProjection(

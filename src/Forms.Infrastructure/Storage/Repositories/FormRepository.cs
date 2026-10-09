@@ -89,9 +89,7 @@ public sealed class FormRepository : IFormRepository
                 f.RequiresManualReview,
                 null,
                 f.UpdatedAt ?? f.CreatedAt,
-                f.Responses.Count(),
-                f.EventId,
-                null
+                f.Responses.Count()
             ))
             .ToListAsync(ct);
 
@@ -198,8 +196,7 @@ public sealed class FormRepository : IFormRepository
                 f.RequiresManualReview,
                 f.CreatedAt,
                 f.UpdatedAt,
-                f.Responses.Count(),
-                f.EventId
+                f.Responses.Count()
             ))
             .ToListAsync(ct);
 

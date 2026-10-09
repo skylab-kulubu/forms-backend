@@ -6,7 +6,9 @@ public record ResponseSubmitRequest(
     Guid FormId,
     List<FormResponseSchemaItem> Responses,
     int TimeSpent,
-    ResponseAttributionRequest? Attribution = null
+    ResponseAttributionRequest? Attribution = null,
+    string? TurnstileToken = null,
+    string? GuestUploadSession = null
 );
 
 /// <summary>Form sayfasının adresinde yakaladığı utm_* değerleri, ham haliyle.</summary>
