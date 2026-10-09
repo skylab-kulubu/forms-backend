@@ -10,7 +10,6 @@ namespace Skylab.Forms.Infrastructure.Auth;
 public sealed class CoreMediaClient : ICoreMedia
 {
     private const string FormsService = "forms";
-    private const string ResponseOwnerType = "response";
     private const string AnswerRole = "answer";
     private const string NameInvalidCode = "media_name_invalid";
     private const string SubjectInactiveCode = "media_link_subject_inactive";
@@ -100,14 +99,14 @@ public sealed class CoreMediaClient : ICoreMedia
         }
     }
 
-    public async Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default)
+    public async Task<CoreMediaAttach> AttachAsync(Guid mediaId, CoreMediaOwner owner, Guid? onBehalfOf, CancellationToken ct = default)
     {
         using var timeout = LinkedTimeout(ct);
         try
         {
             var body = new
             {
-                owner = new { service = FormsService, type = ResponseOwnerType, id = responseId.ToString() },
+                owner = new { service = FormsService, type = owner.Type, id = owner.Id },
                 role = AnswerRole,
                 onBehalfOf
             };
@@ -125,11 +124,11 @@ public sealed class CoreMediaClient : ICoreMedia
             var problem = await ReadProblemAsync(response, timeout.Token);
             if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
             {
-                _logger.LogInformation("Core dosyayı cevaba bağlamadı: {Code} (medya {MediaId})", problem?.Code, mediaId);
+                _logger.LogInformation("Core dosyayı {OwnerType} kaydına bağlamadı: {Code} (medya {MediaId})", owner.Type, problem?.Code, mediaId);
                 return new CoreMediaAttach(CoreMediaOutcome.NotLinkable);
             }
 
-            _logger.LogError("Core dosyayı cevaba bağlamadı: {Status} {Code} (medya {MediaId})", (int)response.StatusCode, problem?.Code, mediaId);
+            _logger.LogError("Core dosyayı {OwnerType} kaydına bağlamadı: {Status} {Code} (medya {MediaId})", owner.Type, (int)response.StatusCode, problem?.Code, mediaId);
             return new CoreMediaAttach(CoreMediaOutcome.Failed);
         }
         catch (Exception ex) when (Classify(ex, ct) is { } failure)

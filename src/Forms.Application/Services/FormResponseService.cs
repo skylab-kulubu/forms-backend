@@ -121,7 +121,7 @@ public class FormResponseService : IFormResponseService
 
         if (userId.HasValue)
         {
-            var workflowResult = await SubmitThroughWorkflowAsync(form, contract, userId.Value, guestGate.Files, cancellationToken);
+            var workflowResult = await SubmitThroughWorkflowAsync(form, contract, userId.Value, cancellationToken);
 
             if (workflowResult is not null)
             {
@@ -144,7 +144,7 @@ public class FormResponseService : IFormResponseService
         IReadOnlyList<GuestAttachment> attachments = [];
         if (guestGate.Files.Count > 0)
         {
-            var attach = await _guestUploads.AttachAsync(guestGate.Files, response.Id, userId, cancellationToken);
+            var attach = await _guestUploads.AttachAsync(guestGate.Files, response.Id, cancellationToken);
             if (attach.Rejection is not null) return attach.Rejection;
 
             attachments = attach.Attachments;
@@ -181,7 +181,6 @@ public class FormResponseService : IFormResponseService
         Form form,
         ResponseSubmitRequest contract,
         Guid userId,
-        IReadOnlyList<GuestSubmitFile> files,
         CancellationToken cancellationToken)
     {
         var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
@@ -194,13 +193,7 @@ public class FormResponseService : IFormResponseService
 
         var rejected = workflow.Status.IsFailure();
 
-        if (!rejected)
-        {
-            foreach (var file in files)
-                await _media.AttachToResponseAsync(file.MediaId, response.Id, userId, CancellationToken.None);
-
-            await AfterResponseSavedAsync(form, response, cancellationToken);
-        }
+        if (!rejected) await AfterResponseSavedAsync(form, response, cancellationToken);
 
         var result = new ResponseSubmitResult(
             rejected ? null : response.Id,

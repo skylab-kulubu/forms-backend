@@ -4,9 +4,17 @@ public interface ICoreMedia
 {
     Task<CoreMediaUpload> UploadGuestAnswerAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default);
     Task<CoreMediaRead> GetAsync(Guid mediaId, CancellationToken ct = default);
-    Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default);
+    Task<CoreMediaAttach> AttachAsync(Guid mediaId, CoreMediaOwner owner, Guid? onBehalfOf, CancellationToken ct = default);
     Task<bool> DetachAsync(Guid mediaId, Guid attachmentId, CancellationToken ct = default);
     Task<CoreMediaLink> CreateLinkAsync(Guid mediaId, Guid onBehalfOf, CancellationToken ct = default);
+}
+
+/// <summary>Core'da bir dosyayı tutan Forms kaydı: bir cevap ya da bir kişinin bir formdaki taslağı.</summary>
+public sealed record CoreMediaOwner(string Type, string Id)
+{
+    public static CoreMediaOwner Response(Guid responseId) => new("response", responseId.ToString());
+
+    public static CoreMediaOwner Draft(Guid formId, Guid userId) => new("draft", $"{formId}:{userId}");
 }
 
 public sealed record CoreMedia(Guid Id, string? Name, string? Type, long Size, string? Url, string? Purpose, string? Visibility, string? Status, string? ScanResult, Guid? UploadedBy);

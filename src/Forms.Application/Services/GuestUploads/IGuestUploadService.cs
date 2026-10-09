@@ -17,7 +17,7 @@ public interface IGuestUploadService
 
     Task<GuestSubmitGate> CheckSubmitAsync(Form form, ResponseSubmitRequest request, IPAddress? client, CancellationToken ct = default);
     Task<GuestSubmitGate> CheckAccountSubmitAsync(Form form, ResponseSubmitRequest request, Guid userId, CancellationToken ct = default);
-    Task<GuestAttachResult> AttachAsync(IReadOnlyList<GuestSubmitFile> files, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default);
+    Task<GuestAttachResult> AttachAsync(IReadOnlyList<GuestSubmitFile> files, Guid responseId, CancellationToken ct = default);
     Task DetachAsync(IReadOnlyList<GuestAttachment> attachments);
     Task ConsumeAsync(string sessionId, IReadOnlyList<GuestSubmitFile> files);
 }

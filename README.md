@@ -316,9 +316,20 @@ One lock the backend cannot enforce: **the option labels a condition compares ag
 
 > **Legacy:** `Forms.LinkedFormId` and the `step` and `linkedFormId` fields in the public payloads survive from the older two-form chaining. Nothing reads the column any more, and the payload fields are filled only for two-step workflows so the previous client keeps working. Both go away once the frontend reads `state` and `stage`.
 
+## Signed-in answer files
+
+A signed-in respondent's browser uploads a file answer to core itself, as `answer_file`: private, encrypted, malware-scanned and the respondent's own. Core purges an `answer_file` that no record links within 24 hours, so Forms links each one in core (`POST /v1/media/{id}/attachments`, role `answer`, on the respondent's behalf) for as long as something in Forms holds it:
+
+- **Draft.** Saving a response draft links its file answers to the draft (`owner.type` `draft`, `owner.id` `<formId>:<userId>`). Taking the file out of the draft, deleting the draft, submitting, or a form change that clears drafts removes that link. A draft that expires in Redis says nothing, so a daily check finds it.
+- **Response.** Saving a signed-in response links its file answers to the response, written in the same transaction as the response: on a form of its own, on a workflow step, and in the provisional response a timed form builds from the draft when time runs out. Removing a provisional response (more time given, or a later submission) removes its links.
+
+Forms keeps each link in `AnswerFileLinks` with core's attachment id, which removing the link needs. `AnswerFileLinkWorker` applies them every 10 seconds and retries a failure with a growing delay of up to an hour, so a core outage delays a link but loses none; a file that was linked once stays in core for 30 days after its last link goes. A file core no longer has, one uploaded without a purpose (`legacy`), someone else's, or one the scan rejected is not linked.
+
+On submit Forms reads each file answer from core and refuses one that is not the respondent's `answer_file` (`fileExpired`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
+
 ## Guest uploads and Turnstile
 
-Signed-out respondents (guests) can attach files on forms that take answers without sign-in (`allowAnonymousResponses`). A guest's browser never sends the file to core. It sends it to Forms, which checks the guest's upload session, uploads the file to core with its own service account (purpose `answer_file_guest`: private, encrypted and malware-scanned) and links it to the response in core when the answer is saved. Signed-in respondents keep uploading to core themselves, as `answer_file` (private, encrypted, malware-scanned and theirs), and nothing below applies to them except the submit check: Forms reads each file answer from core, refuses one that is still scanning (`fileScanning`), was rejected by the scan (`fileRejected`) or is not the respondent's `answer_file` (`fileExpired`), and links it to the response in core on the respondent's behalf, before saving on a form of its own and right after the workflow saved it on a workflow step. A file uploaded before this without a purpose (`legacy`, public) is accepted as before and not linked. If core cannot be reached at that moment on a workflow step, the saved response stays but its file expires after 24 h; the failure is logged with the media id.
+Signed-out respondents (guests) can attach files on forms that take answers without sign-in (`allowAnonymousResponses`). A guest's browser never sends the file to core. It sends it to Forms, which checks the guest's upload session, uploads the file to core with its own service account (purpose `answer_file_guest`: private, encrypted and malware-scanned) and links it to the response in core when the answer is saved. Signed-in respondents upload to core themselves; see [Signed-in answer files](#signed-in-answer-files).
 
 Cloudflare Turnstile guards the two guest entry points: opening an upload session (action `guest-upload`) and submitting an answer (action `guest-submit`).
 
@@ -467,7 +478,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/forms/{id}/guest-uploads/sessions` | Open a guest upload session with a Turnstile token |
 | `POST` | `/api/forms/{id}/guest-uploads` | Upload a guest file (`multipart/form-data` with `questionId` and `file`, header `X-Guest-Upload-Session`) |
 | `GET` | `/api/forms/{id}/guest-uploads/{mediaId}` | Scan status of a file in the guest's upload session |
-| `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft; a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
+| `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft and keep its file answers linked in core (see [Signed-in answer files](#signed-in-answer-files)); a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
 | `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft with its `savedAt`; a stored draft with only blank answers is deleted and answers 404 |
 | `DELETE` | `/api/forms/responses/draft/{formId}` | Delete an authenticated user's response draft |
 | `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata |

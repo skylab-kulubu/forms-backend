@@ -218,8 +218,6 @@ public class GuestUploadService : IGuestUploadService
 
     public async Task<GuestSubmitGate> CheckAccountSubmitAsync(Form form, ResponseSubmitRequest request, Guid userId, CancellationToken ct = default)
     {
-        var files = new List<GuestSubmitFile>();
-
         foreach (var question in form.Schema.Where(GuestUploadRules.IsFileQuestion))
         {
             var answer = request.Responses?.FirstOrDefault(response => response.Id == question.Id)?.Answer;
@@ -232,14 +230,12 @@ public class GuestUploadService : IGuestUploadService
             if (string.Equals(media.Purpose, CoreMediaPurpose.Legacy, StringComparison.Ordinal)) continue;
 
             if (CheckAccountFile(question, media, userId) is { } refusal) return Reject(refusal);
-
-            files.Add(new GuestSubmitFile(question.Id, mediaId));
         }
 
-        return new GuestSubmitGate(null, null, files);
+        return GuestSubmitGate.Pass;
     }
 
-    public async Task<GuestAttachResult> AttachAsync(IReadOnlyList<GuestSubmitFile> files, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default)
+    public async Task<GuestAttachResult> AttachAsync(IReadOnlyList<GuestSubmitFile> files, Guid responseId, CancellationToken ct = default)
     {
         var attached = new List<GuestAttachment>(files.Count);
 
@@ -247,7 +243,7 @@ public class GuestUploadService : IGuestUploadService
         {
             foreach (var file in files)
             {
-                var result = await _media.AttachToResponseAsync(file.MediaId, responseId, onBehalfOf, ct);
+                var result = await _media.AttachAsync(file.MediaId, CoreMediaOwner.Response(responseId), onBehalfOf: null, ct);
                 if (result is { Outcome: CoreMediaOutcome.Ok, AttachmentId: { } attachmentId })
                 {
                     attached.Add(new GuestAttachment(file.MediaId, attachmentId));

@@ -6,6 +6,7 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Application.ShortLinks;
+using Skylab.Forms.Infrastructure.AnswerFiles;
 using Skylab.Forms.Infrastructure.Attempts;
 using Skylab.Forms.Infrastructure.Auth;
 using Skylab.Forms.Infrastructure.AccountAccess;
@@ -110,6 +111,8 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
             client.Timeout = TimeSpan.FromSeconds(60);
         }).AddHttpMessageHandler<ServiceTokenHandler>();
+        services.AddScoped<IDraftFileHolds, DraftFileHolds>();
+        services.AddHostedService<AnswerFileLinkWorker>();
 
         services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
         {
