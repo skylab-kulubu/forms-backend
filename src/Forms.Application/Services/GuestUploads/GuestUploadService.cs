@@ -216,7 +216,30 @@ public class GuestUploadService : IGuestUploadService
         }
     }
 
-    public async Task<GuestAttachResult> AttachAsync(IReadOnlyList<GuestSubmitFile> files, Guid responseId, CancellationToken ct = default)
+    public async Task<GuestSubmitGate> CheckAccountSubmitAsync(Form form, ResponseSubmitRequest request, Guid userId, CancellationToken ct = default)
+    {
+        var files = new List<GuestSubmitFile>();
+
+        foreach (var question in form.Schema.Where(GuestUploadRules.IsFileQuestion))
+        {
+            var answer = request.Responses?.FirstOrDefault(response => response.Id == question.Id)?.Answer;
+            if (!Guid.TryParse(answer, out var mediaId)) continue;
+
+            var read = await _media.GetAsync(mediaId, ct);
+            if (read.Outcome == CoreMediaOutcome.NotFound) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: question.Id));
+            if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } media) return Reject(Refuse(GuestUploadReason.GuestUploadsUnavailable));
+
+            if (string.Equals(media.Purpose, CoreMediaPurpose.Legacy, StringComparison.Ordinal)) continue;
+
+            if (CheckAccountFile(question, media, userId) is { } refusal) return Reject(refusal);
+
+            files.Add(new GuestSubmitFile(question.Id, mediaId));
+        }
+
+        return new GuestSubmitGate(null, null, files);
+    }
+
+    public async Task<GuestAttachResult> AttachAsync(IReadOnlyList<GuestSubmitFile> files, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default)
     {
         var attached = new List<GuestAttachment>(files.Count);
 
@@ -224,7 +247,7 @@ public class GuestUploadService : IGuestUploadService
         {
             foreach (var file in files)
             {
-                var result = await _media.AttachToResponseAsync(file.MediaId, responseId, ct);
+                var result = await _media.AttachToResponseAsync(file.MediaId, responseId, onBehalfOf, ct);
                 if (result is { Outcome: CoreMediaOutcome.Ok, AttachmentId: { } attachmentId })
                 {
                     attached.Add(new GuestAttachment(file.MediaId, attachmentId));
@@ -380,6 +403,20 @@ public class GuestUploadService : IGuestUploadService
 
         var maxBytes = GuestUploadRules.EffectiveMaxBytes(question);
         return file.Size > maxBytes ? Refuse(GuestUploadReason.FileTooLarge, questionId: question.Id, maxBytes: maxBytes) : null;
+    }
+
+    private Refusal? CheckAccountFile(FormSchemaItem question, CoreMedia media, Guid userId)
+    {
+        if (!string.Equals(media.Purpose, CoreMediaPurpose.AnswerFile, StringComparison.Ordinal) || media.UploadedBy != userId)
+            return Refuse(GuestUploadReason.FileExpired, questionId: question.Id);
+
+        return media.Status switch
+        {
+            CoreMediaStatus.Scanning => Refuse(GuestUploadReason.FileScanning, ScanningRetryAfterSeconds, question.Id),
+            CoreMediaStatus.Rejected => Refuse(GuestUploadReason.FileRejected, questionId: question.Id, scanResult: media.ScanResult),
+            CoreMediaStatus.Pending or CoreMediaStatus.Attached or CoreMediaStatus.Detached => null,
+            _ => Refuse(GuestUploadReason.GuestUploadsUnavailable)
+        };
     }
 
     private Refusal RefuseVerification(TurnstileVerdict verdict) => verdict switch

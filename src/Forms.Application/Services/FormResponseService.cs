@@ -104,12 +104,10 @@ public class FormResponseService : IFormResponseService
             if (guest is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
         }
 
-        var guestGate = GuestSubmitGate.Pass;
-        if (userId == null)
-        {
-            guestGate = await _guestUploads.CheckSubmitAsync(form, contract, clientAddress, cancellationToken);
-            if (guestGate.Rejection is not null) return guestGate.Rejection;
-        }
+        var guestGate = userId == null
+            ? await _guestUploads.CheckSubmitAsync(form, contract, clientAddress, cancellationToken)
+            : await _guestUploads.CheckAccountSubmitAsync(form, contract, userId.Value, cancellationToken);
+        if (guestGate.Rejection is not null) return guestGate.Rejection;
 
         Guid? attemptId = null;
 
@@ -123,7 +121,7 @@ public class FormResponseService : IFormResponseService
 
         if (userId.HasValue)
         {
-            var workflowResult = await SubmitThroughWorkflowAsync(form, contract, userId.Value, cancellationToken);
+            var workflowResult = await SubmitThroughWorkflowAsync(form, contract, userId.Value, guestGate.Files, cancellationToken);
 
             if (workflowResult is not null)
             {
@@ -146,7 +144,7 @@ public class FormResponseService : IFormResponseService
         IReadOnlyList<GuestAttachment> attachments = [];
         if (guestGate.Files.Count > 0)
         {
-            var attach = await _guestUploads.AttachAsync(guestGate.Files, response.Id, cancellationToken);
+            var attach = await _guestUploads.AttachAsync(guestGate.Files, response.Id, userId, cancellationToken);
             if (attach.Rejection is not null) return attach.Rejection;
 
             attachments = attach.Attachments;
@@ -183,6 +181,7 @@ public class FormResponseService : IFormResponseService
         Form form,
         ResponseSubmitRequest contract,
         Guid userId,
+        IReadOnlyList<GuestSubmitFile> files,
         CancellationToken cancellationToken)
     {
         var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
@@ -195,7 +194,13 @@ public class FormResponseService : IFormResponseService
 
         var rejected = workflow.Status.IsFailure();
 
-        if (!rejected) await AfterResponseSavedAsync(form, response, cancellationToken);
+        if (!rejected)
+        {
+            foreach (var file in files)
+                await _media.AttachToResponseAsync(file.MediaId, response.Id, userId, CancellationToken.None);
+
+            await AfterResponseSavedAsync(form, response, cancellationToken);
+        }
 
         var result = new ResponseSubmitResult(
             rejected ? null : response.Id,

@@ -100,7 +100,7 @@ public sealed class CoreMediaClient : ICoreMedia
         }
     }
 
-    public async Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, CancellationToken ct = default)
+    public async Task<CoreMediaAttach> AttachToResponseAsync(Guid mediaId, Guid responseId, Guid? onBehalfOf, CancellationToken ct = default)
     {
         using var timeout = LinkedTimeout(ct);
         try
@@ -108,7 +108,8 @@ public sealed class CoreMediaClient : ICoreMedia
             var body = new
             {
                 owner = new { service = FormsService, type = ResponseOwnerType, id = responseId.ToString() },
-                role = AnswerRole
+                role = AnswerRole,
+                onBehalfOf
             };
 
             using var response = await _httpClient.PostAsJsonAsync($"/v1/media/{mediaId}/attachments", body, Json, timeout.Token);
@@ -124,11 +125,11 @@ public sealed class CoreMediaClient : ICoreMedia
             var problem = await ReadProblemAsync(response, timeout.Token);
             if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
             {
-                _logger.LogInformation("Core misafir dosyasını cevaba bağlamadı: {Code} (medya {MediaId})", problem?.Code, mediaId);
+                _logger.LogInformation("Core dosyayı cevaba bağlamadı: {Code} (medya {MediaId})", problem?.Code, mediaId);
                 return new CoreMediaAttach(CoreMediaOutcome.NotLinkable);
             }
 
-            _logger.LogError("Core misafir dosyasını cevaba bağlamadı: {Status} {Code} (medya {MediaId})", (int)response.StatusCode, problem?.Code, mediaId);
+            _logger.LogError("Core dosyayı cevaba bağlamadı: {Status} {Code} (medya {MediaId})", (int)response.StatusCode, problem?.Code, mediaId);
             return new CoreMediaAttach(CoreMediaOutcome.Failed);
         }
         catch (Exception ex) when (Classify(ex, ct) is { } failure)
