@@ -9,8 +9,12 @@ using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Draft;
 using Skylab.Forms.Application.Contracts.ShortLinks;
 using Skylab.Forms.Application.Contracts.Attempts;
+using Skylab.Forms.Application.Contracts.Ownership;
 using Skylab.Forms.Application.Services.Attempts;
+using Skylab.Forms.Application.Services.Ownership;
 using Skylab.Forms.Application.Services.ShortLinks;
+using Skylab.Forms.Domain.Common;
+using Skylab.Forms.Domain.Enums;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -35,6 +39,16 @@ public static class FormAdminEndpoints
                 return ServiceStatus.NotAuthorized.ToApiResult();
 
             var result = await service.GetAllFormsAsync(request, ct);
+            return result.ToApiResult();
+        });
+
+        // Hesabı silinen kişilerden kalan, sahibi Silinmiş kullanıcı olan formlar.
+        group.MapGet("/orphaned", async (IFormService service, ICurrentUserService userService, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
+        {
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
+                return ServiceStatus.NotAuthorized.ToApiResult();
+
+            var result = await service.GetUserFormsAsync(DeletedUser.Id, request with { Role = CollaboratorRole.Owner }, ct);
             return result.ToApiResult();
         });
 
@@ -125,6 +139,15 @@ public static class FormAdminEndpoints
 
             var result = await service.DeleteFormAsync(id, userId.Value, ct);
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/transfer", async (Guid id, [FromBody] OwnershipTransferRequest request, IOwnershipService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Formu devretmek için giriş yapmalısınız.");
+
+            var result = await service.TransferFormAsync(id, request.UserId, userId.Value, ct);
+            return result.ToApiResult();
         });
 
         group.MapGet("/{id:guid}/responses", async (Guid id, [AsParameters] GetResponsesRequest request, IFormResponseService service, ICurrentUserService userService, CancellationToken ct) =>
@@ -351,6 +374,16 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        // Hesabı silinen kişilerden kalan, sahibi Silinmiş kullanıcı olan şablonlar.
+        group.MapGet("/component-groups/orphaned", async (IComponentGroupService service, ICurrentUserService userService, [AsParameters] GetComponentGroupsRequest request, CancellationToken ct) =>
+        {
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
+                return ServiceStatus.NotAuthorized.ToApiResult();
+
+            var result = await service.GetUserGroupsAsync(DeletedUser.Id, request, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/component-groups/{id:guid}", async (Guid id, [FromQuery] string? token, IComponentGroupService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
@@ -413,6 +446,15 @@ public static class FormAdminEndpoints
 
             var result = await service.DeleteGroupAsync(id, userId.Value, ct);
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
+        });
+
+        group.MapPost("/component-groups/{id:guid}/transfer", async (Guid id, [FromBody] OwnershipTransferRequest request, IOwnershipService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Şablonu devretmek için giriş yapmalısınız.");
+
+            var result = await service.TransferTemplateAsync(id, request.UserId, userId.Value, ct);
+            return result.ToApiResult();
         });
     }
 }

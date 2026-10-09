@@ -38,6 +38,9 @@ public interface IFormWorkflowRepository
         GetWorkflowsRequest request,
         CancellationToken ct = default);
 
+    /// <summary>Akışın bütün sürümlerinde adım olan formlar; arşivli sürümler dahil.</summary>
+    Task<List<Guid>> GetFormIdsAsync(Guid workflowId, CancellationToken ct = default);
+
     /// <summary>Kullanıcının Owner olduğu, silinmemiş formlar: adım seçicinin kaynağı.</summary>
     Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default);
 

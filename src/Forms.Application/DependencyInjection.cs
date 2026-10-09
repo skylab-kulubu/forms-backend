@@ -3,6 +3,7 @@ using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
+using Skylab.Forms.Application.Services.Ownership;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Application.Services.Workflows;
 
@@ -17,6 +18,7 @@ public static class DependencyInjection
         services.AddScoped<IFormMetricService, FormMetricService>();
         services.AddScoped<IFormDraftService, FormDraftService>();
         services.AddScoped<IComponentGroupService, ComponentGroupService>();
+        services.AddScoped<IOwnershipService, OwnershipService>();
         services.AddScoped<IFormWorkflowRuntime, FormWorkflowRuntime>();
         services.AddScoped<IFormWorkflowService, FormWorkflowService>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();

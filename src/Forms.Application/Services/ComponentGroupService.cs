@@ -179,7 +179,7 @@ public class ComponentGroupService : IComponentGroupService
         return mappedGroupId == groupId;
     }
 
-    private async Task RevokeShareTokenAsync(Guid groupId, CancellationToken cancellationToken)
+    public async Task RevokeShareTokenAsync(Guid groupId, CancellationToken cancellationToken = default)
     {
         var token = await _cache.GetAsync<string>(GroupKeyPrefix + groupId, ct: cancellationToken);
         if (!string.IsNullOrEmpty(token))

@@ -506,10 +506,12 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 |--------|----------|-------------|
 | `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow`. `AllowMultiple` and `RequiresManualReview` match a form in a published workflow on the workflow's and the step's settings |
 | `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list |
+| `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
 | `PUT` | `/api/admin/forms/{id}` | Update a form |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
+| `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
@@ -532,6 +534,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear |
+| `GET` | `/api/admin/workflows/orphaned` | List workflows left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the same parameters |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
@@ -541,19 +544,22 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
-| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications |
+| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications; a service administrator may archive one left to `Silinmiş kullanıcı` |
+| `POST` | `/api/admin/workflows/{id}/transfer` | Transfer ownership together with the step forms, see [Ownership transfer](#ownership-transfer) |
 
 ### Component Groups - Admin
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/forms/component-groups` | List the current user's component groups |
+| `GET` | `/api/admin/forms/component-groups/orphaned` | List component groups left to `Silinmiş kullanıcı` by erased accounts, for service administrators |
 | `GET` | `/api/admin/forms/component-groups/{id}` | Get component-group details |
 | `POST` | `/api/admin/forms/component-groups` | Create a component group |
 | `PUT` | `/api/admin/forms/component-groups/{id}` | Update a component group |
 | `DELETE` | `/api/admin/forms/component-groups/{id}` | Delete a component group; the row stays archived and its share token is revoked |
 | `POST` | `/api/admin/forms/component-groups/{id}/share` | Create or refresh a share token |
 | `POST` | `/api/admin/forms/component-groups/{id}/clone` | Clone a shared component group |
+| `POST` | `/api/admin/forms/component-groups/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 
 ## Authentication & Authorization
 
@@ -565,6 +571,15 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
   - **Owner** - Full control and collaborator management
   - **Editor** - Edit forms and manage responses
   - **Viewer** - Read-only access
+
+## Ownership transfer
+
+The owner of a form, component group or workflow hands it to another user with `POST …/{id}/transfer` and a body such as `{ "userId": "…" }`. A service administrator (`skyforms:*`) can do the same only for items left to `Silinmiş kullanıcı` by an erased account, never for an active user's items; the `…/orphaned` lists show them.
+
+- The new owner must be an active core user. On a form the previous owner stays as an editor; a `Silinmiş kullanıcı` owner row is removed.
+- A form that is a step of a workflow that is not archived moves only with its workflow (`409`). Transferring a workflow also moves the previous owner's step forms of every version, because publishing requires the workflow owner to own its step forms.
+- A component group's share link is revoked, so it never shows the new owner as the one who shared it.
+- When nobody takes over a workflow left to `Silinmiş kullanıcı`, a service administrator may archive it.
 
 ## Getting Started
 

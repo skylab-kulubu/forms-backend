@@ -55,6 +55,13 @@ public sealed class FormRepository : IFormRepository
             .Where(f => f.Collaborators.Any(c => c.UserId == ownerId && c.Role == CollaboratorRole.Owner))
             .FirstOrDefaultAsync(ct);
 
+    public Task<List<Form>> GetForEditOwnedWithCollaboratorsAsync(IReadOnlyCollection<Guid> ids, Guid ownerId, CancellationToken ct = default) =>
+        _context.Forms
+            .Include(f => f.Collaborators)
+            .Where(f => ids.Contains(f.Id))
+            .Where(f => f.Collaborators.Any(c => c.UserId == ownerId && c.Role == CollaboratorRole.Owner))
+            .ToListAsync(ct);
+
     public async Task<PagedResult<FormSummaryContract>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken ct = default)
     {
         var query = _context.Forms.AsNoTracking()
