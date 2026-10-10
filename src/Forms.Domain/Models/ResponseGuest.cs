@@ -48,7 +48,8 @@ public class ResponseGuest
         var email = schema
             .Where(field => field.Type == "short_text" && field.Props is not null && field.Props.TryGetValue("inputType", out var type) && type?.ToString() == "email")
             .Select(field => answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer?.Trim())
-            .FirstOrDefault(answer => answer is { Length: <= 254 } && MailAddress.TryCreate(answer, out var address) && address.Address == answer);
+            .FirstOrDefault(answer => answer is { Length: <= 254 } && MailAddress.TryCreate(answer, out var address) && address.Address == answer
+                && !answer.Contains('"') && address.Host.Contains('.') && !address.Host.StartsWith('['));
 
         return email is null ? null : new ResponseGuest { Email = email.ToLowerInvariant() };
     }
