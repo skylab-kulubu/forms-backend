@@ -125,7 +125,7 @@ Dynamic form creation and response management service.
 - Response archiving
 - Form metrics and answer analytics
 - Reusable component groups
-- Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response
+- Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; on a form without them, the first answer to an email-type `short_text` question that is a valid address is stored as the guest email with no name, so the guest gets the response mails, and an answer without one is still accepted. A guest with no name is not reported to core, since core writes no guest ticket without one
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
 - Redis-backed form and response drafts
@@ -139,7 +139,7 @@ Dynamic form creation and response management service.
 | Table | Description |
 |-------|-------------|
 | `Forms` | Form definitions, JSONB schema, status, and response settings |
-| `Responses` | User responses, the name and email a guest typed into the identity fields, review information, archive state, and timing |
+| `Responses` | User responses, the name and email a guest typed into the identity fields (only the email on a form without them), review information, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
 | `Workflows` | Workflow header: name, owner, repeat-run setting, and intake |
