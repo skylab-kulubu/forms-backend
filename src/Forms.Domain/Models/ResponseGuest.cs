@@ -54,7 +54,8 @@ public class ResponseGuest
         var field = schema.FirstOrDefault(field => IdentityOf(field) == "email");
         var email = field is null ? null : answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer?.Trim();
 
-        return email is not null && Regex.IsMatch(email, EmailPattern) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
+        // Uzunluk sınırı regex'ten önce gelmeli: uzun girdide desen karesel geri izler. Form sayfasındaki not da aynı sınırı uygular.
+        return email is { Length: <= 254 } && Regex.IsMatch(email, EmailPattern) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
     }
 
     private static string? IdentityOf(FormSchemaItem field) =>
