@@ -29,7 +29,7 @@ public class ChannelMailDispatcher : IMailDispatcher
     {
         if (_channel.Writer.TryWrite(request)) return true;
 
-        _logger.LogError("Mail kuyruğu dolu, istek düşürüldü (template {TemplateId})", request.TemplateId);
+        _logger.LogError("Mail kuyruğu dolu, istek düşürüldü (template {TemplateKey})", request.TemplateKey);
         return false;
     }
 }

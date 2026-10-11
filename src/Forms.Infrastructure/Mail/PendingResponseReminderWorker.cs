@@ -30,7 +30,7 @@ public class PendingResponseReminderWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (string.IsNullOrEmpty(_options.PendingReminderTemplateId)) return;
+        if (string.IsNullOrEmpty(_options.PendingReminderTemplateKey)) return;
 
         var interval = TimeSpan.FromMinutes(Math.Max(_options.ReminderScanIntervalMinutes, 1));
         using var timer = new PeriodicTimer(interval);
@@ -94,7 +94,7 @@ public class PendingResponseReminderWorker : BackgroundService
                 }).ToList()
             };
 
-            _dispatcher.Enqueue(new SingleMailRequest(_options.PendingReminderTemplateId, reviewer.Email!, MailNames.Full(reviewer), variables));
+            _dispatcher.Enqueue(new SingleMailRequest(_options.PendingReminderTemplateKey, reviewer.Email!, MailNames.Full(reviewer), variables));
         }
 
         await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, ct);

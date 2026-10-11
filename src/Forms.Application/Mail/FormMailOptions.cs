@@ -4,10 +4,10 @@ public class FormMailOptions
 {
     public const string SectionName = "FormMail";
 
-    public string FormCopyTemplateId { get; set; } = string.Empty;
-    public string StatusChangedTemplateId { get; set; } = string.Empty;
-    public string PendingReminderTemplateId { get; set; } = string.Empty;
-    public string AttemptUpdateTemplateId { get; set; } = string.Empty;
+    public string FormCopyTemplateKey { get; set; } = "forms.form-copy";
+    public string StatusChangedTemplateKey { get; set; } = "forms.status-changed";
+    public string PendingReminderTemplateKey { get; set; } = "forms.pending-reminder";
+    public string AttemptUpdateTemplateKey { get; set; } = "forms.attempt-update";
 
     public int ReminderThresholdHours { get; set; } = 36;
     public int ReminderScanIntervalMinutes { get; set; } = 30;
