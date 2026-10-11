@@ -40,7 +40,8 @@ public class ResponseNotification
             responseId = response.Id,
             status,
             userId = response.UserId,
-            guest = response.Guest is { } guest ? new { guest.FirstName, guest.LastName, guest.Email } : null
+            // Adsız misafir gitmez: core misafir biletini ad ve soyadsız yazmaz, 400 döner.
+            guest = response.Guest is { HasName: true } guest ? new { guest.FirstName, guest.LastName, guest.Email } : null
         };
 
         return new ResponseNotification

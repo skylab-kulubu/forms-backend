@@ -103,6 +103,10 @@ public class FormResponseService : IFormResponseService
             guest = ResponseGuest.From(form.Schema, contract.Responses);
             if (guest is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
         }
+        else if (userId == null)
+        {
+            guest = ResponseGuest.FromEmailQuestion(form.Schema, contract.Responses);
+        }
 
         var guestGate = userId == null
             ? await _guestUploads.CheckSubmitAsync(form, contract, clientAddress, cancellationToken)

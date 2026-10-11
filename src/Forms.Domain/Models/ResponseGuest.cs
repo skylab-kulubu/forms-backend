@@ -1,14 +1,23 @@
+using System.Text.RegularExpressions;
+
 namespace Skylab.Forms.Domain.Models;
 
 /// <summary>
-/// Formu giriş yapmadan dolduran misafirin, formun kimlik alanlarına (props.identity) yazdıkları.
+/// Formu giriş yapmadan dolduran misafirin, formun kimlik alanlarına (props.identity) yazdıkları;
+/// ad ve soyad sorulmayan formda yalnız form sahibinin işaretlediği e-posta sorusuna yazdığı adres.
 /// Kayıtlı kullanıcının yanıtında hiç kayıt olmaz; onun kimliği profilinden gelir.
 /// </summary>
 public class ResponseGuest
 {
+    /// <summary>Form sayfasındaki notla aynı kural: forms-frontend FormDisplayer.jsx EMAIL_PATTERN.</summary>
+    private const string EmailPattern = @"^[^\s@]+@[^\s@]+\.[^\s@]+$";
+
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+
+    /// <summary>Yalnız işaretli e-posta sorusundan gelen misafirin adı ve soyadı yoktur.</summary>
+    public bool HasName => !string.IsNullOrEmpty(FirstName) && !string.IsNullOrEmpty(LastName);
 
     /// <summary>Form ad, soyad ve e-postayı kimlik alanlarıyla soruyor mu.</summary>
     public static bool IsAskedBy(IEnumerable<FormSchemaItem> schema)
@@ -34,6 +43,18 @@ public class ResponseGuest
             return null;
 
         return new ResponseGuest { FirstName = firstName, LastName = lastName, Email = email.ToLowerInvariant() };
+    }
+
+    /// <summary>
+    /// Ad ve soyad sorulmayan formda form sahibinin props.identity "email" ile işaretlediği soruya yazılan adres; ad ve soyad boş kalır.
+    /// İşaretli soru yoksa ya da cevabı adres değilse null: cevap yine kabul edilir, yalnız misafire mail gitmez.
+    /// </summary>
+    public static ResponseGuest? FromEmailQuestion(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers)
+    {
+        var field = schema.FirstOrDefault(field => IdentityOf(field) == "email");
+        var email = field is null ? null : answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer?.Trim();
+
+        return email is not null && Regex.IsMatch(email, EmailPattern) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
     }
 
     private static string? IdentityOf(FormSchemaItem field) =>

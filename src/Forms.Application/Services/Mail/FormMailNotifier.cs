@@ -122,7 +122,7 @@ public class FormMailNotifier : IFormMailNotifier
         _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, MailNames.Full(recipient), variables));
     }
 
-    /// <summary>Misafirin hesabı yok; mail etkinlik formunda yazdığı adrese gider.</summary>
+    /// <summary>Misafirin hesabı yok; mail formda yazdığı adrese gider.</summary>
     private async Task<UserContract?> GetRespondentAsync(FormResponse response, CancellationToken ct)
     {
         if (response.UserId is { } userId) return await _userService.GetUserAsync(userId, ct);
