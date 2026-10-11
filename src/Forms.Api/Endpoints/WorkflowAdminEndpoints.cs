@@ -1,8 +1,11 @@
 using Skylab.Forms.Api.Extensions;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Contracts.Ownership;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.Services.Ownership;
 using Skylab.Forms.Application.Services.Workflows;
+using Skylab.Forms.Domain.Common;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Skylab.Forms.Api.Endpoints;
@@ -19,6 +22,16 @@ public static class WorkflowAdminEndpoints
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışları görmek için giriş yapmalısınız.");
 
             var result = await service.GetOwnedAsync(userId.Value, request, ct);
+            return result.ToApiResult();
+        });
+
+        // Hesabı silinen kişilerden kalan, sahibi Silinmiş kullanıcı olan akışlar.
+        group.MapGet("/orphaned", async (IFormWorkflowService service, ICurrentUserService userService, [AsParameters] GetWorkflowsRequest request, CancellationToken ct) =>
+        {
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
+                return ServiceStatus.NotAuthorized.ToApiResult();
+
+            var result = await service.GetOwnedAsync(DeletedUser.Id, request, ct);
             return result.ToApiResult();
         });
 
@@ -123,6 +136,15 @@ public static class WorkflowAdminEndpoints
 
             var result = await service.ArchiveAsync(id, userId.Value, ct);
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/transfer", async (Guid id, [FromBody] OwnershipTransferRequest request, IOwnershipService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Akışı devretmek için giriş yapmalısınız.");
+
+            var result = await service.TransferWorkflowAsync(id, request.UserId, userId.Value, ct);
+            return result.ToApiResult();
         });
     }
 }

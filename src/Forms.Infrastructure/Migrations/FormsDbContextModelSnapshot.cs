@@ -83,9 +83,6 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("EventId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid?>("LinkedFormId")
                         .HasColumnType("uuid");
 
@@ -576,6 +573,84 @@ namespace Forms.Infrastructure.Migrations
                     b.ToTable("WorkflowVersions", (string)null);
                 });
 
+            modelBuilder.Entity("Skylab.Forms.Infrastructure.AnswerFiles.AnswerFileLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AttachmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResponseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasFilter("\"NextAttemptAt\" IS NOT NULL");
+
+                    b.HasIndex("ResponseId", "MediaId")
+                        .IsUnique()
+                        .HasFilter("\"ResponseId\" IS NOT NULL");
+
+                    b.HasIndex("FormId", "UserId", "MediaId")
+                        .IsUnique()
+                        .HasFilter("\"ResponseId\" IS NULL");
+
+                    b.ToTable("AnswerFileLinks", (string)null);
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Infrastructure.ResponseNotifications.ResponseNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt");
+
+                    b.ToTable("ResponseNotifications", (string)null);
+                });
+
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.Form", b =>
                 {
                     b.HasOne("Skylab.Forms.Domain.Entities.Form", "LinkedForm")
@@ -675,9 +750,39 @@ namespace Forms.Infrastructure.Migrations
                                 .HasForeignKey("FormResponseId");
                         });
 
+                    b.OwnsOne("Skylab.Forms.Domain.Models.ResponseGuest", "Guest", b1 =>
+                        {
+                            b1.Property<Guid>("FormResponseId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Email")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("GuestEmail");
+
+                            b1.Property<string>("FirstName")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("GuestFirstName");
+
+                            b1.Property<string>("LastName")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("GuestLastName");
+
+                            b1.HasKey("FormResponseId");
+
+                            b1.ToTable("Responses");
+
+                            b1.WithOwner()
+                                .HasForeignKey("FormResponseId");
+                        });
+
                     b.Navigation("Attribution");
 
                     b.Navigation("Form");
+
+                    b.Navigation("Guest");
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormWorkflowInstance", b =>

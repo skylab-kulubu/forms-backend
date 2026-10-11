@@ -24,6 +24,7 @@ public class FormResponse
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? PendingReminderSentAt { get; set; }
     public ResponseAttribution? Attribution { get; set; }
+    public ResponseGuest? Guest { get; set; }
 
     public void ApplyReview(FormResponseStatus status, Guid reviewerId, string? note, DateTime reviewedAt)
     {

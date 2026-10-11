@@ -11,6 +11,7 @@ public enum ServiceStatus
     NotFound = 404,
     Conflict = 409,
     NotAvailable = 410,
+    TooManyRequests = 429,
     ServiceUnavailable = 503,
 
     PendingApproval = 600,

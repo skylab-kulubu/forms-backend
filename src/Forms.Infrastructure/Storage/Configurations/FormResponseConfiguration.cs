@@ -39,6 +39,14 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
             attribution.Property(a => a.Content).HasColumnName("UtmContent").HasMaxLength(100);
         });
 
+        // Uzunluk sınırı yok: core bileti bu değerlerle yazar ve alanları sınırsız tutar.
+        builder.OwnsOne(fr => fr.Guest, guest =>
+        {
+            guest.Property(g => g.FirstName).HasColumnName("GuestFirstName");
+            guest.Property(g => g.LastName).HasColumnName("GuestLastName");
+            guest.Property(g => g.Email).HasColumnName("GuestEmail");
+        });
+
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         builder.Property(fr => fr.Data)

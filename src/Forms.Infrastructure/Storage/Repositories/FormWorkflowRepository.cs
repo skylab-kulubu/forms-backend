@@ -296,6 +296,13 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
         return new PagedResult<WorkflowSummaryProjection>(items, totalCount, request.Page, request.PageSize);
     }
 
+    public Task<List<Guid>> GetFormIdsAsync(Guid workflowId, CancellationToken ct = default) =>
+        _context.WorkflowNodes.AsNoTracking()
+            .Where(node => node.WorkflowVersion.WorkflowId == workflowId)
+            .Select(node => node.FormId)
+            .Distinct()
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<WorkflowCandidateForm>> GetOwnedFormsAsync(Guid ownerUserId, CancellationToken ct = default) =>
         await _context.Forms.AsNoTracking()
             .Where(form => form.Collaborators.Any(c => c.UserId == ownerUserId && c.Role == CollaboratorRole.Owner))

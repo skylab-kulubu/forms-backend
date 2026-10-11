@@ -4,6 +4,7 @@ using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Workflows;
@@ -433,7 +434,10 @@ public class FormWorkflowService : IFormWorkflowService
     {
         var workflow = await _workflows.GetForEditAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<bool>();
-        if (workflow.OwnerUserId != userId) return NotOwner<bool>();
+
+        // Silinmiş kullanıcıya kalan akışı devralan olmazsa platform admini arşivleyebilir.
+        var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && await IsPlatformAdminAsync(cancellationToken);
+        if (workflow.OwnerUserId != userId && !adminMayArchive) return NotOwner<bool>();
 
         workflow.Status = WorkflowStatus.Archived;
         workflow.Intake = WorkflowIntake.Closed;

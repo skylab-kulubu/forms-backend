@@ -10,6 +10,7 @@ public interface IFormDraftService
     Task<ServiceResult<bool>> DeleteResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);
     Task<ServiceResult<bool>> ClearResponseDraftsAsync(Guid formId, CancellationToken ct = default);
     Task RestoreResponseDraftAsync(Guid formId, Guid userId, List<FormResponseSchemaItem> responses, int timeSpent, List<FormResponseSchemaItem>? submission, CancellationToken ct = default);
+    Task<bool> HoldsFileAsync(Guid formId, Guid userId, Guid mediaId, CancellationToken ct = default);
 
     Task<ServiceResult<bool>> SaveFormDraftAsync(Guid formId, Guid userId, FormDraftRequest draft, CancellationToken ct = default);
     Task<ServiceResult<FormDraftContract?>> GetFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default);

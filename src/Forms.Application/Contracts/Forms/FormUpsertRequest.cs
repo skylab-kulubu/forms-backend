@@ -14,7 +14,6 @@ public record FormUpsertRequest(
     bool RequiresManualReview,
     FormStatus Status,
     List<CollaboratorUpsertRequest>? Collaborators,
-    Guid? EventId = null,
     FormTask? Task = null,
     DateTime? ClosesAt = null,
     int? TimeLimitMinutes = null

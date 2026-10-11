@@ -6,14 +6,18 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Application.ShortLinks;
+using Skylab.Forms.Infrastructure.AnswerFiles;
 using Skylab.Forms.Infrastructure.Attempts;
 using Skylab.Forms.Infrastructure.Auth;
 using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
 using Skylab.Forms.Infrastructure.Exports;
+using Skylab.Forms.Infrastructure.GuestUploads;
 using Skylab.Forms.Infrastructure.Mail;
+using Skylab.Forms.Infrastructure.ResponseNotifications;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
+using Skylab.Forms.Infrastructure.Turnstile;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure;
@@ -52,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<IFormWorkflowRepository, FormWorkflowRepository>();
         services.AddScoped<IFormWorkflowInstanceRepository, FormWorkflowInstanceRepository>();
         services.AddScoped<IFormAttemptRepository, FormAttemptRepository>();
+        services.AddScoped<IAccountErasureRepository, AccountErasureRepository>();
         services.AddScoped<IFormsUnitOfWork, FormsUnitOfWork>();
 
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
@@ -71,24 +76,44 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
         }).AddHttpMessageHandler<ServiceTokenHandler>();
 
-        services.AddHttpClient<ICoreEventLookup, CoreEventLookup>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        });
-
-        services.AddHttpClient<ICoreGuestApply, CoreGuestApply>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        });
-
         services.AddHttpClient<ICoreShortLinks, CoreShortLinks>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
             client.Timeout = TimeSpan.FromSeconds(10);
         }).AddHttpMessageHandler<ServiceTokenHandler>();
 
+        services.AddHttpClient(ResponseNotificationWorker.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
+        services.AddHostedService<ResponseNotificationWorker>();
+
         services.Configure<ShortLinkOptions>(configuration.GetSection(ShortLinkOptions.SectionName));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<ShortLinkOptions>>().Value);
+
+        var turnstileOptions = TurnstileOptions.FromConfiguration(configuration);
+        var guestUploadSettings = GuestUploadSettings.FromConfiguration(configuration, turnstileOptions.IsEnabled);
+        services.AddSingleton(turnstileOptions);
+        services.AddSingleton<TurnstileReachability>();
+        services.AddSingleton(guestUploadSettings);
+        services.AddSingleton(guestUploadSettings.Options);
+        services.AddSingleton<IGuestUploadStore, RedisGuestUploadStore>();
+        services.AddHostedService<GuestUploadStartupLog>();
+
+        services.AddHttpClient<ITurnstileVerifier, CloudflareTurnstileVerifier>(client =>
+        {
+            client.BaseAddress = new Uri("https://challenges.cloudflare.com");
+            client.Timeout = TimeSpan.FromSeconds(5);
+        });
+
+        services.AddHttpClient<ICoreMedia, CoreMediaClient>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
+            client.Timeout = TimeSpan.FromSeconds(60);
+        }).AddHttpMessageHandler<ServiceTokenHandler>();
+        services.AddScoped<IDraftFileHolds, DraftFileHolds>();
+        services.AddHostedService<AnswerFileLinkWorker>();
 
         services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
         {
