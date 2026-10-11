@@ -650,10 +650,10 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core calls |
 | `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core calls |
 | `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core calls |
-| `FORMMAIL_FORM_COPY_TEMPLATE_ID` | Submitted-form copy template: SkyMail template key or id. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | No, defaults to `forms.form-copy` |
-| `FORMMAIL_STATUS_CHANGED_TEMPLATE_ID` | Review status template: SkyMail template key or id | No, defaults to `forms.status-changed` |
-| `FORMMAIL_PENDING_REMINDER_TEMPLATE_ID` | Pending response reminder template: SkyMail template key or id | No, defaults to `forms.pending-reminder` |
-| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_ID` | Timed task updates (reminder, extension, expiry, accept, close): SkyMail template key or id. The team's remind action is refused while it is empty | No, defaults to `forms.attempt-update` |
+| `FORMMAIL_FORM_COPY_TEMPLATE_KEY` | Submitted-form copy template: SkyMail template key; empty turns the mail off. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | No, defaults to `forms.form-copy` |
+| `FORMMAIL_STATUS_CHANGED_TEMPLATE_KEY` | Review status template: SkyMail template key; empty turns the mail off | No, defaults to `forms.status-changed` |
+| `FORMMAIL_PENDING_REMINDER_TEMPLATE_KEY` | Pending response reminder template: SkyMail template key; empty turns the mail off | No, defaults to `forms.pending-reminder` |
+| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_KEY` | Timed task updates (reminder, extension, expiry, accept, close): SkyMail template key; empty turns these mails off and the team's remind action is refused | No, defaults to `forms.attempt-update` |
 | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on` (anything else stops startup). Active only together with `TURNSTILE_SECRET_KEY`, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, defaults to `off` |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest submissions are not verified and guest uploads stay off | No |
 | `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |

@@ -23,17 +23,12 @@ public class SkyMailClient : ISkyMailService
     {
         try
         {
-            // Kimlik değilse SkyMail şablon anahtarıdır (ör. forms.form-copy).
-            object body = Guid.TryParse(request.TemplateId, out _)
-                ? request
-                : new { TemplateKey = request.TemplateId, request.RecipientEmail, request.RecipientFullName, request.BodyVariables };
-
-            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", body, JsonOptions, ct);
+            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", request, JsonOptions, ct);
 
             if (!response.IsSuccessStatusCode)
             {
                 // Hata gövdesi alıcı adresini alıntılayabilir; yalnız durum yazılır.
-                _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateId})", (int)response.StatusCode, request.TemplateId);
+                _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateKey})", (int)response.StatusCode, request.TemplateKey);
                 return false;
             }
 
@@ -41,7 +36,7 @@ public class SkyMailClient : ISkyMailService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "skymail /mail_tasks/single isteğinde hata (template {TemplateId})", request.TemplateId);
+            _logger.LogError(ex, "skymail /mail_tasks/single isteğinde hata (template {TemplateKey})", request.TemplateKey);
             return false;
         }
     }

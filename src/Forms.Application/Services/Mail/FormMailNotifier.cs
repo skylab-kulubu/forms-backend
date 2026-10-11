@@ -35,7 +35,7 @@ public class FormMailNotifier : IFormMailNotifier
 
     public async Task NotifyResponseCopyAsync(Form form, FormResponse response, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(_options.FormCopyTemplateId)) return;
+        if (string.IsNullOrEmpty(_options.FormCopyTemplateKey)) return;
         if (response.Guest is { } guest && !await CanSendGuestCopyAsync(form, response, guest, ct)) return;
 
         var recipient = await GetRespondentAsync(response, ct);
@@ -56,12 +56,12 @@ public class FormMailNotifier : IFormMailNotifier
             ["answers"] = answers
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateId, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public async Task NotifyStatusChangedAsync(Form form, FormResponse response, Guid? nextFormId = null, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(_options.StatusChangedTemplateId)) return;
+        if (string.IsNullOrEmpty(_options.StatusChangedTemplateKey)) return;
 
         var status = response.Status switch
         {
@@ -88,10 +88,10 @@ public class FormMailNotifier : IFormMailNotifier
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateId, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
-    public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateId);
+    public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateKey);
 
     public async Task NotifyAttemptAsync(Form form, Guid userId, string kind, DateTime? deadlineAt = null, int? minutes = null, Guid? nextFormId = null, CancellationToken ct = default)
     {
@@ -119,7 +119,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateId, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     /// <summary>Misafirin hesabı yok; mail etkinlik formunda yazdığı adrese gider.</summary>

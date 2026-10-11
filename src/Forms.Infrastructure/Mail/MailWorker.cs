@@ -36,7 +36,7 @@ public class MailWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Mail worker beklenmeyen hata (template {TemplateId})", request.TemplateId);
+                _logger.LogError(ex, "Mail worker beklenmeyen hata (template {TemplateKey})", request.TemplateKey);
             }
         }
     }
@@ -55,6 +55,6 @@ public class MailWorker : BackgroundService
                 await Task.Delay(RetryDelay, ct);
         }
 
-        _logger.LogError("Mail {MaxAttempts} denemede gönderilemedi (template {TemplateId})", MaxAttempts, request.TemplateId);
+        _logger.LogError("Mail {MaxAttempts} denemede gönderilemedi (template {TemplateKey})", MaxAttempts, request.TemplateKey);
     }
 }
