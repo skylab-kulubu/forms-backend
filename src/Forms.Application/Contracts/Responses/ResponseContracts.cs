@@ -25,7 +25,8 @@ public record ResponseContract(
     ResponseAttribution? Attribution = null,
     FormAttemptDetailContract? Attempt = null,
     FormTask? Task = null,
-    ResponseGuest? Guest = null
+    ResponseGuest? Guest = null,
+    IReadOnlyList<string>? ReturnedQuestionIds = null
 );
 
 /// <summary>
@@ -33,12 +34,16 @@ public record ResponseContract(
 /// cevaplarını buradan görür.
 /// </summary>
 /// <param name="OnApprove">Onaylanırsa ne olacağı. Adımın rotası çoktan seçildiyse null.</param>
+/// <param name="Round">Bu cevabın adımın kaçıncı gönderimi olduğu.</param>
+/// <param name="CanReturn">Düzeltme istenebilir mi; rotası seçilmiş, süreli ya da kapanmış adımda false.</param>
 public record ResponseWorkflowContract(
     Guid InstanceId,
     int Stage,
     List<ResponseWorkflowStepContract> Steps,
     ResponseWorkflowRouteContract? OnApprove,
-    ResponseWorkflowRouteContract? OnDecline
+    ResponseWorkflowRouteContract? OnDecline,
+    int Round = 1,
+    bool CanReturn = false
 );
 
 public record ResponseWorkflowRouteContract(
@@ -47,11 +52,15 @@ public record ResponseWorkflowRouteContract(
     string? FormTitle
 );
 
+/// <param name="Round">Aynı adımda düzeltme istendiyse her gönderim ayrı satırdır; ilk gönderim 1.</param>
 public record ResponseWorkflowStepContract(
     int Stage,
     string FormTitle,
     Guid? ResponseId,
-    FormResponseStatus? Status
+    FormResponseStatus? Status,
+    int Round = 1,
+    DateTime? SubmittedAt = null,
+    DateTime? ReviewedAt = null
 );
 
 public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);
@@ -115,5 +124,6 @@ public record ResponseStatusCountsContract(
     int Running,
     int Opened,
     int NoSubmission,
-    int Flagged
+    int Flagged,
+    int Returned
 );

@@ -24,6 +24,12 @@ public class FormWorkflowStep : BaseEntity
     /// <summary>1'den başlayan sıra numarası; üst sınırı publish doğrulaması belirler.</summary>
     public int Sequence { get; set; } = 1;
 
+    /// <summary>
+    /// Aynı adımın kaçıncı gönderimi. Düzeltme istenen adımın yerine aynı node'da, aynı
+    /// sıra numarasıyla bir sonraki gönderim açılır; aday bunu yeni bir adım olarak görmez.
+    /// </summary>
+    public int Round { get; set; } = 1;
+
     /// <summary>Boş olan adım, başvurunun o an beklediği adımdır.</summary>
     public DateTime? CompletedAt { get; set; }
 }

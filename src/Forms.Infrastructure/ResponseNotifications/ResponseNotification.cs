@@ -29,7 +29,8 @@ public class ResponseNotification
         {
             FormResponseStatus.NonRestrict or FormResponseStatus.Approved => "accepted",
             FormResponseStatus.Pending or FormResponseStatus.Flagged => "pending",
-            FormResponseStatus.Declined => "declined",
+            // Düzeltme istenen cevap kabul edilmeyecek; yerini alan yeni gönderim ayrıca bildirilir.
+            FormResponseStatus.Declined or FormResponseStatus.Returned => "declined",
             _ => null
         };
 

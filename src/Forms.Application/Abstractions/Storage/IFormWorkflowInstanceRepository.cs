@@ -44,6 +44,12 @@ public interface IFormWorkflowInstanceRepository
 
     Task<FormWorkflowStep?> GetStepForEditAsync(Guid stepId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Açık adımdan önce düzeltme istenen gönderim: adayın formu onun cevaplarıyla açılır.
+    /// Adım ilk gönderimiyse ya da önceki adım başka bir node'daysa null.
+    /// </summary>
+    Task<WorkflowRevisionFacts?> GetRevisionAsync(Guid stepId, CancellationToken ct = default);
+
     void Add(FormWorkflowInstance instance);
 
     /// <summary>
@@ -64,18 +70,24 @@ public sealed record WorkflowJourneyStepFact(
     FormResponseStatus? ResponseStatus,
     DateTime? SubmittedAt,
     DateTime? ReviewedAt,
-    string? ReviewNote);
+    string? ReviewNote,
+    int Round = 1,
+    IReadOnlyList<string>? ReturnedQuestionIds = null);
 
 public sealed record ResponseWorkflowProjection(
     Guid InstanceId,
     int Stage,
-    IReadOnlyList<ResponseWorkflowStepProjection> Steps);
+    IReadOnlyList<ResponseWorkflowStepProjection> Steps,
+    int Round = 1);
 
 public sealed record ResponseWorkflowStepProjection(
     int Stage,
     string FormTitle,
     Guid? ResponseId,
-    FormResponseStatus? Status);
+    FormResponseStatus? Status,
+    int Round = 1,
+    DateTime? SubmittedAt = null,
+    DateTime? ReviewedAt = null);
 
 /// <param name="LastSequence">Başvurunun ulaştığı son adımın sıra numarası.</param>
 public sealed record WorkflowRunSummary(
@@ -86,3 +98,12 @@ public sealed record WorkflowRunSummary(
     int LastSequence,
     string? ReviewNote,
     DateTime? ReviewedAt);
+
+/// <param name="Round">Adayın şimdi vereceği gönderimin numarası.</param>
+/// <param name="Answers">Düzeltme istenen gönderimin cevapları.</param>
+public sealed record WorkflowRevisionFacts(
+    int Round,
+    string? Note,
+    DateTime? ReturnedAt,
+    IReadOnlyList<string> QuestionIds,
+    List<FormResponseSchemaItem> Answers);

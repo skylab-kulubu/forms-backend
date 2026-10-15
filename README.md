@@ -121,7 +121,7 @@ Dynamic form creation and response management service.
 - Response collection and management
 - Multi-step form workflows with conditional branching, see [Form Workflows](#form-workflows)
 - Collaborator management with Owner, Editor, and Viewer roles
-- Manual review workflow (`Pending -> Approved / Declined`)
+- Manual review workflow (`Pending -> Approved / Declined`); a workflow step can also be sent back for changes, see [Changes requested](#changes-requested)
 - Response archiving
 - Form metrics and answer analytics
 - Reusable component groups
@@ -139,7 +139,7 @@ Dynamic form creation and response management service.
 | Table | Description |
 |-------|-------------|
 | `Forms` | Form definitions, JSONB schema, status, and response settings |
-| `Responses` | User responses, the name and email a guest typed into the identity fields (only the email when `email` is marked alone), review information, archive state, and timing |
+| `Responses` | User responses, the name and email a guest typed into the identity fields (only the email when `email` is marked alone), review information, the questions flagged when changes were requested, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
 | `Workflows` | Workflow header: name, owner, repeat-run setting, and intake |
@@ -147,12 +147,12 @@ Dynamic form creation and response management service.
 | `WorkflowNodes` | The forms a version chains, which one starts the flow, and whether each step needs review |
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on |
-| `WorkflowSteps` | Each position in a run, with its response and the route chosen out of it |
+| `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
 | `ResponseNotifications` | Response notifications waiting for core; a row is deleted once core accepts it |
 
 ## Form Workflows
 
-A workflow chains several forms into one application. The definition is a **directed acyclic graph**: it may branch, but a single application follows **exactly one route** through it and never revisits a form. A route may span at most **three forms**, while the workflow as a whole may hold more.
+A workflow chains several forms into one application. The definition is a **directed acyclic graph**: it may branch, but a single application follows **exactly one route** through it and never moves back to an earlier form. The one exception is a reviewer asking for changes, which opens the same form again as the step's next submission (see [Changes requested](#changes-requested)). A route may span at most **three forms**, while the workflow as a whole may hold more.
 
 Routing is decided the moment an answer arrives and is then written to the application. Nothing is recomputed on later reads, so editing a definition can never change the path an application already took.
 
@@ -183,7 +183,7 @@ Steps are addressed by **`NodeKey`**, not by id. Node ids are regenerated for ev
 | `ResponseApproved` (1) | A reviewer approves the answer |
 | `ResponseDeclined` (2) | A reviewer declines the answer |
 
-A node's own review setting decides which triggers are legal: a step that requires review may only route on approval or decline, and a step that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once.
+A node's own review setting decides which triggers are legal: a step that requires review may only route on approval or decline, and a step that does not may only route on submission. Allowing both would pick a route twice for the same step and leave the application on two branches at once. Asking for changes is a review outcome but not a trigger: it picks no route.
 
 Within one trigger, transitions are evaluated by ascending `Priority` and the first matching condition wins. **A transition with no condition is the default route** and is always evaluated last, whatever its priority. A trigger with no transitions at all ends the flow, so a terminal step needs no configuration.
 
@@ -224,11 +224,21 @@ Answers are stored as text, so numeric comparisons parse both sides with a decim
 | Entity | Holds |
 |--------|-------|
 | `FormWorkflowInstance` | One user's run: the version it is bound to, its status and outcome |
-| `FormWorkflowStep` | One position in that run: node, response, previous step, chosen transition, sequence |
+| `FormWorkflowStep` | One position in that run: node, response, previous step, chosen transition, sequence, round |
 
 A step with no `CompletedAt` is the step the application is waiting on. When that step already carries a response, the application is **waiting for review**. There is no separate status for that, so the two can never disagree.
 
 Opening the workflow's **start form** resumes an application at whatever step it reached. Opening another node's form directly is refused, so a shared link cannot skip a step or enter a branch that was never chosen.
+
+### Changes requested
+
+A reviewer may send a step under review back to the applicant instead of approving or declining it: `PATCH /api/admin/forms/responses/{id}/status` with `newStatus: 6` (`Returned`), a `note` that goes to the applicant and is required, and optional `questionIds` to flag.
+
+- The step closes without a route, and a new step opens on the **same node with the same sequence** and the next `round`. The applicant does not see a new step: the journey keeps one row per stage, and that row carries `revision` (`round`, `note`, `returnedAt`, `questionIds`).
+- The form opens filled with the returned answers: the display payload's `revision` adds them as `answers`.
+- The returned response stays in the application, and the reviewer sees every submission of the step as its own round. It is left out of the response list unless the list is filtered by status `6`, and out of analytics, exports and conditions; core gets it as `declined`. It cannot be archived or reviewed again.
+- The applicant gets the status mail with `status: returned`, the same form as `nextFormId` and, when questions were flagged, `questionCount`.
+- It is not offered on a timed step, because a timed form has one attempt per person, nor on a form past its closing time. The response detail's `workflow.canReturn` tells the client whether it is offered.
 
 ### Application journey
 
@@ -516,7 +526,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
-| `GET` | `/api/admin/forms/{id}/responses` | List form responses |
+| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them |
 | `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel |
 | `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics |
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
@@ -526,7 +536,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/admin/forms/responses/{responseId}/files/{mediaId}/link` | Five-minute download link for a private file answer |
 | `POST` | `/api/admin/forms/responses/{id}/share` | Create or refresh a response share token |
 | `POST` | `/api/admin/forms/responses/{id}/revoke-token` | Revoke a response share token |
-| `PATCH` | `/api/admin/forms/responses/{id}/status` | Update response review status |
+| `PATCH` | `/api/admin/forms/responses/{id}/status` | Update response review status; on a workflow step `newStatus: 6` asks for changes, see [Changes requested](#changes-requested) |
 | `POST` | `/api/admin/forms/responses/{id}/archive` | Archive a response |
 
 ### Workflows - Admin

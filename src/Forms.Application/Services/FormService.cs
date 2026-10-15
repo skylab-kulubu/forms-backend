@@ -540,7 +540,8 @@ public class FormService : IFormService
             formTitle,
             LastRun: outcome.LastRun,
             ServerNow: now,
-            ClosesAt: target?.ClosesAt);
+            ClosesAt: target?.ClosesAt,
+            Revision: outcome.Revision);
 
         if (target is { HasTimeLimit: true })
         {

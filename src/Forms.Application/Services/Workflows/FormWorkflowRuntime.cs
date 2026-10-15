@@ -73,11 +73,19 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             return IntakeClosed(WorkflowIntake.Closed, instance.Id, openStep.Sequence, startFormId, isTwoStepFlow, journey);
 
         var openNode = definition.Nodes.First(candidate => candidate.Id == openStep.NodeId);
+        var revision = openStep.Round > 1 ? await RevisionOfAsync(openStep.Id, cancellationToken) : null;
 
         return Result(
-            new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId, startFormId, Journey: journey, StepId: openStep.Id),
+            new WorkflowStepOutcome(instance.Id, WorkflowActionState.ShowForm, openStep.Sequence, openNode.FormId, startFormId, Journey: journey, StepId: openStep.Id, Revision: revision),
             null,
             isTwoStepFlow);
+    }
+
+    private async Task<WorkflowRevisionContract?> RevisionOfAsync(Guid stepId, CancellationToken cancellationToken)
+    {
+        var facts = await _instances.GetRevisionAsync(stepId, cancellationToken);
+
+        return facts is null ? null : new WorkflowRevisionContract(facts.Round, facts.Note, facts.ReturnedAt, facts.QuestionIds, facts.Answers);
     }
 
     public Task<ServiceResult<WorkflowStepOutcome>> SubmitAsync(
@@ -434,6 +442,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         FormResponseStatus newStatus,
         Guid reviewerId,
         string? note,
+        IReadOnlyCollection<string>? questionIds = null,
         CancellationToken cancellationToken = default)
     {
         var step = await _instances.GetStepByResponseAsync(response.Id, cancellationToken);
@@ -447,11 +456,11 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 Message: "Bu adımın yönlendirmesi daha önce yapıldı; yeniden değerlendirilemez.");
         }
 
-        if (newStatus is not (FormResponseStatus.Approved or FormResponseStatus.Declined))
+        if (newStatus is not (FormResponseStatus.Approved or FormResponseStatus.Declined or FormResponseStatus.Returned))
         {
             return new ServiceResult<WorkflowStepOutcome>(
                 ServiceStatus.NotAcceptable,
-                Message: "Akış içindeki bir cevap yalnızca onaylanabilir veya reddedilebilir.");
+                Message: "Akış içindeki bir cevap yalnızca onaylanabilir, reddedilebilir ya da düzeltmeye gönderilebilir.");
         }
 
         var instance = step.WorkflowInstance;
@@ -460,6 +469,9 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         if (definition is null) return DefinitionUnavailable();
 
         var node = definition.Nodes.First(candidate => candidate.Id == step.NodeId);
+
+        if (newStatus == FormResponseStatus.Returned)
+            return await ReturnAsync(response, step, definition, node, reviewerId, note, questionIds, cancellationToken);
 
         var trigger = newStatus == FormResponseStatus.Approved
             ? WorkflowTransitionTrigger.ResponseApproved
@@ -478,6 +490,57 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         return Result(outcome, outcome.State == WorkflowActionState.Declined
             ? "Başvuru reddedildi."
             : MessageFor(outcome), definition.Nodes.Count == 2);
+    }
+
+    /// <summary>
+    /// Adımı rota seçmeden kapatır ve aynı node'da, aynı sıra numarasıyla bir sonraki gönderimi
+    /// açar. Düzeltme istenen cevap koşullarda okunmaz; yerini adayın yeni gönderimi alır.
+    /// </summary>
+    private async Task<ServiceResult<WorkflowStepOutcome>> ReturnAsync(
+        FormResponse response,
+        FormWorkflowStep step,
+        WorkflowDefinition definition,
+        FormWorkflowNode node,
+        Guid reviewerId,
+        string? note,
+        IReadOnlyCollection<string>? questionIds,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+
+        // Süreli formda deneme (form, kişi) başına tektir; yeni gönderim eski denemeye takılırdı.
+        if (response.Form.HasTimeLimit)
+            return new ServiceResult<WorkflowStepOutcome>(ServiceStatus.NotAcceptable, Message: "Süreli adımda düzeltme istenemez.");
+
+        if (response.Form.HasClosedAt(now))
+            return new ServiceResult<WorkflowStepOutcome>(ServiceStatus.NotAcceptable, Message: "Formun kapanış saati geçtiği için aday düzeltme gönderemez.");
+
+        var known = response.Data.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var flagged = (questionIds ?? []).Where(known.Contains).Distinct().ToList();
+
+        response.ApplyReview(FormResponseStatus.Returned, reviewerId, note, now);
+        response.ReturnedQuestionIds = flagged.Count > 0 ? flagged : null;
+
+        step.CompletedAt = now;
+        step.SelectedTransitionId = null;
+
+        var nextRound = new FormWorkflowStep
+        {
+            WorkflowInstanceId = step.WorkflowInstanceId,
+            NodeId = step.NodeId,
+            PreviousStepId = step.Id,
+            Sequence = step.Sequence,
+            Round = step.Round + 1
+        };
+
+        await CommitAsync(step.WorkflowInstance, nextRound, cancellationToken);
+
+        var startFormId = definition.Nodes.First(candidate => candidate.IsStart).FormId;
+
+        return Result(
+            new WorkflowStepOutcome(step.WorkflowInstanceId, WorkflowActionState.ShowForm, step.Sequence, node.FormId, startFormId, note, now, StepId: nextRound.Id),
+            "Düzeltme istendi; aday formu önceki cevaplarıyla yeniden açabilir.",
+            definition.Nodes.Count == 2);
     }
 
     private async Task<ServiceResult<WorkflowStepOutcome>> ResolveStartAsync(

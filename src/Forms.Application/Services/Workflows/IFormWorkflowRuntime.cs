@@ -30,13 +30,16 @@ public interface IFormWorkflowRuntime
 
     /// <summary>
     /// İnceleme sonucunu cevaba yazar ve rotayı seçer. İkisi aynı kayıt işleminde
-    /// commit edilir; yönlendirme yapılamıyorsa cevap da değişmez.
+    /// commit edilir; yönlendirme yapılamıyorsa cevap da değişmez. Düzeltme istenirse
+    /// rota seçilmez, aynı adımın bir sonraki gönderimi açılır.
     /// </summary>
+    /// <param name="questionIds">Yalnız düzeltme isterken: adayın formunda vurgulanacak sorular.</param>
     Task<ServiceResult<WorkflowStepOutcome>> ReviewAsync(
         FormResponse response,
         FormResponseStatus newStatus,
         Guid reviewerId,
         string? note,
+        IReadOnlyCollection<string>? questionIds = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

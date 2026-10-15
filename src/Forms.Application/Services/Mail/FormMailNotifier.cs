@@ -67,6 +67,7 @@ public class FormMailNotifier : IFormMailNotifier
         {
             FormResponseStatus.Approved => "approved",
             FormResponseStatus.Declined => "declined",
+            FormResponseStatus.Returned => "returned",
             _ => null
         };
 
@@ -87,6 +88,9 @@ public class FormMailNotifier : IFormMailNotifier
 
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
+
+        if (response.ReturnedQuestionIds is { Count: > 0 } flagged)
+            variables["questionCount"] = flagged.Count;
 
         _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }

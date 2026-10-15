@@ -8,6 +8,9 @@ namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
 public sealed class FormResponseRepository : IFormResponseRepository
 {
+    // Geçici cevap henüz kesinleşmedi, düzeltme istenen cevabın yerini yeni gönderim aldı: sayımlara girmezler.
+    internal static readonly FormResponseStatus[] Uncounted = [FormResponseStatus.Provisional, FormResponseStatus.Returned];
+
     private readonly FormsDbContext _context;
 
     public FormResponseRepository(FormsDbContext context)
@@ -17,14 +20,14 @@ public sealed class FormResponseRepository : IFormResponseRepository
 
     public Task<FormResponse?> GetLatestForUserAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && r.UserId == userId && !r.IsArchived && r.Status != FormResponseStatus.Provisional)
+            .Where(r => r.FormId == formId && r.UserId == userId && !r.IsArchived && !Uncounted.Contains(r.Status))
             .OrderByDescending(r => r.SubmittedAt)
             .FirstOrDefaultAsync(ct);
 
     public async Task<FormResponseCounts> GetCountsAsync(Guid formId, CancellationToken ct = default)
     {
         var result = await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && r.Status != FormResponseStatus.Provisional)
+            .Where(r => r.FormId == formId && !Uncounted.Contains(r.Status))
             .GroupBy(_ => 1)
             .Select(g => new FormResponseCounts(
                 g.Count(),
@@ -38,7 +41,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
 
     public Task<bool> HasNonArchivedResponseAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
-            .AnyAsync(r => r.FormId == formId && r.UserId == userId && !r.IsArchived && r.Status != FormResponseStatus.Provisional, ct);
+            .AnyAsync(r => r.FormId == formId && r.UserId == userId && !r.IsArchived && !Uncounted.Contains(r.Status), ct);
 
     public Task<bool> HasGuestResponseBeforeAsync(Guid formId, string email, DateTime submittedAt, CancellationToken ct = default) =>
         _context.Responses.AsNoTracking()
@@ -126,7 +129,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
             AttemptsWith(FormAttemptStatus.Started),
             AttemptsWith(FormAttemptStatus.Opened),
             AttemptsWith(FormAttemptStatus.NoSubmission),
-            ResponsesWith(FormResponseStatus.Flagged));
+            ResponsesWith(FormResponseStatus.Flagged),
+            ResponsesWith(FormResponseStatus.Returned));
 
         var wantResponses = responsesAllowed;
         var wantAttempts = attemptsAllowed;
@@ -140,6 +144,11 @@ public sealed class FormResponseRepository : IFormResponseRepository
         {
             wantAttempts = false;
             responses = responses.Where(r => r.Status == status);
+        }
+        else
+        {
+            // Düzeltme istenen cevabın yerini adayın yeni gönderimi aldı; yalnız kendi filtresiyle listelenir.
+            responses = responses.Where(r => r.Status != FormResponseStatus.Returned);
         }
 
         var responseTotal = wantResponses ? await responses.CountAsync(ct) : 0;
@@ -278,7 +287,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
 
     public async Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !r.IsArchived && r.Status != FormResponseStatus.Provisional)
+            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
             .OrderBy(r => r.SubmittedAt)
             .ToListAsync(ct);
 

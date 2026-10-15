@@ -80,6 +80,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
         var rows = await _context.WorkflowSteps.AsNoTracking()
             .IgnoreQueryFilters()
             .Where(step => step.WorkflowInstanceId == instanceId && step.Response != null)
+            .Where(step => step.Response!.Status != FormResponseStatus.Returned)
             .Select(step => new { step.Node.NodeKey, step.Response!.Data })
             .ToListAsync(ct);
 
@@ -91,6 +92,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .IgnoreQueryFilters()
             .Where(step => step.WorkflowInstanceId == instanceId)
             .OrderBy(step => step.Sequence)
+            .ThenBy(step => step.Round)
             .Select(step => new WorkflowJourneyStepFact(
                 step.Sequence,
                 step.NodeId,
@@ -99,29 +101,31 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
                 step.Response == null ? null : (FormResponseStatus?)step.Response.Status,
                 step.Response == null ? null : (DateTime?)step.Response.SubmittedAt,
                 step.Response == null ? null : step.Response.ReviewedAt,
-                step.Response == null ? null : step.Response.ReviewNote))
+                step.Response == null ? null : step.Response.ReviewNote,
+                step.Round,
+                step.Response == null ? null : step.Response.ReturnedQuestionIds))
             .ToListAsync(ct);
 
     public async Task<ResponseWorkflowProjection?> GetContextByResponseAsync(Guid responseId, CancellationToken ct = default)
     {
         var owningStep = await _context.WorkflowSteps.AsNoTracking()
             .Where(step => step.ResponseId == responseId)
-            .Select(step => new { step.WorkflowInstanceId, step.Sequence })
+            .Select(step => new { step.WorkflowInstanceId, step.Sequence, step.Round })
             .FirstOrDefaultAsync(ct);
 
         if (owningStep is null) return null;
 
-        return await BuildContextAsync(owningStep.WorkflowInstanceId, owningStep.Sequence, ct);
+        return await BuildContextAsync(owningStep.WorkflowInstanceId, owningStep.Sequence, owningStep.Round, ct);
     }
 
     public async Task<ResponseWorkflowProjection?> GetContextByStepAsync(Guid stepId, CancellationToken ct = default)
     {
         var step = await _context.WorkflowSteps.AsNoTracking()
             .Where(candidate => candidate.Id == stepId)
-            .Select(candidate => new { candidate.WorkflowInstanceId, candidate.Sequence })
+            .Select(candidate => new { candidate.WorkflowInstanceId, candidate.Sequence, candidate.Round })
             .FirstOrDefaultAsync(ct);
 
-        return step is null ? null : await BuildContextAsync(step.WorkflowInstanceId, step.Sequence, ct);
+        return step is null ? null : await BuildContextAsync(step.WorkflowInstanceId, step.Sequence, step.Round, ct);
     }
 
     public Task<FormWorkflowStep?> GetStepForEditAsync(Guid stepId, CancellationToken ct = default) =>
@@ -132,18 +136,22 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .ThenInclude(instance => instance.Workflow)
             .FirstOrDefaultAsync(step => step.Id == stepId, ct);
 
-    private async Task<ResponseWorkflowProjection> BuildContextAsync(Guid instanceId, int sequence, CancellationToken ct)
+    private async Task<ResponseWorkflowProjection> BuildContextAsync(Guid instanceId, int sequence, int round, CancellationToken ct)
     {
         // Formu sonradan silinmiş bir adım da başvurunun geçmişinin parçasıdır.
         var steps = await _context.WorkflowSteps.AsNoTracking()
             .IgnoreQueryFilters()
             .Where(step => step.WorkflowInstanceId == instanceId)
             .OrderBy(step => step.Sequence)
+            .ThenBy(step => step.Round)
             .Select(step => new
             {
                 step.Sequence,
+                step.Round,
                 step.ResponseId,
                 Status = step.Response == null ? (FormResponseStatus?)null : step.Response.Status,
+                SubmittedAt = step.Response == null ? (DateTime?)null : step.Response.SubmittedAt,
+                ReviewedAt = step.Response == null ? null : step.Response.ReviewedAt,
                 step.Node.FormId
             })
             .ToListAsync(ct);
@@ -160,10 +168,34 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
                 step.Sequence,
                 titles.TryGetValue(step.FormId, out var title) ? title : "(silinmiş form)",
                 step.ResponseId,
-                step.Status))
+                step.Status,
+                step.Round,
+                step.SubmittedAt,
+                step.ReviewedAt))
             .ToList();
 
-        return new ResponseWorkflowProjection(instanceId, sequence, mapped);
+        return new ResponseWorkflowProjection(instanceId, sequence, mapped, round);
+    }
+
+    public async Task<WorkflowRevisionFacts?> GetRevisionAsync(Guid stepId, CancellationToken ct = default)
+    {
+        var revision = await _context.WorkflowSteps.AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(step => step.Id == stepId && step.PreviousStep != null && step.PreviousStep.NodeId == step.NodeId)
+            .Where(step => step.PreviousStep!.Response != null && step.PreviousStep.Response.Status == FormResponseStatus.Returned)
+            .Select(step => new
+            {
+                step.Round,
+                step.PreviousStep!.Response!.ReviewNote,
+                step.PreviousStep.Response.ReviewedAt,
+                step.PreviousStep.Response.ReturnedQuestionIds,
+                step.PreviousStep.Response.Data
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return revision is null
+            ? null
+            : new WorkflowRevisionFacts(revision.Round, revision.ReviewNote, revision.ReviewedAt, revision.ReturnedQuestionIds ?? [], revision.Data);
     }
 
     public void Add(FormWorkflowInstance instance) => _context.WorkflowInstances.Add(instance);

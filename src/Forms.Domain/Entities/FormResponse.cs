@@ -26,6 +26,9 @@ public class FormResponse
     public ResponseAttribution? Attribution { get; set; }
     public ResponseGuest? Guest { get; set; }
 
+    /// <summary>Düzeltme istenirken işaretlenen sorular; adayın formunda vurgulanır.</summary>
+    public List<string>? ReturnedQuestionIds { get; set; }
+
     public void ApplyReview(FormResponseStatus status, Guid reviewerId, string? note, DateTime reviewedAt)
     {
         Status = status;

@@ -9,6 +9,7 @@ namespace Skylab.Forms.Application.Contracts;
 /// <param name="State">Akış motoru işlemiyorsa null.</param>
 /// <param name="Stage">Başvurunun kaçıncı adımında olduğu; grafikten değil adımdan gelir.</param>
 /// <param name="Reason">Akış kapalıysa sebebin kodu: newRunsClosed ya da workflowClosed.</param>
+/// <param name="Revision">Gösterilen adımda düzeltme istendiyse istek ve önceki gönderimin cevapları.</param>
 public record FormDisplayPayload(
     FormDisplayContract? Form,
     int Step,
@@ -26,5 +27,6 @@ public record FormDisplayPayload(
     FormAttemptDisplayContract? Attempt = null,
     DateTime? ServerNow = null,
     DateTime? ClosesAt = null,
-    GuestUploadsContract? GuestUploads = null
+    GuestUploadsContract? GuestUploads = null,
+    WorkflowRevisionContract? Revision = null
 );

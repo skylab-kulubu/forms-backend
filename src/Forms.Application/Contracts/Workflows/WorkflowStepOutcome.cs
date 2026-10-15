@@ -61,7 +61,8 @@ public sealed record WorkflowStepOutcome(
     string? Reason = null,
     WorkflowJourneyContract? Journey = null,
     WorkflowLastRunContract? LastRun = null,
-    Guid? StepId = null)
+    Guid? StepId = null,
+    WorkflowRevisionContract? Revision = null)
 {
     public static readonly WorkflowStepOutcome NotInWorkflow =
         new(null, WorkflowActionState.NotInWorkflow, 0, null);

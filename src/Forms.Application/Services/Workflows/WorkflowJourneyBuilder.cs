@@ -15,12 +15,21 @@ public static class WorkflowJourneyBuilder
         Guid? pendingNodeId = null)
     {
         var nodes = definition.Nodes.ToDictionary(node => node.Id);
-        var ordered = steps.OrderBy(step => step.Sequence).ToList();
+        var ordered = steps.OrderBy(step => step.Sequence).ThenBy(step => step.Round).ToList();
         var route = new List<WorkflowJourneyStepContract>();
+        WorkflowRevisionContract? revision = null;
         FormWorkflowNode? tail = null;
 
+        // Düzeltme istenen gönderim adayın gözünde ayrı bir adım değildir: satır açılmaz,
+        // isteğin notu aynı adımın bir sonraki gönderimine taşınır.
         foreach (var step in ordered)
         {
+            if (step.ResponseStatus == FormResponseStatus.Returned)
+            {
+                revision = new WorkflowRevisionContract(step.Round + 1, step.ReviewNote, step.ReviewedAt, step.ReturnedQuestionIds ?? []);
+                continue;
+            }
+
             nodes.TryGetValue(step.NodeId, out var node);
 
             route.Add(new WorkflowJourneyStepContract(
@@ -31,7 +40,10 @@ public static class WorkflowJourneyBuilder
                 Certain: true,
                 step.SubmittedAt,
                 step.ReviewedAt,
-                step.ReviewNote));
+                step.ReviewNote,
+                revision?.Round == step.Round ? revision : null));
+
+            revision = null;
         }
 
         if (ordered.Count == 0)

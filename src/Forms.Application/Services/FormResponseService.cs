@@ -273,7 +273,7 @@ public class FormResponseService : IFormResponseService
         var finalResult = new FormResponsesListResult(
             resultData,
             paged.AverageTimeSpent,
-            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission, counts.Flagged),
+            new ResponseStatusCountsContract(counts.Submitted, counts.Pending, counts.Approved, counts.Declined, counts.Provisional, counts.Running, counts.Opened, counts.NoSubmission, counts.Flagged, counts.Returned),
             paged.AverageTaskSeconds,
             hasTimeLimit);
 
@@ -474,17 +474,30 @@ public class FormResponseService : IFormResponseService
         if (contract.NewStatus == FormResponseStatus.Flagged)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bir cevap doğrulanmamış duruma alınamaz.");
 
-        var workflow = await _workflowRuntime.ReviewAsync(response, contract.NewStatus, reviewerId, contract.Note, cancellationToken);
+        var returning = contract.NewStatus == FormResponseStatus.Returned;
+
+        if (returning && string.IsNullOrWhiteSpace(contract.Note))
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Düzeltme isterken adaya neyi düzelteceğini yazın.");
+
+        var workflow = await _workflowRuntime.ReviewAsync(response, contract.NewStatus, reviewerId, contract.Note, contract.QuestionIds, cancellationToken);
 
         if (workflow.Data is not { State: WorkflowActionState.NotInWorkflow })
         {
             if (workflow.Status.IsFailure() || workflow.Data is null)
                 return new ServiceResult<bool>(workflow.Status, Message: workflow.Message);
 
+            // Düzeltme istenen cevap analize girmez; önbellekteki sonuç onu saymaya devam etmesin.
+            if (returning) await _cache.TryRemoveAsync(FormCacheKeys.Analytics(response.FormId), cancellationToken);
+
             await _mailNotifier.NotifyStatusChangedAsync(response.Form, response, workflow.Data.FormId, cancellationToken);
 
-            return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt durumu güncellendi ve akış ilerletildi.");
+            return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: returning
+                ? "Düzeltme istendi; aday formu önceki cevaplarıyla yeniden açabilir."
+                : "Yanıt durumu güncellendi ve akış ilerletildi.");
         }
+
+        if (returning)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Düzeltme yalnız akış adımındaki bir cevap için istenebilir.");
 
         var declinesFlagged = response.Status == FormResponseStatus.Flagged && contract.NewStatus == FormResponseStatus.Declined;
 
@@ -515,6 +528,9 @@ public class FormResponseService : IFormResponseService
 
         if (response.Status == FormResponseStatus.Provisional)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Geçici cevap arşivlenemez; önce karar verin.");
+
+        if (response.Status == FormResponseStatus.Returned)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Düzeltme istenen cevap başvurunun geçmişinde kalır; arşivlenemez.");
 
         if (response.Status is FormResponseStatus.Pending or FormResponseStatus.Flagged)
         {
@@ -672,7 +688,8 @@ public class FormResponseService : IFormResponseService
             response.ArchivedAt,
             sharedByUser,
             response.Attribution,
-            Guest: response.Guest
+            Guest: response.Guest,
+            ReturnedQuestionIds: response.ReturnedQuestionIds
         );
     }
 
@@ -766,7 +783,7 @@ public class FormResponseService : IFormResponseService
         {
             context = stepContext with
             {
-                Steps = [.. stepContext.Steps.Select(step => step.Stage == stepContext.Stage
+                Steps = [.. stepContext.Steps.Select(step => step.Stage == stepContext.Stage && step.Round == stepContext.Round
                     ? step with { ResponseId = response.Id, Status = FormResponseStatus.Provisional }
                     : step)]
             };
@@ -775,17 +792,20 @@ public class FormResponseService : IFormResponseService
         if (context is null) return null;
 
         var steps = context.Steps
-            .Select(step => new ResponseWorkflowStepContract(step.Stage, step.FormTitle, step.ResponseId, step.Status))
+            .Select(step => new ResponseWorkflowStepContract(step.Stage, step.FormTitle, step.ResponseId, step.Status, step.Round, step.SubmittedAt, step.ReviewedAt))
             .ToList();
 
         var preview = await _workflowRuntime.PreviewReviewAsync(response, cancellationToken);
+        var canReturn = preview is not null && !response.Form.HasTimeLimit && !response.Form.HasClosedAt(DateTime.UtcNow);
 
         return new ResponseWorkflowContract(
             context.InstanceId,
             context.Stage,
             steps,
             await ToRouteContractAsync(preview?.OnApprove, cancellationToken),
-            await ToRouteContractAsync(preview?.OnDecline, cancellationToken));
+            await ToRouteContractAsync(preview?.OnDecline, cancellationToken),
+            context.Round,
+            canReturn);
     }
 
     private async Task<ResponseWorkflowRouteContract?> ToRouteContractAsync(

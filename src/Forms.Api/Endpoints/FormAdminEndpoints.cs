@@ -277,7 +277,7 @@ public static class FormAdminEndpoints
             var userId = await userService.GetUserIdAsync(ct);
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Durumu güncellemek için giriş yapmalısınız.");
 
-            var serviceContract = new ResponseStatusUpdateRequest(id, request.NewStatus, request.Note);
+            var serviceContract = new ResponseStatusUpdateRequest(id, request.NewStatus, request.Note, request.QuestionIds);
 
             var result = await service.UpdateResponseStatusAsync(serviceContract, userId.Value, ct);
             return result.ToApiResult();
