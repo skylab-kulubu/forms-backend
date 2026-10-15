@@ -18,19 +18,25 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly IFormsUnitOfWork _uow;
     private readonly IExternalUserService _userService;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IFormWorkflowRuntime _runtime;
+    private readonly IFormMailNotifier _mailNotifier;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
         IFormsUnitOfWork uow,
         IExternalUserService userService,
-        ICurrentUserService currentUserService)
+        ICurrentUserService currentUserService,
+        IFormWorkflowRuntime runtime,
+        IFormMailNotifier mailNotifier)
     {
         _workflows = workflows;
         _instances = instances;
         _uow = uow;
         _userService = userService;
         _currentUserService = currentUserService;
+        _runtime = runtime;
+        _mailNotifier = mailNotifier;
     }
 
     public async Task<ServiceResult<WorkflowContract>> CreateAsync(
@@ -678,6 +684,32 @@ public class FormWorkflowService : IFormWorkflowService
 
     private static WorkflowValidationContract ToValidationContract(IReadOnlyList<WorkflowValidationError> errors) =>
         new(errors.Count == 0, [.. errors.Select(error => new WorkflowValidationErrorContract(error.Code, error.Message, error.NodeKey))]);
+
+    public async Task<ServiceResult<bool>> VoidRunAsync(
+        Guid instanceId,
+        WorkflowRunVoidRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+
+        if (note?.Length > FormWorkflowInstance.VoidNoteMaxLength)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Not en fazla {FormWorkflowInstance.VoidNoteMaxLength} karakter olabilir.");
+
+        if (!await _instances.CanManageRunAsync(instanceId, userId, cancellationToken))
+            return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu başvuruyu yeniden açma yetkiniz yok.");
+
+        var voided = await _runtime.VoidAsync(instanceId, userId, note, cancellationToken);
+        if (voided.Status.IsFailure() || voided.Data is null)
+            return new ServiceResult<bool>(voided.Status, Message: voided.Message);
+
+        await _mailNotifier.NotifyRunReopenedAsync(voided.Data, cancellationToken);
+
+        return new ServiceResult<bool>(
+            ServiceStatus.Success,
+            true,
+            voided.Data.WasActive ? "Başvuru baştan başlatıldı." : "Adaya yeniden başvuru hakkı verildi.");
+    }
 
     private Task<bool> IsPlatformAdminAsync(CancellationToken cancellationToken) =>
         _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);

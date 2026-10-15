@@ -41,6 +41,8 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
                 candidate.WorkflowVersionId,
                 candidate.Status,
                 candidate.Outcome,
+                candidate.VoidedAt,
+                candidate.VoidNote,
                 LastSequence = candidate.Steps.Max(step => (int?)step.Sequence) ?? 0
             })
             .FirstOrDefaultAsync(ct);
@@ -62,7 +64,9 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             instance.Outcome,
             instance.LastSequence,
             review?.ReviewNote,
-            review?.ReviewedAt);
+            review?.ReviewedAt,
+            instance.VoidedAt,
+            instance.VoidNote);
     }
 
     public Task<int> CountActiveAsync(Guid workflowId, CancellationToken ct = default) =>
@@ -197,6 +201,88 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             ? null
             : new WorkflowRevisionFacts(revision.Round, revision.ReviewNote, revision.ReviewedAt, revision.ReturnedQuestionIds ?? [], revision.Data);
     }
+
+    public async Task<WorkflowRunFacts?> GetRunFactsAsync(Guid instanceId, CancellationToken ct = default)
+    {
+        var run = await _context.WorkflowInstances.AsNoTracking()
+            .Where(instance => instance.Id == instanceId)
+            .Select(instance => new
+            {
+                instance.UserId,
+                instance.WorkflowId,
+                instance.WorkflowVersionId,
+                instance.Workflow.OwnerUserId,
+                instance.Workflow.Name,
+                WorkflowStatus = instance.Workflow.Status,
+                instance.Workflow.AllowMultipleRuns,
+                instance.Workflow.Intake,
+                instance.Workflow.IntakeClosesAt,
+                instance.Status,
+                instance.Outcome,
+                instance.CompletedAt,
+                instance.VoidedAt,
+                instance.VoidedBy,
+                instance.VoidNote,
+                PublishedVersionId = _context.WorkflowVersions
+                    .Where(version => version.WorkflowId == instance.WorkflowId && version.Status == WorkflowStatus.Published)
+                    .Select(version => (Guid?)version.Id)
+                    .FirstOrDefault()
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (run is null) return null;
+
+        // Yeni başvuru yayındaki sürümle başlar; iki sürümün birinde süreli adım varsa eski deneme yeni adımı kilitler.
+        var startVersionId = run.PublishedVersionId ?? run.WorkflowVersionId;
+        Guid[] versionIds = startVersionId == run.WorkflowVersionId ? [run.WorkflowVersionId] : [run.WorkflowVersionId, startVersionId];
+
+        var nodes = await _context.WorkflowNodes.AsNoTracking()
+            .Where(node => versionIds.Contains(node.WorkflowVersionId))
+            .Select(node => new { node.WorkflowVersionId, node.FormId, node.IsStart })
+            .ToListAsync(ct);
+
+        var formIds = nodes.Select(node => node.FormId).Distinct().ToList();
+
+        var hasTimedStep = await _context.Forms.AsNoTracking()
+            .IgnoreQueryFilters()
+            .AnyAsync(form => formIds.Contains(form.Id) && form.TimeLimitMinutes > 0, ct);
+
+        var startFormId = nodes.FirstOrDefault(node => node.WorkflowVersionId == startVersionId && node.IsStart)?.FormId
+            ?? nodes.First(node => node.IsStart).FormId;
+
+        return new WorkflowRunFacts(
+            instanceId,
+            run.UserId,
+            run.WorkflowId,
+            run.OwnerUserId,
+            run.Name,
+            run.WorkflowStatus,
+            run.AllowMultipleRuns,
+            run.Intake,
+            run.IntakeClosesAt,
+            run.Status,
+            run.Outcome,
+            run.CompletedAt,
+            run.VoidedAt,
+            run.VoidedBy,
+            run.VoidNote,
+            startFormId,
+            hasTimedStep);
+    }
+
+    public Task<bool> CanManageRunAsync(Guid instanceId, Guid userId, CancellationToken ct = default) =>
+        _context.WorkflowInstances.AsNoTracking()
+            .Where(instance => instance.Id == instanceId)
+            .AnyAsync(instance => instance.Workflow.OwnerUserId == userId
+                || _context.Collaborators.Any(collaborator => collaborator.UserId == userId
+                    && (collaborator.Role == CollaboratorRole.Owner || collaborator.Role == CollaboratorRole.Editor)
+                    && instance.Steps.Any(step => step.Node.FormId == collaborator.FormId)), ct);
+
+    public Task<FormWorkflowInstance?> GetForVoidAsync(Guid instanceId, CancellationToken ct = default) =>
+        _context.WorkflowInstances
+            .Include(instance => instance.Steps)
+            .Include(instance => instance.Workflow)
+            .FirstOrDefaultAsync(instance => instance.Id == instanceId, ct);
 
     public void Add(FormWorkflowInstance instance) => _context.WorkflowInstances.Add(instance);
 

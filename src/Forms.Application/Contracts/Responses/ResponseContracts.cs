@@ -43,7 +43,24 @@ public record ResponseWorkflowContract(
     ResponseWorkflowRouteContract? OnApprove,
     ResponseWorkflowRouteContract? OnDecline,
     int Round = 1,
-    bool CanReturn = false
+    bool CanReturn = false,
+    ResponseRunContract? Run = null
+);
+
+/// <summary>Başvurunun kendisi; ekip onu geçersiz sayıp kişiyi baştan başlatabilir.</summary>
+/// <param name="CanVoid">Bu kişi başvuruyu şimdi geçersiz sayabilir mi.</param>
+/// <param name="VoidBlock">Geçersiz sayılamıyorsa sebebin kodu; bkz. WorkflowRunVoidBlock.</param>
+public record ResponseRunContract(
+    WorkflowInstanceStatus Status,
+    WorkflowInstanceOutcome Outcome,
+    bool AllowMultipleRuns,
+    WorkflowIntake Intake,
+    bool CanVoid,
+    string? VoidBlock,
+    DateTime? CompletedAt,
+    DateTime? VoidedAt = null,
+    UserContract? VoidedBy = null,
+    string? VoidNote = null
 );
 
 public record ResponseWorkflowRouteContract(

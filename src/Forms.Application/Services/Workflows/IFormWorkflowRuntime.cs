@@ -43,6 +43,16 @@ public interface IFormWorkflowRuntime
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Başvuruyu geçersiz sayar: açık adımı kapatır, cevaplarını arşivler. Kişi akışa baştan
+    /// başlayabilir; tek başvuruluk akışta bu başvuru hakkından düşmez.
+    /// </summary>
+    Task<ServiceResult<WorkflowRunVoided>> VoidAsync(
+        Guid instanceId,
+        Guid actorId,
+        string? note,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cevabın rotası henüz belirlenmemişse true. Arşivleme gibi cevabı dolaylı
     /// olarak reddeden işlemlerin akışı kilitlemesini engellemek için kullanılır.
     /// </summary>

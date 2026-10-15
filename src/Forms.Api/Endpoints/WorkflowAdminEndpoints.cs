@@ -146,5 +146,14 @@ public static class WorkflowAdminEndpoints
             var result = await service.TransferWorkflowAsync(id, request.UserId, userId.Value, ct);
             return result.ToApiResult();
         });
+
+        group.MapPost("/runs/{instanceId:guid}/void", async (Guid instanceId, [FromBody] WorkflowRunVoidRequest request, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Başvuruyu yeniden açmak için giriş yapmalısınız.");
+
+            var result = await service.VoidRunAsync(instanceId, request, userId.Value, ct);
+            return result.ToApiResult();
+        });
     }
 }

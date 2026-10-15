@@ -143,14 +143,16 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 location.NodeCount == 2);
         }
 
-        if (!location.AllowMultipleRuns && await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken) is not null)
+        var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
+
+        if (HasUsedOnlyRun(location, lastRun))
         {
             return new ServiceResult<WorkflowStepOutcome>(
                 ServiceStatus.NotAcceptable,
                 Message: "Bu akışı daha önce tamamladınız.");
         }
 
-        var intake = location.IntakeAt(DateTime.UtcNow);
+        var intake = IntakeFor(location, lastRun, DateTime.UtcNow);
         if (intake != WorkflowIntake.Open)
             return IntakeClosed(intake, null, 0, location.StartFormId, location.NodeCount == 2);
 
@@ -291,14 +293,16 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                     location.NodeCount == 2);
             }
 
-            if (!location.AllowMultipleRuns && await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken) is not null)
+            var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
+
+            if (HasUsedOnlyRun(location, lastRun))
             {
                 return new ServiceResult<WorkflowStepOutcome>(
                     ServiceStatus.NotAcceptable,
                     Message: "Bu akışı daha önce tamamladınız.");
             }
 
-            var intake = location.IntakeAt(DateTime.UtcNow);
+            var intake = IntakeFor(location, lastRun, DateTime.UtcNow);
             if (intake != WorkflowIntake.Open)
                 return IntakeClosed(intake, null, 0, location.StartFormId, location.NodeCount == 2);
 
@@ -543,6 +547,59 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             definition.Nodes.Count == 2);
     }
 
+    public async Task<ServiceResult<WorkflowRunVoided>> VoidAsync(
+        Guid instanceId,
+        Guid actorId,
+        string? note,
+        CancellationToken cancellationToken = default)
+    {
+        var facts = await _instances.GetRunFactsAsync(instanceId, cancellationToken);
+        if (facts is null) return new ServiceResult<WorkflowRunVoided>(ServiceStatus.NotFound, Message: "Başvuru bulunamadı.");
+
+        if (WorkflowRunVoidBlock.Of(facts) is { } block)
+            return new ServiceResult<WorkflowRunVoided>(ServiceStatus.NotAcceptable, Message: WorkflowRunVoidBlock.MessageOf(block));
+
+        var instance = await _instances.GetForVoidAsync(instanceId, cancellationToken);
+        if (instance is null) return new ServiceResult<WorkflowRunVoided>(ServiceStatus.NotFound, Message: "Başvuru bulunamadı.");
+
+        var now = DateTime.UtcNow;
+        var wasActive = instance.Status == WorkflowInstanceStatus.Active;
+
+        foreach (var step in instance.Steps.Where(step => step.CompletedAt is null))
+            step.CompletedAt = now;
+
+        instance.Status = WorkflowInstanceStatus.Voided;
+        instance.VoidedAt = now;
+        instance.VoidedBy = actorId;
+        instance.VoidNote = note;
+        if (wasActive) instance.CompletedAt = now;
+
+        // Cevaplar başvurunun geçmişinde kalır ama listeden ve sayımlardan çıkar: yeni başvuru kendi cevaplarıyla sayılır.
+        var responseIds = instance.Steps.Where(step => step.ResponseId is not null).Select(step => step.ResponseId!.Value).ToList();
+
+        foreach (var response in await _responses.GetForEditByIdsAsync(responseIds, cancellationToken))
+        {
+            if (response.IsArchived) continue;
+
+            response.IsArchived = true;
+            response.ArchivedBy = actorId;
+            response.ArchivedAt = now;
+        }
+
+        try
+        {
+            await _uow.SaveChangesAsync(cancellationToken);
+        }
+        catch (StorageConflictException)
+        {
+            return new ServiceResult<WorkflowRunVoided>(ServiceStatus.Conflict, Message: "Başvuru aynı anda değişti; sayfayı yenileyip tekrar deneyin.");
+        }
+
+        return new ServiceResult<WorkflowRunVoided>(
+            ServiceStatus.Success,
+            new WorkflowRunVoided(instance.UserId, facts.WorkflowName, facts.StartFormId, wasActive, now, note));
+    }
+
     private async Task<ServiceResult<WorkflowStepOutcome>> ResolveStartAsync(
         Guid formId,
         Guid userId,
@@ -573,15 +630,26 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         }
 
         // Sonuçlanmış başvuru kabul durumundan önce gelir: akış kapansa da sonucu görünsün.
-        if (lastRun is not null && !location.AllowMultipleRuns) return ClosedRun(lastRun, isTwoStepFlow, location.StartFormId, await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken));
+        if (HasUsedOnlyRun(location, lastRun)) return ClosedRun(lastRun!, isTwoStepFlow, location.StartFormId, await RunJourneyAsync(location.WorkflowName, lastRun!, cancellationToken));
 
-        var intake = location.IntakeAt(DateTime.UtcNow);
+        var intake = IntakeFor(location, lastRun, DateTime.UtcNow);
         if (intake != WorkflowIntake.Open)
             return IntakeClosed(intake, null, 0, location.StartFormId, isTwoStepFlow, await StartJourneyAsync(location, cancellationToken));
 
         var outcome = new WorkflowStepOutcome(null, WorkflowActionState.ShowForm, 1, formId, location.StartFormId, Journey: await StartJourneyAsync(location, cancellationToken));
 
-        if (lastRun is { Status: WorkflowInstanceStatus.Completed or WorkflowInstanceStatus.Terminated })
+        if (lastRun is { Status: WorkflowInstanceStatus.Voided })
+        {
+            outcome = outcome with
+            {
+                LastRun = new WorkflowLastRunContract(
+                    WorkflowActionState.Reopened,
+                    lastRun.VoidNote,
+                    lastRun.VoidedAt,
+                    await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken))
+            };
+        }
+        else if (lastRun is { Status: WorkflowInstanceStatus.Completed or WorkflowInstanceStatus.Terminated })
         {
             outcome = outcome with
             {
@@ -787,8 +855,27 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
     private async Task<WorkflowJourneyContract?> RunJourneyAsync(string workflowName, WorkflowRunSummary run, CancellationToken cancellationToken)
     {
         var definition = await _workflows.GetDefinitionAsync(run.WorkflowVersionId, cancellationToken);
+        if (definition is null) return null;
 
-        return definition is null ? null : await BuildJourneyAsync(workflowName, definition, run.InstanceId, null, cancellationToken);
+        var steps = await _instances.GetJourneyStepsAsync(run.InstanceId, cancellationToken);
+        var forms = await _workflows.GetFormHeadersAsync([.. definition.Nodes.Select(node => node.FormId).Distinct()], cancellationToken);
+
+        return WorkflowJourneyBuilder.Build(workflowName, definition, steps, forms, voided: run.Status == WorkflowInstanceStatus.Voided);
+    }
+
+    /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
+    private static bool HasUsedOnlyRun(WorkflowNodeLocation location, WorkflowRunSummary? lastRun) =>
+        !location.AllowMultipleRuns && lastRun is not null && lastRun.Status != WorkflowInstanceStatus.Voided;
+
+    /// <summary>
+    /// Ekibin geçersiz saydığı başvurunun sahibi, yeni başvurulara kapalı akışa da baştan girer:
+    /// ekip onu içeri almayı seçti. Tamamen kapalı akış onu da almaz.
+    /// </summary>
+    private static WorkflowIntake IntakeFor(WorkflowNodeLocation location, WorkflowRunSummary? lastRun, DateTime now)
+    {
+        var intake = location.IntakeAt(now);
+
+        return intake == WorkflowIntake.NewRunsClosed && lastRun is { Status: WorkflowInstanceStatus.Voided } ? WorkflowIntake.Open : intake;
     }
 
     /// <summary>Açık adımın tekliğini WorkflowSteps üzerindeki kısmi tekil indeks garanti eder.</summary>

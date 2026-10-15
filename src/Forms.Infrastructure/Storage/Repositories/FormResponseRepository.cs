@@ -59,6 +59,11 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .ThenInclude(f => f.Collaborators)
             .FirstOrDefaultAsync(r => r.Id == responseId, ct);
 
+    public async Task<IReadOnlyList<FormResponse>> GetForEditByIdsAsync(IReadOnlyCollection<Guid> responseIds, CancellationToken ct = default) =>
+        responseIds.Count == 0
+            ? []
+            : await _context.Responses.IgnoreQueryFilters().Where(r => responseIds.Contains(r.Id)).ToListAsync(ct);
+
     public async Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default)
     {
         var page = Math.Max(1, request.Page);

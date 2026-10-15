@@ -9,6 +9,9 @@ namespace Skylab.Forms.Domain.Entities;
 /// </summary>
 public class FormWorkflowInstance : BaseEntity
 {
+    /// <summary>WorkflowInstances.VoidNote kolonunun uzunluğu (varchar(500)).</summary>
+    public const int VoidNoteMaxLength = 500;
+
     public Guid WorkflowId { get; set; }
     public FormWorkflow Workflow { get; set; } = null!;
 
@@ -22,6 +25,12 @@ public class FormWorkflowInstance : BaseEntity
 
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
+
+    public DateTime? VoidedAt { get; set; }
+    public Guid? VoidedBy { get; set; }
+
+    /// <summary>Başvuruyu geçersiz sayan ekibin adaya notu.</summary>
+    public string? VoidNote { get; set; }
 
     public ICollection<FormWorkflowStep> Steps { get; set; } = new List<FormWorkflowStep>();
 }

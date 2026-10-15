@@ -45,4 +45,7 @@ public static class WorkflowJourneyStatus
     public const string Current = "current";
     public const string Upcoming = "upcoming";
     public const string TimedOut = "timedOut";
+
+    /// <summary>Başvuru geçersiz sayılırken bu adım cevapsız kaldı.</summary>
+    public const string Stopped = "stopped";
 }

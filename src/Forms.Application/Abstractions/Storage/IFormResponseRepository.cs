@@ -14,6 +14,7 @@ public interface IFormResponseRepository
 
     Task<FormResponse?> GetByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
     Task<FormResponse?> GetForEditByIdWithFormAndCollaboratorsAsync(Guid responseId, CancellationToken ct = default);
+    Task<IReadOnlyList<FormResponse>> GetForEditByIdsAsync(IReadOnlyCollection<Guid> responseIds, CancellationToken ct = default);
 
     Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);

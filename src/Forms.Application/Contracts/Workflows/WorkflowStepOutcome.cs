@@ -23,7 +23,10 @@ public enum WorkflowActionState
     /// Akış bu kullanıcıyı içeri almıyor; sebebi Reason taşır. Stage sıfırdan büyükse
     /// devam eden bir başvuru durdurulmuştur.
     /// </summary>
-    Closed = 7
+    Closed = 7,
+
+    /// <summary>Yalnız LastRun'da: ekip önceki başvuruyu geçersiz saydı, kişi baştan başlayabilir.</summary>
+    Reopened = 8
 }
 
 /// <summary>Kapalı akışta dönen sebep kodları; istemci metni bunlara göre seçer.</summary>
@@ -80,3 +83,13 @@ public sealed record WorkflowReviewPreview(
 
 /// <param name="EndsFlow">Rota bir sonraki adıma değil, akışın sonuna gidiyor.</param>
 public sealed record WorkflowRouteTarget(bool EndsFlow, Guid? FormId);
+
+/// <summary>Geçersiz sayılan başvuru; kişiye haber vermek için gerekenler.</summary>
+/// <param name="WasActive">Başvuru sürüyordu ve baştan başlatıldı; değilse bitmiş başvuruya yeni hak verildi.</param>
+public sealed record WorkflowRunVoided(
+    Guid UserId,
+    string WorkflowName,
+    Guid StartFormId,
+    bool WasActive,
+    DateTime VoidedAt,
+    string? Note);

@@ -83,4 +83,14 @@ public interface IFormWorkflowService
         Guid workflowId,
         Guid userId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Bir başvuruyu geçersiz sayar ve kişiye haber verir: bitmiş başvuruda yeniden başvuru hakkı,
+    /// devam edende baştan başlatma. Akışın sahibi ya da bir adım formunda Owner veya Editor yapabilir.
+    /// </summary>
+    Task<ServiceResult<bool>> VoidRunAsync(
+        Guid instanceId,
+        WorkflowRunVoidRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default);
 }

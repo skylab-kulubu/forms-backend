@@ -8,6 +8,7 @@ using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 using Skylab.Forms.Application.Contracts.Mail;
 using Skylab.Forms.Application.Contracts.Identity;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 
@@ -91,6 +92,25 @@ public class FormMailNotifier : IFormMailNotifier
 
         if (response.ReturnedQuestionIds is { Count: > 0 } flagged)
             variables["questionCount"] = flagged.Count;
+
+        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+    }
+
+    public async Task NotifyRunReopenedAsync(WorkflowRunVoided voided, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(_options.StatusChangedTemplateKey)) return;
+
+        var recipient = await _userService.GetUserAsync(voided.UserId, ct);
+        if (string.IsNullOrWhiteSpace(recipient?.Email)) return;
+
+        var variables = new Dictionary<string, object>(MailNames.Of(recipient))
+        {
+            ["formTitle"] = voided.WorkflowName,
+            ["status"] = "reopened",
+            ["reviewNote"] = voided.Note ?? string.Empty,
+            ["reviewedAt"] = ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["nextFormId"] = voided.StartFormId.ToString()
+        };
 
         _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }

@@ -7,12 +7,14 @@ namespace Skylab.Forms.Application.Services.Workflows;
 
 public static class WorkflowJourneyBuilder
 {
+    /// <param name="voided">Ekip başvuruyu geçersiz saydı; cevapsız kalan adım "stopped" olur.</param>
     public static WorkflowJourneyContract Build(
         string title,
         WorkflowDefinition definition,
         IReadOnlyList<WorkflowJourneyStepFact> steps,
         IReadOnlyDictionary<Guid, WorkflowFormHeader> forms,
-        Guid? pendingNodeId = null)
+        Guid? pendingNodeId = null,
+        bool voided = false)
     {
         var nodes = definition.Nodes.ToDictionary(node => node.Id);
         var ordered = steps.OrderBy(step => step.Sequence).ThenBy(step => step.Round).ToList();
@@ -35,7 +37,7 @@ public static class WorkflowJourneyBuilder
             route.Add(new WorkflowJourneyStepContract(
                 step.Sequence,
                 TitleOf(forms, step.FormId),
-                StatusOf(step),
+                voided && step.ResponseStatus is null ? WorkflowJourneyStatus.Stopped : StatusOf(step),
                 node?.RequiresManualReview ?? false,
                 Certain: true,
                 step.SubmittedAt,
@@ -60,7 +62,7 @@ public static class WorkflowJourneyBuilder
                 tail = pending;
             }
         }
-        else if (ordered[^1].IsOpen && nodes.TryGetValue(ordered[^1].NodeId, out var open))
+        else if (!voided && ordered[^1].IsOpen && nodes.TryGetValue(ordered[^1].NodeId, out var open))
         {
             tail = open;
         }

@@ -104,8 +104,8 @@ Core sends its account erasure command to `PUT /internal/v1/account-erasures/{re
 
 What changes, deleted forms and archived templates included:
 
-- The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay.
-- Reviewer, archiver and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts and answer file links are deleted; active workflow runs are terminated.
+- The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay. The team's note on an application of theirs that was voided is emptied too.
+- Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts and answer file links are deleted; active workflow runs are terminated.
 - The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending core notification loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
 - Pending core notifications of the person's own responses are deleted, and a response owned by `Silinmiş kullanıcı` is never reported to core again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
@@ -146,7 +146,7 @@ Dynamic form creation and response management service.
 | `WorkflowVersions` | One frozen graph per version, in draft, published, or archived state |
 | `WorkflowNodes` | The forms a version chains, which one starts the flow, and whether each step needs review |
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
-| `WorkflowInstances` | One user's run of a workflow, bound to the version it started on |
+| `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
 | `ResponseNotifications` | Response notifications waiting for core; a row is deleted once core accepts it |
 
@@ -240,6 +240,16 @@ A reviewer may send a step under review back to the applicant instead of approvi
 - The applicant gets the status mail with `status: returned`, the same form as `nextFormId` and, when questions were flagged, `questionCount`.
 - It is not offered on a timed step, because a timed form has one attempt per person, nor on a form past its closing time. The response detail's `workflow.canReturn` tells the client whether it is offered.
 
+### Voided applications
+
+`POST /api/admin/workflows/runs/{instanceId}/void`, with an optional `{ "note": "..." }` for the person, voids an application. A finished one in a workflow people may run once gets a new right to apply; a running one starts over. The workflow owner, or an Owner or Editor of a form in the application, may do it.
+
+- The open step closes and every response of the application is archived. The application stays in the history as `Voided` (4) with `voidedAt`, `voidedBy` and `voidNote`.
+- A voided application does not count as the one run a workflow allows, and its owner may start again while the workflow is closed to new applications (`NewRunsClosed`), though not when it is `Closed`.
+- The start form reports it in `lastRun` with `state: 8`, the team's note as `reviewNote`, and the voided application's journey, where a step left unanswered has the status `stopped`.
+- The person gets the status mail with `status: reopened`, the workflow name as `formTitle` and the start form as `nextFormId`.
+- It is refused for an application already voided, in an archived workflow, in a workflow with a timed step (the old attempt would hold the new one), and for a finished application where people may already apply again. The response detail's `workflow.run` reports `canVoid` and, when voiding is refused, `voidBlock`: `voided`, `workflowArchived`, `timedStep` or `repeatable`.
+
 ### Application journey
 
 The public payloads describe the whole application so the client can show where the applicant stands. `GET /api/forms/{id}` and `POST /api/forms/responses` carry a `workflow` block in `data` whenever the form belongs to a published workflow:
@@ -265,6 +275,7 @@ The public payloads describe the whole application so the client can show where 
 | `inReview` | Answered and waiting for review |
 | `current` | The form the applicant fills in next |
 | `upcoming` | Expected later; see `certain` |
+| `stopped` | Left unanswered when the team voided the application |
 
 A finished application has no upcoming steps, and a refused submission carries no `workflow` block.
 
@@ -286,7 +297,7 @@ A workflow that lets people apply again keeps the **last result** in view. When 
 }
 ```
 
-`state` is `3` for a completed application and `4` for a declined one, and `workflow` is that application's own journey. A faulted application adds nothing, so it never stands between the applicant and a new start.
+`state` is `3` for a completed application, `4` for a declined one and `8` for one the team voided (see [Voided applications](#voided-applications)), and `workflow` is that application's own journey. A faulted application adds nothing, so it never stands between the applicant and a new start.
 
 Forms used on their own get the smaller part of the same information. The display payload's `form.requiresManualReview` tells the client whether an answer goes to review, and `form.allowAnonymousResponses` whether the form also takes answers without sign-in, so a respondent whose session ends mid-form can be offered to go on as a guest; answered states (`201`, `600`, `601`, `602`) add `formTitle` and `submittedAt`; `401` and `410` add `formTitle`, so every status screen can name the form. A signed-in user who already answered a form that takes one response gets `201` or the review status, never the form again.
 
@@ -302,7 +313,7 @@ Forms used on their own get the smaller part of the same information. The displa
 
 Displaying or submitting a refused form returns `410` with `reason`, `stage`, and `startFormId` in `data`. `stage` is `0` for someone who has not started and the current step's sequence for a stopped application, which is how the client tells the two apart. A refused submission saves nothing.
 
-The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes; one who may run it again gets the form with `lastRun` while intake is open (see [Application journey](#application-journey)).
+The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes; one who may run it again gets the form with `lastRun` while intake is open (see [Application journey](#application-journey)). Someone whose application the team voided gets the form even while new applications are closed (see [Voided applications](#voided-applications)).
 
 Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change.
 
@@ -556,6 +567,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
 | `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications; a service administrator may archive one left to `Silinmiş kullanıcı` |
 | `POST` | `/api/admin/workflows/{id}/transfer` | Transfer ownership together with the step forms, see [Ownership transfer](#ownership-transfer) |
+| `POST` | `/api/admin/workflows/runs/{instanceId}/void` | Void an application so the person can start over, see [Voided applications](#voided-applications) |
 
 ### Component Groups - Admin
 

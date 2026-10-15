@@ -322,13 +322,15 @@ public class FormResponseService : IFormResponseService
                 return new ServiceResult<ResponseContract>(ServiceStatus.NotAuthorized, Message: "Paylaşım bağlantısı geçersiz veya süresi dolmuş.");
         }
 
-        var workflow = await BuildWorkflowContractAsync(response, cancellationToken);
+        var workflow = await BuildWorkflowContractAsync(response, userId, cancellationToken);
+        var voidedById = workflow?.Run?.VoidedBy?.Id;
 
         var userIds = new List<Guid>();
         if (response.UserId.HasValue) userIds.Add(response.UserId.Value);
         if (response.ReviewedBy.HasValue) userIds.Add(response.ReviewedBy.Value);
         if (response.ArchivedBy.HasValue) userIds.Add(response.ArchivedBy.Value);
         if (shareEntry != null) userIds.Add(shareEntry.SharedByUserId);
+        if (voidedById.HasValue) userIds.Add(voidedById.Value);
 
         var users = await _userService.GetUsersAsync(userIds, cancellationToken);
 
@@ -336,6 +338,9 @@ public class FormResponseService : IFormResponseService
         var reviewerUser = response.ReviewedBy.HasValue ? users.FirstOrDefault(u => u.Id == response.ReviewedBy) : null;
         var archiverUser = response.ArchivedBy.HasValue ? users.FirstOrDefault(u => u.Id == response.ArchivedBy) : null;
         var sharedByUser = shareEntry != null ? users.FirstOrDefault(u => u.Id == shareEntry.SharedByUserId) : null;
+
+        if (workflow?.Run is { } run && users.FirstOrDefault(u => u.Id == voidedById) is { } voidedBy)
+            workflow = workflow with { Run = run with { VoidedBy = voidedBy } };
 
         var attempt = canView ? await _attempts.GetDetailForResponseAsync(response, cancellationToken) : null;
 
@@ -773,7 +778,7 @@ public class FormResponseService : IFormResponseService
         );
     }
 
-    private async Task<ResponseWorkflowContract?> BuildWorkflowContractAsync(FormResponse response, CancellationToken cancellationToken)
+    private async Task<ResponseWorkflowContract?> BuildWorkflowContractAsync(FormResponse response, Guid viewerId, CancellationToken cancellationToken)
     {
         var context = await _instances.GetContextByResponseAsync(response.Id, cancellationToken);
 
@@ -805,7 +810,31 @@ public class FormResponseService : IFormResponseService
             await ToRouteContractAsync(preview?.OnApprove, cancellationToken),
             await ToRouteContractAsync(preview?.OnDecline, cancellationToken),
             context.Round,
-            canReturn);
+            canReturn,
+            await BuildRunContractAsync(context.InstanceId, response.Form, viewerId, cancellationToken));
+    }
+
+    /// <summary>VoidedBy yalnız kimlikle gelir; çağıran kişi bilgisini diğer kullanıcılarla birlikte doldurur.</summary>
+    private async Task<ResponseRunContract?> BuildRunContractAsync(Guid instanceId, Form form, Guid viewerId, CancellationToken cancellationToken)
+    {
+        var run = await _instances.GetRunFactsAsync(instanceId, cancellationToken);
+        if (run is null) return null;
+
+        var canManage = run.WorkflowOwnerId == viewerId
+            || form.Collaborators.Any(c => c.UserId == viewerId && c.Role is CollaboratorRole.Owner or CollaboratorRole.Editor);
+        var block = WorkflowRunVoidBlock.Of(run);
+
+        return new ResponseRunContract(
+            run.Status,
+            run.Outcome,
+            run.AllowMultipleRuns,
+            FormWorkflow.EffectiveIntake(run.Intake, run.IntakeClosesAt, DateTime.UtcNow),
+            canManage && block is null,
+            block,
+            run.CompletedAt,
+            run.VoidedAt,
+            run.VoidedBy is { } voidedBy ? new UserContract(voidedBy, null, null, null) : null,
+            run.VoidNote);
     }
 
     private async Task<ResponseWorkflowRouteContract?> ToRouteContractAsync(

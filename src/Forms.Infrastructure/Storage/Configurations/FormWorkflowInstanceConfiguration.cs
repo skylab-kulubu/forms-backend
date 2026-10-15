@@ -15,6 +15,8 @@ public class FormWorkflowInstanceConfiguration : IEntityTypeConfiguration<FormWo
 
         builder.HasIndex(i => new { i.WorkflowId, i.UserId, i.Status });
 
+        builder.Property(i => i.VoidNote).HasMaxLength(FormWorkflowInstance.VoidNoteMaxLength);
+
         // Bir kullanıcının aynı akışta tek aktif başvurusu olur. AllowMultipleRuns
         // ardışık çalıştırmaya izin verir, eşzamanlı olana değil: eşzamanlı iki ilk
         // gönderimden yalnızca biri başvuru yaratabilsin.

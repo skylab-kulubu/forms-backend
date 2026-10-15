@@ -32,7 +32,8 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
 
     public async Task<int> ClearNoteMentionsAsync(IReadOnlyList<string> emails, CancellationToken ct = default) =>
         await _context.Database.ExecuteSqlRawAsync(ClearNotes("Responses", "ReviewNote"), Patterns(emails), ct) +
-        await _context.Database.ExecuteSqlRawAsync(ClearNotes("AttemptEvents", "Note"), Patterns(emails), ct);
+        await _context.Database.ExecuteSqlRawAsync(ClearNotes("AttemptEvents", "Note"), Patterns(emails), ct) +
+        await _context.Database.ExecuteSqlRawAsync(ClearNotes("WorkflowInstances", "VoidNote"), Patterns(emails), ct);
 
     public Task<int> ClearGuestEmailsAsync(IReadOnlyList<string> emails, CancellationToken ct = default) =>
         _context.Database.ExecuteSqlRawAsync(
@@ -50,6 +51,8 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
                await groups.Where(g => g.ArchivedBy == userId).ExecuteUpdateAsync(s => s.SetProperty(g => g.ArchivedBy, (Guid?)replacementUserId), ct) +
                await _context.Workflows.IgnoreQueryFilters().Where(w => w.OwnerUserId == userId)
                    .ExecuteUpdateAsync(s => s.SetProperty(w => w.OwnerUserId, replacementUserId), ct) +
+               await _context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.VoidedBy == userId)
+                   .ExecuteUpdateAsync(s => s.SetProperty(i => i.VoidedBy, (Guid?)replacementUserId), ct) +
                await _context.AttemptEvents.IgnoreQueryFilters().Where(e => e.ActorUserId == userId)
                    .ExecuteUpdateAsync(s => s.SetProperty(e => e.ActorUserId, (Guid?)replacementUserId), ct);
     }
@@ -84,9 +87,12 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
                 .SetProperty(i => i.UpdatedAt, now), ct);
     }
 
+    // Geçersiz sayma notu cevaptaki inceleme notu gibi kişiye yazılmıştır; cevapların notuyla birlikte silinir.
     public Task<int> DetachWorkflowRunsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default) =>
         _context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.UserId == userId)
-            .ExecuteUpdateAsync(s => s.SetProperty(i => i.UserId, replacementUserId), ct);
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(i => i.UserId, replacementUserId)
+                .SetProperty(i => i.VoidNote, (string?)null), ct);
 
     // Kişinin dosyalarını core kendi silmesinde kaldırır; bağ satırı kalsa arka plan işi artık olmayan dosyayı
     // bağlamaya ya da çözmeye çalışırdı.

@@ -50,6 +50,15 @@ public interface IFormWorkflowInstanceRepository
     /// </summary>
     Task<WorkflowRevisionFacts?> GetRevisionAsync(Guid stepId, CancellationToken ct = default);
 
+    /// <summary>Başvurunun durumu ve geçersiz sayılıp sayılamayacağını belirleyen gerçekler.</summary>
+    Task<WorkflowRunFacts?> GetRunFactsAsync(Guid instanceId, CancellationToken ct = default);
+
+    /// <summary>Kişi akışın sahibi ya da başvurunun bir adım formunda Owner veya Editor mı?</summary>
+    Task<bool> CanManageRunAsync(Guid instanceId, Guid userId, CancellationToken ct = default);
+
+    /// <summary>Geçersiz saymak için başvuru; adımları ve akışıyla, izlenen olarak.</summary>
+    Task<FormWorkflowInstance?> GetForVoidAsync(Guid instanceId, CancellationToken ct = default);
+
     void Add(FormWorkflowInstance instance);
 
     /// <summary>
@@ -97,7 +106,9 @@ public sealed record WorkflowRunSummary(
     WorkflowInstanceOutcome Outcome,
     int LastSequence,
     string? ReviewNote,
-    DateTime? ReviewedAt);
+    DateTime? ReviewedAt,
+    DateTime? VoidedAt = null,
+    string? VoidNote = null);
 
 /// <param name="Round">Adayın şimdi vereceği gönderimin numarası.</param>
 /// <param name="Answers">Düzeltme istenen gönderimin cevapları.</param>
@@ -107,3 +118,24 @@ public sealed record WorkflowRevisionFacts(
     DateTime? ReturnedAt,
     IReadOnlyList<string> QuestionIds,
     List<FormResponseSchemaItem> Answers);
+
+/// <param name="StartFormId">Yayındaki sürümün başlangıç formu; yayında sürüm yoksa başvurunun kendi sürümününki.</param>
+/// <param name="HasTimedStep">Başvurunun ya da yayındaki sürümün bir adımı süreli form mu.</param>
+public sealed record WorkflowRunFacts(
+    Guid InstanceId,
+    Guid UserId,
+    Guid WorkflowId,
+    Guid WorkflowOwnerId,
+    string WorkflowName,
+    WorkflowStatus WorkflowStatus,
+    bool AllowMultipleRuns,
+    WorkflowIntake Intake,
+    DateTime? IntakeClosesAt,
+    WorkflowInstanceStatus Status,
+    WorkflowInstanceOutcome Outcome,
+    DateTime? CompletedAt,
+    DateTime? VoidedAt,
+    Guid? VoidedBy,
+    string? VoidNote,
+    Guid StartFormId,
+    bool HasTimedStep);
