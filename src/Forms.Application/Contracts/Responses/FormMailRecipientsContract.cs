@@ -11,3 +11,16 @@ public record FormMailRecipientsContract(
     int SkippedCount,
     int DuplicateCount
 );
+
+public record FormMailSourceContract(
+    Guid SourceId,
+    Guid FormId,
+    Guid PreparedByUserId,
+    string FormTitle,
+    int RecipientCount,
+    int ResponseCount,
+    int SkippedCount,
+    int DuplicateCount,
+    DateTimeOffset PreparedAt,
+    DateTimeOffset ExpiresAt
+);
