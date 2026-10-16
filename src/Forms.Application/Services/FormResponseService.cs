@@ -44,6 +44,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormAttemptRepository _attemptRecords;
     private readonly IGuestUploadService _guestUploads;
     private readonly ICoreMedia _media;
+    private readonly ISkyMailService _skyMailService;
 
     public FormResponseService(
         IFormRepository forms,
@@ -60,8 +61,10 @@ public class FormResponseService : IFormResponseService
         IFormAttemptService attempts,
         IFormAttemptRepository attemptRecords,
         IGuestUploadService guestUploads,
-        ICoreMedia media)
+        ICoreMedia media,
+        ISkyMailService skyMailService)
     {
+        _skyMailService = skyMailService;
         _attempts = attempts;
         _attemptRecords = attemptRecords;
         _guestUploads = guestUploads;
@@ -619,6 +622,19 @@ public class FormResponseService : IFormResponseService
 
         return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.Success,
             Data: new FormMailRecipientsContract(form.Id, userId, form.Title, recipients, responses.Count, skipped, duplicates));
+    }
+
+    public async Task<ServiceResult<FormMailSourceContract>> PrepareFormMailSourceAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var result = await GetFormMailRecipientsAsync(formId, userId, cancellationToken);
+        if (result.Status != ServiceStatus.Success)
+            return new ServiceResult<FormMailSourceContract>(result.Status, Message: result.Message);
+
+        var recipients = result.Data!;
+        if (recipients.Recipients.Count == 0)
+            return new ServiceResult<FormMailSourceContract>(ServiceStatus.NotAcceptable, Message: "E-posta gönderilebilecek yanıtlayan bulunamadı.");
+
+        return await _skyMailService.PrepareFormMailSourceAsync(recipients, cancellationToken);
     }
 
     public async Task<ServiceResult<byte[]>> ExportResponsesToExcelAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
