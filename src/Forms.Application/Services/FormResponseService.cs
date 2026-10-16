@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Mail;
 using System.Security.Cryptography;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Attribution;
@@ -561,6 +562,63 @@ public class FormResponseService : IFormResponseService
         await _cache.TryRemoveAsync(FormCacheKeys.Analytics(response.FormId), cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Yanıt başarıyla arşivlendi.");
+    }
+
+    public async Task<ServiceResult<FormMailRecipientsContract>> GetFormMailRecipientsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var form = await _forms.GetWithCollaboratorsAsync(formId, cancellationToken);
+        if (form == null)
+            return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
+
+        var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+            return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
+
+        var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
+        var userIds = responses.Where(r => r.UserId.HasValue).Select(r => r.UserId!.Value).Distinct().ToList();
+        var users = (await _userService.GetUsersAsync(userIds, cancellationToken)).ToDictionary(u => u.Id);
+        var recipients = new List<FormMailRecipientContract>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var skipped = 0;
+        var duplicates = 0;
+
+        foreach (var response in responses)
+        {
+            string? email;
+            string name;
+            if (response.UserId.HasValue)
+            {
+                users.TryGetValue(response.UserId.Value, out var user);
+                email = user?.Email?.Trim();
+                name = user?.FullName?.Trim() ?? "";
+            }
+            else
+            {
+                email = response.Guest?.Email?.Trim();
+                name = $"{response.Guest?.FirstName?.Trim()} {response.Guest?.LastName?.Trim()}".Trim();
+            }
+
+            if (email is not { Length: > 0 and <= 254 }
+                || email.Any(char.IsWhiteSpace) || email.Count(character => character == '@') != 1
+                || !MailAddress.TryCreate(email, out var address)
+                || !string.Equals(address.Address, email, StringComparison.OrdinalIgnoreCase)
+                || !address.Host.Contains('.'))
+            {
+                skipped++;
+                continue;
+            }
+
+            if (!seen.Add(email))
+            {
+                duplicates++;
+                continue;
+            }
+
+            recipients.Add(new FormMailRecipientContract(name, email));
+        }
+
+        return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.Success,
+            Data: new FormMailRecipientsContract(form.Id, userId, form.Title, recipients, responses.Count, skipped, duplicates));
     }
 
     public async Task<ServiceResult<byte[]>> ExportResponsesToExcelAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
