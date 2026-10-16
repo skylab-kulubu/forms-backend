@@ -10,6 +10,7 @@ public interface IFormResponseService
 {
     Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, IPAddress? clientAddress, CancellationToken cancellationToken = default);
     Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<FormMailRecipientsContract>> GetFormMailRecipientsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default);
     Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, string? token, CancellationToken cancellationToken = default);
     Task<ServiceResult<ResponseFileContract>> GetResponseFileAsync(Guid responseId, Guid mediaId, Guid userId, string? token, CancellationToken cancellationToken = default);
     Task<ServiceResult<ResponseFileLinkContract>> CreateResponseFileLinkAsync(Guid responseId, Guid mediaId, Guid userId, string? token, CancellationToken cancellationToken = default);
