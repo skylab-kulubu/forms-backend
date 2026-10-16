@@ -487,11 +487,14 @@ public class FormAttemptService : IFormAttemptService
             return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotFound, Message: "Kayıt bulunamadı.");
 
         var isCollaborator = attempt.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isCollaborator && !await _currentUser.HasRoleAsync("skyforms:*", "forms", ct))
+        var isPlatformAdmin = await _currentUser.HasRoleAsync("skyforms:*", "forms", ct);
+        if (!isCollaborator && !isPlatformAdmin && !await _currentUser.HasRoleAsync("skyforms:read-all", "forms", ct))
             return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotAuthorized, Message: "Bu kaydı görüntüleme yetkiniz yok.");
 
         var user = await _users.GetUserAsync(attempt.UserId, ct) ?? new UserContract(attempt.UserId, null, "??", null);
         var detail = await DetailOfAsync(attempt, attempt.Form, null, ct);
+        if (!isCollaborator && !isPlatformAdmin)
+            detail = detail with { CanExtend = false, CanDecide = false, CanRemind = false };
         var workflow = attempt.WorkflowStepId is { } stepId ? await StepWorkflowAsync(stepId, ct) : null;
 
         return new ServiceResult<FormAttemptViewContract>(
@@ -515,7 +518,7 @@ public class FormAttemptService : IFormAttemptService
         if (form is null)
             return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!await _currentUser.HasRoleAsync("skyforms:*", "forms", ct) && !await _forms.IsUserCollaboratorAsync(formId, userId, ct))
+        if (!await _currentUser.HasRoleAsync("skyforms:*", "forms", ct) && !await _currentUser.HasRoleAsync("skyforms:read-all", "forms", ct) && !await _forms.IsUserCollaboratorAsync(formId, userId, ct))
             return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
         if (!form.HasTimeLimit)

@@ -157,7 +157,7 @@ public class FormWorkflowService : IFormWorkflowService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<WorkflowContract>();
 
-        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken))
+        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken) && !await _currentUserService.HasRoleAsync("skyforms:read-all", "forms", cancellationToken))
             return NotOwner<WorkflowContract>();
 
         return await BuildContractAsync(workflow, cancellationToken);
@@ -206,7 +206,7 @@ public class FormWorkflowService : IFormWorkflowService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<List<WorkflowVersionSummaryContract>>();
 
-        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken))
+        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken) && !await _currentUserService.HasRoleAsync("skyforms:read-all", "forms", cancellationToken))
             return NotOwner<List<WorkflowVersionSummaryContract>>();
 
         var versions = await _workflows.GetVersionsAsync(workflowId, cancellationToken);

@@ -35,7 +35,7 @@ public static class FormAdminEndpoints
 
         group.MapGet("/all", async (IFormService service, ICurrentUserService userService, [AsParameters] GetAllFormsRequest request, CancellationToken ct) =>
         {
-            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct) && !await userService.HasRoleAsync("skyforms:read-all", "forms", ct))
                 return ServiceStatus.NotAuthorized.ToApiResult();
 
             var result = await service.GetAllFormsAsync(request, ct);
@@ -45,7 +45,7 @@ public static class FormAdminEndpoints
         // Hesabı silinen kişilerden kalan, sahibi Silinmiş kullanıcı olan formlar.
         group.MapGet("/orphaned", async (IFormService service, ICurrentUserService userService, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
         {
-            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct) && !await userService.HasRoleAsync("skyforms:read-all", "forms", ct))
                 return ServiceStatus.NotAuthorized.ToApiResult();
 
             var result = await service.GetUserFormsAsync(DeletedUser.Id, request with { Role = CollaboratorRole.Owner }, ct);

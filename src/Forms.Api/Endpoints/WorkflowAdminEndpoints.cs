@@ -28,7 +28,7 @@ public static class WorkflowAdminEndpoints
         // Hesabı silinen kişilerden kalan, sahibi Silinmiş kullanıcı olan akışlar.
         group.MapGet("/orphaned", async (IFormWorkflowService service, ICurrentUserService userService, [AsParameters] GetWorkflowsRequest request, CancellationToken ct) =>
         {
-            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct))
+            if (!await userService.HasRoleAsync("skyforms:*", "forms", ct) && !await userService.HasRoleAsync("skyforms:read-all", "forms", ct))
                 return ServiceStatus.NotAuthorized.ToApiResult();
 
             var result = await service.GetOwnedAsync(DeletedUser.Id, request, ct);

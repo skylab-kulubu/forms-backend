@@ -228,7 +228,8 @@ public class FormResponseService : IFormResponseService
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        var isPlatformAdmin = await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+        if (!isAuthorized && !isPlatformAdmin && !await _currentUserService.HasRoleAsync("skyforms:read-all", "forms", cancellationToken))
             return new ServiceResult<FormResponsesListResult>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var form = await _forms.GetByIdAsync(formId, cancellationToken);
@@ -258,7 +259,7 @@ public class FormResponseService : IFormResponseService
             return new ResponseSummaryContract(
                 r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt,
                 r.TimeSpent,
-                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null,
+                r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind, isAuthorized || isPlatformAdmin) : null,
                 r.Guest);
         }).ToList();
 
@@ -280,7 +281,7 @@ public class FormResponseService : IFormResponseService
         return new ServiceResult<FormResponsesListResult>(ServiceStatus.Success, Data: finalResult);
     }
 
-    private static ResponseAttemptSummaryContract ToAttemptSummary(ResponseAttemptProjection attempt, bool canRemind) =>
+    private static ResponseAttemptSummaryContract ToAttemptSummary(ResponseAttemptProjection attempt, bool canRemind, bool canManage) =>
         new(
             attempt.Id,
             attempt.Status,
@@ -290,13 +291,13 @@ public class FormResponseService : IFormResponseService
             attempt.ExpiredAt,
             attempt.ExtendedMinutes,
             attempt.ClosedByTeam,
-            attempt.Status switch
+            canManage && (attempt.Status switch
             {
                 FormAttemptStatus.Started or FormAttemptStatus.Provisional => true,
                 FormAttemptStatus.NoSubmission => attempt.WorkflowStepId is null && !attempt.ClosedByTeam,
                 _ => false
-            },
-            canRemind && attempt.Status == FormAttemptStatus.Opened,
+            }),
+            canManage && canRemind && attempt.Status == FormAttemptStatus.Opened,
             attempt is { StartedAt: { } startedAt, ResponseSubmittedAt: { } submittedAt, Status: FormAttemptStatus.Submitted }
                 ? (int)Math.Max(0, (submittedAt - startedAt).TotalSeconds)
                 : null);
@@ -309,7 +310,8 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<ResponseContract>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+        var isPlatformAdmin = await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+        var canView = isCollaborator || isPlatformAdmin || await _currentUserService.HasRoleAsync("skyforms:read-all", "forms", cancellationToken);
 
         ShareCacheEntry? shareEntry = null;
         if (!canView)
@@ -343,6 +345,11 @@ public class FormResponseService : IFormResponseService
             workflow = workflow with { Run = run with { VoidedBy = voidedBy } };
 
         var attempt = canView ? await _attempts.GetDetailForResponseAsync(response, cancellationToken) : null;
+        if (!isCollaborator && !isPlatformAdmin)
+        {
+            if (attempt is not null) attempt = attempt with { CanExtend = false, CanDecide = false, CanRemind = false };
+            if (workflow is not null) workflow = workflow with { CanReturn = false };
+        }
 
         return new ServiceResult<ResponseContract>(
             ServiceStatus.Success,
@@ -433,7 +440,7 @@ public class FormResponseService : IFormResponseService
         if (response == null) return (ServiceStatus.NotFound, "Yanıt bulunamadı.");
 
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken) || await _currentUserService.HasRoleAsync("skyforms:read-all", "forms", cancellationToken);
 
         if (!canView)
         {
@@ -571,7 +578,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<byte[]>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken) && !await _currentUserService.HasRoleAsync("skyforms:read-all", "forms", cancellationToken))
             return new ServiceResult<byte[]>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını dışa aktarma yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
