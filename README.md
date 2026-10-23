@@ -250,6 +250,28 @@ A reviewer may send a step under review back to the applicant instead of approvi
 - The person gets the status mail with `status: reopened`, the workflow name as `formTitle` and the start form as `nextFormId`.
 - It is refused for an application already voided, in an archived workflow, in a workflow with a timed step (the old attempt would hold the new one), and for a finished application where people may already apply again. The response detail's `workflow.run` reports `canVoid` and, when voiding is refused, `voidBlock`: `voided`, `workflowArchived`, `timedStep` or `repeatable`.
 
+### Tracking applications
+
+Two read-only endpoints show the team where applications stand. Both answer to the workflow owner and to service administrators.
+
+`GET /api/admin/workflows/{id}/runs/overview` counts applications. `steps` follows the current version (the published one, else the draft) in **flow order**: by `depth`, the longest route from the start, then in the order the routes reach each step. Every step counts the running applications waiting on it (`count`) and splits them into `awaitingReview`, `awaitingApplicant`, `timerRunning` and `revisionRequested`. A step that only an older version has but that still holds running applications comes last with `isRemoved: true`, so the counts always add up to `activeRunCount`. `finished` counts ended applications by result: `completed`, `declined`, `timedOut`, `voided` and `stopped`. Each row of the workflow list carries the same overview as `runs`.
+
+`GET /api/admin/workflows/{id}/runs` lists applications, 20 per page by default and at most 100. `Filter` is `0` for running applications (the default), `1` for those waiting for review and `2` for finished ones; `NodeKey` keeps the applications at that step, which for a finished application is the step it ended on. Running applications come oldest step first, so whoever has waited longest leads; finished ones come most recent first. A row carries the applicant, `state`, the step (`nodeKey`, `formId`, `formTitle`, `sequence`, `round`), `startedAt`, `stepStartedAt`, `deadlineAt` while a timer runs, `completedAt`, and `latestResponse` (`id`, `formId`), the newest answer of the application.
+
+| `state` | Meaning |
+|---------|---------|
+| `0` | Waiting for the applicant to fill in the step's form |
+| `1` | The applicant started a timed form; `deadlineAt` is set |
+| `2` | A reviewer asked for changes, see [Changes requested](#changes-requested) |
+| `3` | Answered and waiting for review |
+| `4` | Completed on an approval or submission route that ends the workflow |
+| `5` | Declined on a route that ends the workflow |
+| `6` | Ended because a timed step ran out |
+| `7` | Voided by the team, see [Voided applications](#voided-applications) |
+| `8` | Stopped without a result, for example by a faulted route or an erased account |
+
+Like the review state in [Applications](#applications), these states are read from what the application already stores (the open step, its response, its round and a running attempt), so they cannot disagree with the steps. The list has **no applicant search**: names and addresses live in core, which has no bulk lookup, so a search would cost one request per applicant.
+
 ### Application journey
 
 The public payloads describe the whole application so the client can show where the applicant stands. `GET /api/forms/{id}` and `POST /api/forms/responses` carry a `workflow` block in `data` whenever the form belongs to a published workflow:
@@ -554,7 +576,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear |
+| `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear; each row carries `runs`, see [Tracking applications](#tracking-applications) |
 | `GET` | `/api/admin/workflows/orphaned` | List workflows left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the same parameters |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
@@ -565,6 +587,8 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
+| `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step and finished ones by result, see [Tracking applications](#tracking-applications) |
+| `GET` | `/api/admin/workflows/{id}/runs` | List applications, paged; accepts `Page`, `PageSize`, `Filter` (`0` running, `1` waiting for review, `2` finished), and `NodeKey` |
 | `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications; a service administrator may archive one left to `Silinmiş kullanıcı` |
 | `POST` | `/api/admin/workflows/{id}/transfer` | Transfer ownership together with the step forms, see [Ownership transfer](#ownership-transfer) |
 | `POST` | `/api/admin/workflows/runs/{instanceId}/void` | Void an application so the person can start over, see [Voided applications](#voided-applications) |

@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<IOwnershipService, OwnershipService>();
         services.AddScoped<IFormWorkflowRuntime, FormWorkflowRuntime>();
         services.AddScoped<IFormWorkflowService, FormWorkflowService>();
+        services.AddScoped<IFormWorkflowRunService, FormWorkflowRunService>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();
         services.AddScoped<IFormShortLinkService, FormShortLinkService>();
         services.AddScoped<IFormAttemptService, FormAttemptService>();

@@ -20,6 +20,7 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _runtime;
     private readonly IFormMailNotifier _mailNotifier;
+    private readonly IFormWorkflowRunService _runs;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
@@ -28,7 +29,8 @@ public class FormWorkflowService : IFormWorkflowService
         IExternalUserService userService,
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime runtime,
-        IFormMailNotifier mailNotifier)
+        IFormMailNotifier mailNotifier,
+        IFormWorkflowRunService runs)
     {
         _workflows = workflows;
         _instances = instances;
@@ -37,6 +39,7 @@ public class FormWorkflowService : IFormWorkflowService
         _currentUserService = currentUserService;
         _runtime = runtime;
         _mailNotifier = mailNotifier;
+        _runs = runs;
     }
 
     public async Task<ServiceResult<WorkflowContract>> CreateAsync(
@@ -178,6 +181,7 @@ public class FormWorkflowService : IFormWorkflowService
             .ToList();
 
         var headers = await _workflows.GetFormHeadersAsync(startFormIds, cancellationToken);
+        var runs = await _runs.GetOverviewsAsync([.. workflows.Select(workflow => workflow.Id)], cancellationToken);
 
         var summaries = workflows
             .Select(workflow => new WorkflowSummaryContract(
@@ -190,7 +194,8 @@ public class FormWorkflowService : IFormWorkflowService
                 workflow.NodeCount,
                 workflow.PublishedVersion,
                 workflow.HasUnpublishedChanges,
-                workflow.UpdatedAt))
+                workflow.UpdatedAt,
+                runs.GetValueOrDefault(workflow.Id)))
             .ToList();
 
         return new ServiceResult<PagedResult<WorkflowSummaryContract>>(
