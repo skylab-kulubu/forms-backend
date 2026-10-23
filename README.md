@@ -584,6 +584,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `PUT` | `/api/admin/workflows/{id}/intake` | Set the intake (`0` open, `1` closed to new applications, `2` closed) from a body such as `{ "intake": 1 }` |
 | `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
 | `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
+| `GET` | `/api/admin/workflows/available-forms` | The same list before a workflow exists, judged as for a new workflow that runs once, so a client can pick the steps first and create the workflow with them |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
