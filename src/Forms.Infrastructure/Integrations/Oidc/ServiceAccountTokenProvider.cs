@@ -5,20 +5,20 @@ using Microsoft.Extensions.Options;
 
 namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
-internal class KeycloakServiceTokenProvider : IServiceTokenProvider
+internal sealed class ServiceAccountTokenProvider : IServiceTokenProvider
 {
-    private const string HttpClientName = "keycloak";
+    public const string HttpClientName = "service-account";
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(30);
 
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly KeycloakOptions _options;
-    private readonly ILogger<KeycloakServiceTokenProvider> _logger;
+    private readonly ServiceAccountOptions _options;
+    private readonly ILogger<ServiceAccountTokenProvider> _logger;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private string? _cachedToken;
     private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
 
-    public KeycloakServiceTokenProvider(IHttpClientFactory httpClientFactory, IOptions<KeycloakOptions> options, ILogger<KeycloakServiceTokenProvider> logger)
+    public ServiceAccountTokenProvider(IHttpClientFactory httpClientFactory, IOptions<ServiceAccountOptions> options, ILogger<ServiceAccountTokenProvider> logger)
     {
         _httpClientFactory = httpClientFactory;
         _options = options.Value;
@@ -49,13 +49,13 @@ internal class KeycloakServiceTokenProvider : IServiceTokenProvider
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(ct);
-                _logger.LogError("Keycloak token isteği başarısız: {Status} {Body}", response.StatusCode, body);
+                _logger.LogError("Servis hesabı token isteği başarısız: {Status} {Body}", response.StatusCode, body);
                 response.EnsureSuccessStatusCode();
             }
 
             var payload = await response.Content.ReadFromJsonAsync<TokenResponse>(ct);
             if (payload is null || string.IsNullOrEmpty(payload.AccessToken))
-                throw new InvalidOperationException("Keycloak token yanıtı geçersiz (access_token yok).");
+                throw new InvalidOperationException("Servis hesabı token yanıtı geçersiz (access_token yok).");
 
             _cachedToken = payload.AccessToken;
             var lifetime = TimeSpan.FromSeconds(Math.Max(payload.ExpiresIn, 5));

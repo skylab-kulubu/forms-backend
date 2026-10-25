@@ -4,10 +4,14 @@ public class FormMailOptions
 {
     public const string SectionName = "FormMail";
 
-    public string FormCopyTemplateKey { get; set; } = "forms.form-copy";
-    public string StatusChangedTemplateKey { get; set; } = "forms.status-changed";
-    public string PendingReminderTemplateKey { get; set; } = "forms.pending-reminder";
-    public string AttemptUpdateTemplateKey { get; set; } = "forms.attempt-update";
+    // Şablon anahtarları mail sağlayıcısındaki şablonları adlandırır; boş anahtar o maili kapatır.
+    public string FormCopyTemplateKey { get; set; } = "";
+    public string StatusChangedTemplateKey { get; set; } = "";
+    public string PendingReminderTemplateKey { get; set; } = "";
+    public string AttemptUpdateTemplateKey { get; set; } = "";
+
+    public bool SendsAny =>
+        FormCopyTemplateKey.Length > 0 || StatusChangedTemplateKey.Length > 0 || PendingReminderTemplateKey.Length > 0 || AttemptUpdateTemplateKey.Length > 0;
 
     public int ReminderThresholdHours { get; set; } = 36;
     public int ReminderScanIntervalMinutes { get; set; } = 30;

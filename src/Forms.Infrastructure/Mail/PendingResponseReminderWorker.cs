@@ -32,7 +32,7 @@ public class PendingResponseReminderWorker : BackgroundService
     {
         if (string.IsNullOrEmpty(_options.PendingReminderTemplateKey)) return;
 
-        var interval = TimeSpan.FromMinutes(Math.Max(_options.ReminderScanIntervalMinutes, 1));
+        var interval = TimeSpan.FromMinutes(_options.ReminderScanIntervalMinutes);
         using var timer = new PeriodicTimer(interval);
 
         do

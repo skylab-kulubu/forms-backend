@@ -75,20 +75,20 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 Forms reads the permanent denylist of blocked accounts that core writes (core's `docs/account-access-gate.md`). In `enforce` mode every request carrying a validated token is checked before the endpoint runs; anonymous requests are never checked. The gate opens its own connection to the dedicated access Redis, never to the form cache.
 
-`ACCOUNT_ACCESS_GATE_MODE` accepts `off` or `enforce`; `enforce` requires:
+`AccountAccessGate:Mode` (Compose: `ACCOUNT_ACCESS_GATE_MODE`) is `off` or `enforce` and has no default, so a deployment turns the gate off on purpose; Compose sets `off` when the variable is missing. `enforce` requires:
 
-| Variable | Meaning |
-|---|---|
-| `ACCOUNT_ACCESS_REDIS_ENDPOINT` | One `host:port`, not a Redis connection string |
-| `ACCOUNT_ACCESS_REDIS_USERNAME` | Read-only gate ACL user |
-| `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
-| `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
-| `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
-| `ACCOUNT_ACCESS_REDIS_CA_CERT_FILE` | Absolute path to the mounted private CA certificate |
-| `ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE` | Absolute path to the mounted Forms client certificate |
-| `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE` | Absolute path to the mounted Forms client private key |
-| `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
-| `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
+| Setting | Compose variable | Meaning |
+|---|---|---|
+| `AccountAccessGate:Endpoint` | `ACCOUNT_ACCESS_REDIS_ENDPOINT` | One `host:port`, not a Redis connection string |
+| `AccountAccessGate:Username` | `ACCOUNT_ACCESS_REDIS_USERNAME` | Read-only gate ACL user |
+| `AccountAccessGate:Password` | `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
+| `AccountAccessGate:Database` | `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
+| `AccountAccessGate:Tls` | `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
+| `AccountAccessGate:CaCertificateFile` | `ACCOUNT_ACCESS_REDIS_CA_CERT_FILE` | Absolute path to the mounted private CA certificate |
+| `AccountAccessGate:ClientCertificateFile` | `ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE` | Absolute path to the mounted Forms client certificate |
+| `AccountAccessGate:ClientKeyFile` | `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE` | Absolute path to the mounted Forms client private key |
+| `AccountAccessGate:OperationTimeoutMilliseconds` | `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
+| `AccountAccessGate:RetryAfterSeconds` | `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
 
 The mTLS files are required when TLS is on; mount them read-only and never put key contents in an environment variable.
 
@@ -98,7 +98,7 @@ A marker is looked up as `sha256(iss + NUL + sub)` with the `iss` of the validat
 
 Core sends its account erasure command to `PUT /internal/v1/account-erasures/{request_id}` (core's [`docs/account-erasure-command.md`](https://github.com/skylab-kulubu/core-backend/blob/main/docs/account-erasure-command.md), Forms in §10). The route is for core on the internal Docker network: a request that came through Traefik (`X-Forwarded-*`, `Forwarded`, `X-Real-Ip`) gets `404` before the token is read, and the token must carry `azp` `core-erasure` and the `skyforms:account:erase` role in `resource_access.forms.roles`. It is not in Swagger.
 
-- The person must be blocked in the account access Redis, otherwise `409 subject_not_blocked`. An unreadable gate gets `503` (`Retry-After: 30`); `ACCOUNT_ACCESS_GATE_MODE=off` gets `503` (`Retry-After: 300`).
+- The person must be blocked in the account access Redis, otherwise `409 subject_not_blocked`. An unreadable gate gets `503` (`Retry-After: 30`); a gate set to `off` gets `503` (`Retry-After: 300`).
 - The work commits in one transaction and runs on a server-side 90-second budget, not on the request. It is idempotent, so there is no receipt or lock: a repeat answers `200` with zero counts.
 - Logs carry the request id, a fixed code and the counts, never the subject or an address.
 
@@ -492,7 +492,7 @@ Both follow the rule for viewing the response: a collaborator, `skyforms:*`, or 
 
 ### Client address
 
-`UseForwardedHeaders` runs first in the pipeline and takes `X-Forwarded-For` only from `TRUSTED_PROXY_RANGES`. Production sits behind Traefik on a private overlay network that rewrites the header to a single entry. The address feeds only the counters and Turnstile's `remoteip`; nothing is authorized by it.
+`UseForwardedHeaders` runs first in the pipeline and takes `X-Forwarded-For` only from `ForwardedHeaders:TrustedProxyRanges` (Compose: `TRUSTED_PROXY_RANGES`). Production sits behind Traefik on a private overlay network that rewrites the header to a single entry. The address feeds only the counters and Turnstile's `remoteip`; nothing is authorized by it.
 
 ### Rollout
 
@@ -521,7 +521,7 @@ Secret keys go to Forms (`TURNSTILE_SECRET_KEY`):
 | `2x0000000000000000000000000000000AA` | Always fails |
 | `3x0000000000000000000000000000000AA` | Fails as an already spent token |
 
-Test tokens come back with host name `localhost` and action `test`, so with a test secret Forms skips the host name and action checks and logs a warning at startup. **A test secret must never reach production**: `1x0000000000000000000000000000000AA` accepts any dummy token. Outside the `Development` environment Forms therefore refuses to start with a test secret unless `TURNSTILE_ALLOW_TEST_SECRET=true` is set.
+Test tokens come back with host name `localhost` and action `test`, so with a test secret Forms skips the host name and action checks and logs a warning at startup. **A test secret must never reach production**: `1x0000000000000000000000000000000AA` accepts any dummy token. Outside the `Development` environment Forms therefore refuses to start with a test secret unless `Integrations:Turnstile:AllowTestSecret` is `true`.
 
 > **Invisible mode:** Cloudflare enables the invisible widget only on the condition that the site's privacy policy references the [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/). Add that reference before the frontend switches to an invisible site key.
 
@@ -617,8 +617,8 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
 - **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts, both looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
 - **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
-- **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
-- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
+- **External user data:** User details are fetched from core (`Integrations:SkylabCore:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
+- **Service authentication:** SkyMail and core calls use a client-credentials token of the service account in `Authentication:ServiceAccount` (a Keycloak client at SKY LAB). On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
 - **Authorization:** What each form role may do is decided in one place, `FormAccess` in the Domain; services ask it instead of comparing roles themselves:
 
 | Action | Viewer | Editor | Owner | Service administrator without a role |
@@ -666,7 +666,22 @@ Edit `.env` before starting Docker. The local `.env` file is ignored by Git.
 
 ### Running Locally
 
-Provide `CONNECTION_STRING`, `Redis__ConnectionString`, and any required integration configuration through environment variables or an ignored `src/Forms.Api/appsettings.Development.json`.
+The code has no SKY LAB defaults, so a local run needs its settings, in environment variables or in the ignored `src/Forms.Api/appsettings.Development.json`. The minimum, with core and SkyMail off:
+
+```json
+{
+  "ConnectionStrings": { "Forms": "Host=localhost;Port=5432;Database=forms_db;Username=forms;Password=postgres" },
+  "Redis": { "ConnectionString": "localhost:6379,defaultDatabase=1" },
+  "Cors": { "AllowedOrigin": "http://localhost:3000" },
+  "Authentication": {
+    "Issuer": "https://e.yildizskylab.com/realms/e-skylab-sandbox",
+    "Roles": { "Clients": [ "forms", "dotnet" ], "PlatformAdmin": "skyforms:*", "AccountErasure": "skyforms:account:erase" }
+  },
+  "AccountAccessGate": { "Mode": "off" }
+}
+```
+
+To reach core and SkyMail, add `Integrations:SkylabCore:BaseUrl`, `ShortLinks:FormsPublicUrl`, `Integrations:SkyMail:BaseUrl`, the `FormMail` template keys and `Authentication:ServiceAccount`; see [Configuration](#configuration).
 
 ```bash
 # Restore dependencies
@@ -697,35 +712,40 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 
 ## Configuration
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
-| `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
-| `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | No, defaults to `https://e.yildizskylab.com/realms/e-skylab` |
-| `Authentication__Audience` (Compose: `AUTH_AUDIENCE`) | Incoming-token audience | No, defaults to `forms` |
-| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`; guest files under `/v1/media` need `media:attach`) | No, defaults to `http://core:8080` |
-| `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
-| `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
-| `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core calls |
-| `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core calls |
-| `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core calls |
-| `FORMMAIL_FORM_COPY_TEMPLATE_KEY` | Submitted-form copy template: SkyMail template key; empty turns the mail off. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | No, defaults to `forms.form-copy` |
-| `FORMMAIL_STATUS_CHANGED_TEMPLATE_KEY` | Review status template: SkyMail template key; empty turns the mail off | No, defaults to `forms.status-changed` |
-| `FORMMAIL_PENDING_REMINDER_TEMPLATE_KEY` | Pending response reminder template: SkyMail template key; empty turns the mail off | No, defaults to `forms.pending-reminder` |
-| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_KEY` | Timed task updates (reminder, extension, expiry, accept, close): SkyMail template key; empty turns these mails off and the team's remind action is refused | No, defaults to `forms.attempt-update` |
-| `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on` (anything else stops startup). Active only together with `TURNSTILE_SECRET_KEY`, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, defaults to `off` |
-| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest submissions are not verified and guest uploads stay off | No |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |
-| `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, defaults to `300` |
-| `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, defaults to `1000` |
-| `TURNSTILE_ALLOW_TEST_SECRET` | `true` lets a Cloudflare test secret run outside `Development` | No |
-| `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; an invalid entry stops startup | No, defaults to `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
+Forms reads every setting through .NET configuration: `appsettings.json`, then environment variables, where `__` separates the levels of a key (`Authentication__Issuer` sets `Authentication:Issuer`). Each section is bound to an options class and checked when the service starts, before migrations run, so a missing or invalid value stops startup with the key's name. The code holds no SKY LAB address or name: `docker-compose.yml` holds SKY LAB's values and translates the short variables a deployment sets into these keys.
 
-The guest upload, Turnstile and proxy settings read the environment variable first and then the configuration key: `GuestUploads:Mode`, `GuestUploads:IpSubmitsPerMinute`, `GuestUploads:FormSubmitsPerMinute`, `Turnstile:SecretKey`, `Turnstile:AllowedHostnames`, `Turnstile:AllowTestSecret` and `ForwardedHeaders:TrustedProxyRanges`. A number outside its range stops startup even while guest uploads are off.
+A provider whose address is not set is off, and Forms logs at startup what that turns off. Without core there are no people's names, answer files or short links; without SkyMail there is no mail; without a Turnstile secret guest answers are not checked and guest uploads stay off. Forms, its answers and workflows work either way.
+
+| Setting | Compose variable | Description | Required |
+|---|---|---|---|
+| `ConnectionStrings:Forms` | `FORMS_DB_PASSWORD` | PostgreSQL connection string; Compose builds it for `postgres:5432` | Yes |
+| `Redis:ConnectionString` | | Redis connection string; Compose uses logical DB 1 on the shared instance | Yes |
+| `Authentication:Issuer` | `AUTH_ISSUER` | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | Yes; Compose defaults to the production realm |
+| `Authentication:Audience` | `AUTH_AUDIENCE` | Incoming-token audience | `appsettings.json` sets `forms` |
+| `Authentication:Roles:Clients`, `:PlatformAdmin`, `:AccountErasure` | | Provider roles that grant Forms permissions, see [Authentication & Authorization](#authentication--authorization) | No, then nobody holds a permission; Compose sets SKY LAB's roles |
+| `Authentication:ServiceAccount:TokenUrl`, `:ClientId`, `:ClientSecret` | `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Client-credentials account for calls to core and SkyMail; `:Scope` defaults to `openid` | While core or SkyMail is set |
+| `Cors:AllowedOrigin` | `ALLOWED_ORIGIN` | Origin of the frontend, like `https://forms.example.org`, without a path; empty allows no cross-origin call | No |
+| `ForwardedHeaders:TrustedProxyRanges` | `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; empty trusts none | No; Compose trusts `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
+| `AccountAccessGate:*` | `ACCOUNT_ACCESS_*` | See [Account access gate](#account-access-gate) | `Mode` is |
+| `Integrations:SkylabCore:BaseUrl` | `CORE_URL` | Core API (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`; guest files under `/v1/media` need `media:attach`) | No, core is off; Compose uses `http://core:8080` |
+| `ShortLinks:FormsPublicUrl` | `FORMS_PUBLIC_URL` | Public address of the forms site; a form's short link points to `{FormsPublicUrl}/{formId}` | While core is set; Compose uses `https://forms.yildizskylab.com` |
+| `Integrations:SkyMail:BaseUrl` | `SKYMAIL_URL` | SkyMail API | No, mail is off; Compose uses `http://skymail:3000/v1/` |
+| `FormMail:FormCopyTemplateKey` | `FORMMAIL_FORM_COPY_TEMPLATE_KEY` | Submitted-form copy: SkyMail template key; empty turns the mail off. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | No; Compose uses `forms.form-copy` |
+| `FormMail:StatusChangedTemplateKey` | `FORMMAIL_STATUS_CHANGED_TEMPLATE_KEY` | Review status mail; empty turns it off | No; Compose uses `forms.status-changed` |
+| `FormMail:PendingReminderTemplateKey` | `FORMMAIL_PENDING_REMINDER_TEMPLATE_KEY` | Pending response reminder; empty turns it off | No; Compose uses `forms.pending-reminder` |
+| `FormMail:AttemptUpdateTemplateKey` | `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_KEY` | Timed task updates (reminder, extension, expiry, accept, close); empty turns them off and the team's remind action is refused | No; Compose uses `forms.attempt-update` |
+| `Integrations:Turnstile:SecretKey` | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest answers are not checked and guest uploads stay off | No |
+| `Integrations:Turnstile:AllowedHostnames` | `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |
+| `Integrations:Turnstile:AllowTestSecret` | | `true` lets a Cloudflare test secret run outside `Development` | No |
+| `GuestUploads:Mode` | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on`. Active only together with a Turnstile secret, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, `off` |
+| `GuestUploads:IpSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, `300` |
+| `GuestUploads:FormSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, `1000` |
+
+FormMail template keys without a mail provider stop startup, since the mails they name could never be sent.
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 
-Token validation fails closed when the issuer's discovery document or JWKS cannot be loaded, so the container must reach `${Authentication__Issuer}/.well-known/openid-configuration`.
+Token validation fails closed when the issuer's discovery document or JWKS cannot be loaded, so the container must reach `${Authentication:Issuer}/.well-known/openid-configuration`.
 
 ## Database Migrations
 

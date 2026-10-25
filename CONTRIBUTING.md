@@ -87,7 +87,7 @@ tests/
 └── Forms.Tests/
     ├── Domain/, Application/              # Pure rules, no setup
     ├── Infrastructure/                    # Model invariants such as account erasure coverage
-    └── Integration/                       # The API on real PostgreSQL and Redis, with core and SkyMail faked
+    └── Integration/                       # The API on real PostgreSQL and Redis, without core, with people and mail faked
 ```
 
 ### Tests
@@ -96,7 +96,7 @@ tests/
 dotnet test src/Forms.sln
 ```
 
-Test names are sentences in snake case that state the rule, such as `A_cycle_is_rejected`. Integration tests start PostgreSQL 16 and Redis 7 containers with Testcontainers, so Docker must be running. They share one database: each test creates its own users and forms and never assumes an empty table. Core, SkyMail and Keycloak are replaced in `FormsApiFactory`; tokens are signed by `TestTokens`, so the real JWT pipeline runs. Background workers are switched off, so a test that needs one calls its service directly.
+Test names are sentences in snake case that state the rule, such as `A_cycle_is_rejected`. Integration tests start PostgreSQL 16 and Redis 7 containers with Testcontainers, so Docker must be running. They share one database: each test creates its own users and forms and never assumes an empty table. `FormsApiFactory` pins every setting that changes behavior, so variables in your shell do not leak in. Core is left unconfigured, so answer files and short links run the way they do without a provider; people and mail are replaced by in-memory fakes, and tokens are signed by `TestTokens`, so the real JWT pipeline runs. Background workers are switched off, so a test that needs one calls its service directly.
 
 ---
 

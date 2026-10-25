@@ -1,117 +1,67 @@
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
-public enum AccountAccessGateMode
-{
-    Off,
-    Enforce
-}
-
 /// <summary>
-/// enforce modunda eksik ya da hatalı her ayar açılışı durdurur; kapı sessizce açık kalmamalı.
+/// Core'un hesap engeli listesinin okunduğu Redis. Mod açıkça seçilir; enforce modunda eksik ya da hatalı her
+/// ayar açılışı durdurur, kapı sessizce açık kalmaz.
 /// </summary>
 public sealed class AccountAccessGateOptions
 {
-    public AccountAccessGateMode Mode { get; private init; }
-    public string Endpoint { get; private init; } = "";
-    public string Username { get; private init; } = "";
-    public string Password { get; private init; } = "";
-    public int Database { get; private init; }
-    public bool UseTls { get; private init; }
-    public string CaCertificateFile { get; private init; } = "";
-    public string ClientCertificateFile { get; private init; } = "";
-    public string ClientKeyFile { get; private init; } = "";
-    public int OperationTimeoutMilliseconds { get; private init; }
-    public int RetryAfterSeconds { get; private init; }
+    public const string SectionName = "AccountAccessGate";
 
-    public static AccountAccessGateOptions FromConfiguration(IConfiguration configuration)
-    {
-        string? Read(string name, string option) =>
-            Environment.GetEnvironmentVariable(name) ?? configuration[$"AccountAccessGate:{option}"];
+    /// <summary>Tam olarak "off" ya da "enforce"; varsayılanı yoktur.</summary>
+    public string? Mode { get; init; }
 
-        string Require(string name, string option) =>
-            Read(name, option) is { } value && !string.IsNullOrWhiteSpace(value)
-                ? value
-                : throw new InvalidOperationException($"{name} is required when ACCOUNT_ACCESS_GATE_MODE=enforce.");
+    public string? Endpoint { get; init; }
+    public string? Username { get; init; }
+    public string? Password { get; init; }
 
-        string RequireFile(string name, string option)
-        {
-            var path = Require(name, option);
-            if (!Path.IsPathFullyQualified(path)) throw new InvalidOperationException($"{name} must be an absolute path.");
-            if (!File.Exists(path)) throw new InvalidOperationException($"{name} must point to a readable file.");
-            return path;
-        }
+    // Compose verilmeyen ayarı boş metin olarak geçirir; boş değer null'a bağlanır.
+    public int? Database { get; init; }
+    public bool? Tls { get; init; }
+    public string? CaCertificateFile { get; init; }
+    public string? ClientCertificateFile { get; init; }
+    public string? ClientKeyFile { get; init; }
+    public int? OperationTimeoutMilliseconds { get; init; }
+    public int? RetryAfterSeconds { get; init; }
 
-        var mode = Read("ACCOUNT_ACCESS_GATE_MODE", "Mode")?.Trim().ToLowerInvariant() switch
-        {
-            "off" => AccountAccessGateMode.Off,
-            "enforce" => AccountAccessGateMode.Enforce,
-            _ => throw new InvalidOperationException("ACCOUNT_ACCESS_GATE_MODE must be exactly 'off' or 'enforce'.")
-        };
+    public bool Enforces => string.Equals(Mode?.Trim(), "enforce", StringComparison.OrdinalIgnoreCase);
 
-        var timeout = Bounded(Read("ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS", "OperationTimeoutMilliseconds") ?? "200", "ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS", 50, 2_000);
-        var retryAfter = Bounded(Read("ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS", "RetryAfterSeconds") ?? "1", "ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS", 1, 30);
+    internal int OperationTimeout => OperationTimeoutMilliseconds ?? 200;
 
-        if (mode == AccountAccessGateMode.Off)
-            return new AccountAccessGateOptions { Mode = mode, OperationTimeoutMilliseconds = timeout, RetryAfterSeconds = retryAfter };
-
-        var endpoint = Require("ACCOUNT_ACCESS_REDIS_ENDPOINT", "Endpoint");
-        ParseEndpoint(endpoint);
-
-        var useTls = bool.TryParse(Require("ACCOUNT_ACCESS_REDIS_TLS", "Tls"), out var tls)
-            ? tls
-            : throw new InvalidOperationException("ACCOUNT_ACCESS_REDIS_TLS must be 'true' or 'false'.");
-
-        var options = new AccountAccessGateOptions
-        {
-            Mode = mode,
-            Endpoint = endpoint,
-            Username = Require("ACCOUNT_ACCESS_REDIS_USERNAME", "Username"),
-            Password = Require("ACCOUNT_ACCESS_REDIS_PASSWORD", "Password"),
-            Database = Bounded(Require("ACCOUNT_ACCESS_REDIS_DATABASE", "Database"), "ACCOUNT_ACCESS_REDIS_DATABASE", 0, int.MaxValue),
-            UseTls = useTls,
-            CaCertificateFile = useTls ? RequireFile("ACCOUNT_ACCESS_REDIS_CA_CERT_FILE", "CaCertificateFile") : "",
-            ClientCertificateFile = useTls ? RequireFile("ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE", "ClientCertificateFile") : "",
-            ClientKeyFile = useTls ? RequireFile("ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE", "ClientKeyFile") : "",
-            OperationTimeoutMilliseconds = timeout,
-            RetryAfterSeconds = retryAfter
-        };
-
-        if (useTls) ValidateTlsMaterial(options);
-
-        return options;
-    }
+    public int RetryAfter => RetryAfterSeconds ?? 1;
 
     internal ConfigurationOptions ToRedisConfiguration()
     {
-        var (host, port) = ParseEndpoint(Endpoint);
+        var (host, port) = ParseEndpoint(Endpoint!)!.Value;
+        var useTls = Tls == true;
 
         var redis = new ConfigurationOptions
         {
             User = Username,
             Password = Password,
             DefaultDatabase = Database,
-            Ssl = UseTls,
-            SslHost = UseTls ? host : null,
+            Ssl = useTls,
+            SslHost = useTls ? host : null,
             ClientName = "forms-account-access-gate",
             AbortOnConnectFail = false,
             AllowAdmin = false,
             ConnectRetry = 0,
-            ConnectTimeout = OperationTimeoutMilliseconds,
-            AsyncTimeout = OperationTimeoutMilliseconds,
-            SyncTimeout = OperationTimeoutMilliseconds
+            ConnectTimeout = OperationTimeout,
+            AsyncTimeout = OperationTimeout,
+            SyncTimeout = OperationTimeout
         };
         redis.EndPoints.Add(host, port);
 
-        if (!UseTls) return redis;
+        if (!useTls) return redis;
 
-        var caCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(CaCertificateFile));
-        var clientCertificate = X509Certificate2.CreateFromPemFile(ClientCertificateFile, ClientKeyFile);
+        var caCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(CaCertificateFile!));
+        var clientCertificate = X509Certificate2.CreateFromPemFile(ClientCertificateFile!, ClientKeyFile);
 
         // Yalnız kendi CA'mız güvenilir; sistem kök sertifikalarına düşülmez.
         redis.SslClientAuthenticationOptions = targetHost =>
@@ -135,38 +85,76 @@ public sealed class AccountAccessGateOptions
         return redis;
     }
 
-    private static void ValidateTlsMaterial(AccountAccessGateOptions options)
+    internal static (string Host, int Port)? ParseEndpoint(string endpoint)
     {
-        try
-        {
-            using var caCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(options.CaCertificateFile));
-            using var clientCertificate = X509Certificate2.CreateFromPemFile(options.ClientCertificateFile, options.ClientKeyFile);
-
-            if (!clientCertificate.HasPrivateKey)
-                throw new InvalidOperationException("ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE must match ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE.");
-        }
-        catch (Exception exception) when (exception is not InvalidOperationException)
-        {
-            throw new InvalidOperationException("Account access Redis mTLS files must contain valid PEM certificates and a matching private key.", exception);
-        }
-    }
-
-    private static int Bounded(string value, string name, int minimum, int maximum) =>
-        int.TryParse(value, out var parsed) && parsed >= minimum && parsed <= maximum
-            ? parsed
-            : throw new InvalidOperationException($"{name} must be an integer between {minimum} and {maximum}.");
-
-    private static (string Host, int Port) ParseEndpoint(string endpoint)
-    {
-        if (endpoint.Any(char.IsWhiteSpace) || endpoint.Contains(',') || endpoint.Contains("//"))
-            throw new InvalidOperationException("ACCOUNT_ACCESS_REDIS_ENDPOINT must contain one host:port endpoint, not a connection string.");
+        if (endpoint.Any(char.IsWhiteSpace) || endpoint.Contains(',') || endpoint.Contains("//")) return null;
 
         var separator = endpoint.LastIndexOf(':');
         var host = separator > 0 ? endpoint[..separator].Trim('[', ']') : "";
 
-        if (string.IsNullOrWhiteSpace(host) || !int.TryParse(endpoint[(separator + 1)..], out var port) || port is < 1 or > 65_535)
-            throw new InvalidOperationException("ACCOUNT_ACCESS_REDIS_ENDPOINT must contain one host:port endpoint.");
+        return string.IsNullOrWhiteSpace(host) || !int.TryParse(endpoint[(separator + 1)..], out var port) || port is < 1 or > 65_535
+            ? null
+            : (host, port);
+    }
+}
 
-        return (host, port);
+internal sealed class AccountAccessGateOptionsValidator : IValidateOptions<AccountAccessGateOptions>
+{
+    public ValidateOptionsResult Validate(string? name, AccountAccessGateOptions options)
+    {
+        var mode = options.Mode?.Trim().ToLowerInvariant();
+        if (mode is not ("off" or "enforce"))
+            return ValidateOptionsResult.Fail("AccountAccessGate:Mode must be exactly 'off' or 'enforce'.");
+
+        if (options.OperationTimeoutMilliseconds is < 50 or > 2_000)
+            return ValidateOptionsResult.Fail("AccountAccessGate:OperationTimeoutMilliseconds must be between 50 and 2000.");
+
+        if (options.RetryAfterSeconds is < 1 or > 30)
+            return ValidateOptionsResult.Fail("AccountAccessGate:RetryAfterSeconds must be between 1 and 30.");
+
+        if (mode == "off") return ValidateOptionsResult.Success;
+
+        var failures = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(options.Endpoint))
+            failures.Add(Required("Endpoint"));
+        else if (AccountAccessGateOptions.ParseEndpoint(options.Endpoint) is null)
+            failures.Add("AccountAccessGate:Endpoint must contain one host:port endpoint, not a connection string.");
+
+        if (string.IsNullOrWhiteSpace(options.Username)) failures.Add(Required("Username"));
+        if (string.IsNullOrWhiteSpace(options.Password)) failures.Add(Required("Password"));
+        if (options.Database is not >= 0) failures.Add(Required("Database"));
+        if (options.Tls is null) failures.Add("AccountAccessGate:Tls must be 'true' or 'false' when the gate enforces.");
+
+        if (options.Tls == true)
+        {
+            foreach (var (key, path) in new[] { ("CaCertificateFile", options.CaCertificateFile), ("ClientCertificateFile", options.ClientCertificateFile), ("ClientKeyFile", options.ClientKeyFile) })
+            {
+                if (string.IsNullOrWhiteSpace(path)) failures.Add(Required(key));
+                else if (!Path.IsPathFullyQualified(path)) failures.Add($"AccountAccessGate:{key} must be an absolute path.");
+                else if (!File.Exists(path)) failures.Add($"AccountAccessGate:{key} must point to a readable file.");
+            }
+
+            if (failures.Count == 0 && TlsMaterialError(options) is { } error) failures.Add(error);
+        }
+
+        return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static string Required(string key) => $"AccountAccessGate:{key} is required when AccountAccessGate:Mode is enforce.";
+
+    private static string? TlsMaterialError(AccountAccessGateOptions options)
+    {
+        try
+        {
+            using var caCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(options.CaCertificateFile!));
+            using var clientCertificate = X509Certificate2.CreateFromPemFile(options.ClientCertificateFile!, options.ClientKeyFile);
+
+            return clientCertificate.HasPrivateKey ? null : "AccountAccessGate:ClientCertificateFile must match AccountAccessGate:ClientKeyFile.";
+        }
+        catch (Exception)
+        {
+            return "The account access gate's mTLS files must contain valid PEM certificates and a matching private key.";
+        }
     }
 }

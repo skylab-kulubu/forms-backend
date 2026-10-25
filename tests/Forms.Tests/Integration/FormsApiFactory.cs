@@ -18,8 +18,9 @@ using Testcontainers.Redis;
 namespace Skylab.Forms.Tests.Integration;
 
 /// <summary>
-/// API'yi gerçek Postgres ve Redis ile açar; core, SkyMail ve Keycloak'ın yerinde bellekteki sahteler durur.
-/// Testler aynı veritabanını paylaşır, bu yüzden her test kendi kullanıcılarını ve formlarını yaratır.
+/// API'yi gerçek Postgres ve Redis ile açar. Core ayarlanmaz, yani dosyalar ve kısa linkler Forms'un sağlayıcısız
+/// hâliyle çalışır; kişiler ve mailler bellekteki sahtelerde durur. Testler aynı veritabanını paylaşır, bu yüzden
+/// her test kendi kullanıcılarını ve formlarını yaratır.
 /// </summary>
 public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
@@ -33,23 +34,8 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
         typeof(FormAttemptExpiryWorker)
     ];
 
-    // Uygulama bu ayarları ortam değişkeninden doğrudan okuyor; geliştiricinin kabuğundaki bir değer test
-    // veritabanının ya da Redis'in yerine geçmesin.
-    private static readonly string[] AmbientNames = ["CONNECTION_STRING", "Redis__ConnectionString", "ALLOWED_ORIGIN", "TRUSTED_PROXY_RANGES"];
-    private static readonly string[] AmbientPrefixes = ["ACCOUNT_ACCESS_", "TURNSTILE_", "FORMS_GUEST_"];
-
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
     private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
-
-    public FormsApiFactory()
-    {
-        foreach (var name in Environment.GetEnvironmentVariables().Keys.Cast<string>())
-        {
-            if (AmbientNames.Contains(name, StringComparer.OrdinalIgnoreCase)
-                || AmbientPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                Environment.SetEnvironmentVariable(name, null);
-        }
-    }
 
     public FakeUserDirectory Users { get; } = new();
     public RecordingMailDispatcher Mail { get; } = new();
@@ -67,8 +53,33 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.UseSetting("ConnectionStrings:Forms", _postgres.GetConnectionString());
-        builder.UseSetting("Redis:ConnectionString", _redis.GetConnectionString());
+
+        // UseSetting geliştiricinin kabuğundaki ortam değişkenlerinin de önüne geçer; davranışı değiştiren her ayar burada sabit.
+        foreach (var (key, value) in new Dictionary<string, string>
+        {
+            ["ConnectionStrings:Forms"] = _postgres.GetConnectionString(),
+            ["Redis:ConnectionString"] = _redis.GetConnectionString(),
+            ["Authentication:Issuer"] = TestTokens.Issuer,
+            ["Authentication:Roles:Clients:0"] = "forms",
+            ["Authentication:Roles:Clients:1"] = "dotnet",
+            ["Authentication:Roles:PlatformAdmin"] = "skyforms:*",
+            ["Authentication:Roles:AccountErasure"] = "skyforms:account:erase",
+            ["AccountAccessGate:Mode"] = "off",
+            ["Integrations:SkylabCore:BaseUrl"] = "",
+            ["Integrations:Turnstile:SecretKey"] = "",
+            ["GuestUploads:Mode"] = "off",
+
+            // Mail açık: gönderilecek mailler RecordingMailDispatcher'da görünür, SkyMail'e hiçbir şey gitmez.
+            ["Integrations:SkyMail:BaseUrl"] = "http://skymail.test/v1/",
+            ["Authentication:ServiceAccount:TokenUrl"] = "http://auth.test/token",
+            ["Authentication:ServiceAccount:ClientId"] = "forms",
+            ["Authentication:ServiceAccount:ClientSecret"] = "unused",
+            ["FormMail:FormCopyTemplateKey"] = "forms.form-copy",
+            ["FormMail:StatusChangedTemplateKey"] = "forms.status-changed",
+            ["FormMail:PendingReminderTemplateKey"] = "forms.pending-reminder",
+            ["FormMail:AttemptUpdateTemplateKey"] = "forms.attempt-update"
+        })
+            builder.UseSetting(key, value);
 
         builder.ConfigureTestServices(services =>
         {
@@ -86,10 +97,6 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
             services.AddSingleton<IUserDirectory>(Users);
             services.RemoveAll<IMailDispatcher>();
             services.AddSingleton<IMailDispatcher>(Mail);
-            services.RemoveAll<IAnswerFileStore>();
-            services.AddSingleton<IAnswerFileStore, UnreachableFileStore>();
-            services.RemoveAll<IShortLinkProvider>();
-            services.AddSingleton<IShortLinkProvider, UnreachableShortLinks>();
             services.RemoveAll<IEmailSender>();
             services.AddSingleton<IEmailSender, UnreachableMail>();
             services.RemoveAll<IMailAudienceExport>();

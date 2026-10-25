@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Api.AccountAccess;
@@ -12,7 +13,7 @@ public static class AccountAccessGateExtensions
     {
         if (app.ApplicationServices.GetService<AccountAccessGate>() is not { } gate) return app;
 
-        var options = app.ApplicationServices.GetRequiredService<AccountAccessGateOptions>();
+        var options = app.ApplicationServices.GetRequiredService<IOptions<AccountAccessGateOptions>>().Value;
         var logger = app.ApplicationServices.GetRequiredService<ILoggerFactory>().CreateLogger("AccountAccessGate");
 
         return app.Use(async (context, next) =>
@@ -56,7 +57,7 @@ public static class AccountAccessGateExtensions
             else
             {
                 context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                context.Response.Headers.RetryAfter = options.RetryAfterSeconds.ToString();
+                context.Response.Headers.RetryAfter = options.RetryAfter.ToString();
             }
         });
     }
@@ -64,7 +65,7 @@ public static class AccountAccessGateExtensions
     public static IEndpointRouteBuilder MapAccountAccessHealthEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var gate = endpoints.ServiceProvider.GetService<AccountAccessGate>();
-        var options = endpoints.ServiceProvider.GetRequiredService<AccountAccessGateOptions>();
+        var options = endpoints.ServiceProvider.GetRequiredService<IOptions<AccountAccessGateOptions>>().Value;
 
         endpoints.MapGet("/health/live", () => Results.Ok(new { status = "live" }))
             .WithTags("Health")
@@ -77,7 +78,7 @@ public static class AccountAccessGateExtensions
                 if (gate is null || await gate.IsContractReadyAsync(context.RequestAborted))
                     return Results.Ok(new { status = "ready" });
 
-                context.Response.Headers.RetryAfter = options.RetryAfterSeconds.ToString();
+                context.Response.Headers.RetryAfter = options.RetryAfter.ToString();
                 return Results.Json(new { status = "not_ready" }, statusCode: StatusCodes.Status503ServiceUnavailable);
             })
             .WithTags("Health")

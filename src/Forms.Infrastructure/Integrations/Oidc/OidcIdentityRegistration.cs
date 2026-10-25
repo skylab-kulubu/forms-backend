@@ -9,12 +9,12 @@ public static class OidcIdentityRegistration
     /// <summary>Kimlik sağlayıcının rollerini Forms izinlerine çevirir; diğer servislere Forms'un servis hesabıyla gidilir.</summary>
     public static IServiceCollection AddOidcIdentity(this IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<ProviderRoleOptions>(configuration.GetSection(ProviderRoleOptions.SectionName));
+        services.AddOptions<ProviderRoleOptions>().BindConfiguration(ProviderRoleOptions.SectionName);
         services.AddTransient<IClaimsTransformation, ProviderRoleClaims>();
 
-        services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
-        services.AddHttpClient("keycloak");
-        services.AddSingleton<IServiceTokenProvider, KeycloakServiceTokenProvider>();
+        services.AddOptions<ServiceAccountOptions>().BindConfiguration(ServiceAccountOptions.SectionName);
+        services.AddHttpClient(ServiceAccountTokenProvider.HttpClientName);
+        services.AddSingleton<IServiceTokenProvider, ServiceAccountTokenProvider>();
         services.AddTransient<ServiceTokenHandler>();
 
         return services;
