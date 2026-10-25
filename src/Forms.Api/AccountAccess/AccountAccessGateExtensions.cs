@@ -1,5 +1,4 @@
-using Microsoft.Extensions.Options;
-using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
+using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Api.AccountAccess;
 
@@ -11,9 +10,8 @@ public static class AccountAccessGateExtensions
     /// </summary>
     public static IApplicationBuilder UseAccountAccessGate(this IApplicationBuilder app)
     {
-        if (app.ApplicationServices.GetService<AccountAccessGate>() is not { } gate) return app;
+        if (app.ApplicationServices.GetService<IAccountAccessPolicy>() is not { } policy) return app;
 
-        var options = app.ApplicationServices.GetRequiredService<IOptions<AccountAccessGateOptions>>().Value;
         var logger = app.ApplicationServices.GetRequiredService<ILoggerFactory>().CreateLogger("AccountAccessGate");
 
         return app.Use(async (context, next) =>
@@ -32,7 +30,7 @@ public static class AccountAccessGateExtensions
                 .ToArray();
 
             var decision = subjects is [{ Issuer: { } issuer, Subject: { Length: <= 512 } subject }]
-                ? await gate.CheckSubjectAsync(issuer, subject, context.RequestAborted)
+                ? await policy.CheckAsync(issuer, subject, context.RequestAborted)
                 : AccountAccessDecision.Blocked;
 
             if (decision == AccountAccessDecision.Allowed)
@@ -57,15 +55,14 @@ public static class AccountAccessGateExtensions
             else
             {
                 context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                context.Response.Headers.RetryAfter = options.RetryAfter.ToString();
+                context.Response.Headers.RetryAfter = policy.RetryAfterSeconds.ToString();
             }
         });
     }
 
     public static IEndpointRouteBuilder MapAccountAccessHealthEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var gate = endpoints.ServiceProvider.GetService<AccountAccessGate>();
-        var options = endpoints.ServiceProvider.GetRequiredService<IOptions<AccountAccessGateOptions>>().Value;
+        var policy = endpoints.ServiceProvider.GetService<IAccountAccessPolicy>();
 
         endpoints.MapGet("/health/live", () => Results.Ok(new { status = "live" }))
             .WithTags("Health")
@@ -75,10 +72,10 @@ public static class AccountAccessGateExtensions
             {
                 context.Response.Headers.CacheControl = "no-store";
 
-                if (gate is null || await gate.IsContractReadyAsync(context.RequestAborted))
+                if (policy is null || await policy.IsReadyAsync(context.RequestAborted))
                     return Results.Ok(new { status = "ready" });
 
-                context.Response.Headers.RetryAfter = options.RetryAfter.ToString();
+                context.Response.Headers.RetryAfter = policy.RetryAfterSeconds.ToString();
                 return Results.Json(new { status = "not_ready" }, statusCode: StatusCodes.Status503ServiceUnavailable);
             })
             .WithTags("Health")

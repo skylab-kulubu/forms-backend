@@ -10,7 +10,7 @@ namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 /// Core'un hesap engeli listesinin okunduğu Redis. Mod açıkça seçilir; enforce modunda eksik ya da hatalı her
 /// ayar açılışı durdurur, kapı sessizce açık kalmaz.
 /// </summary>
-public sealed class AccountAccessGateOptions
+internal sealed class AccountAccessGateOptions
 {
     public const string SectionName = "AccountAccessGate";
 

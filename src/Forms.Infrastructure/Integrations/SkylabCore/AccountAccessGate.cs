@@ -1,21 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
+using Skylab.Forms.Application.Abstractions;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
-
-public enum AccountAccessDecision
-{
-    Allowed,
-    Blocked,
-    Unavailable
-}
 
 /// <summary>
 /// Core'un tek yazarı olduğu kalıcı hesap engeli listesini okur (core: docs/account-access-gate.md).
 /// Anahtar biçimi, sözleşme değeri ve hata anında kapalı kalma core ile birebir aynı kalmalı.
 /// </summary>
-public sealed class AccountAccessGate(IConnectionMultiplexer connection, AccountAccessGateOptions options) : IDisposable
+internal sealed class AccountAccessGate(IConnectionMultiplexer connection, AccountAccessGateOptions options) : IAccountAccessPolicy, IDisposable
 {
     private const string ContractKey = "skylab:account-access:v1:contract";
     private const string ContractValue = "sha256(iss\\0sub);marker=1;ttl=none";
@@ -23,7 +17,7 @@ public sealed class AccountAccessGate(IConnectionMultiplexer connection, Account
     private const string MarkerValue = "1";
 
     /// <param name="issuer">Doğrulanmış token'ın iss değeri. Sabit tutulursa issuer ayarı değişince hiçbir engel bulunmaz ve kapı sessizce açılır.</param>
-    public async Task<AccountAccessDecision> CheckSubjectAsync(string issuer, string subject, CancellationToken cancellationToken)
+    public async Task<AccountAccessDecision> CheckAsync(string issuer, string subject, CancellationToken cancellationToken)
     {
         RedisKey[] keys = [ContractKey, MarkerKey(issuer, subject)];
 
@@ -42,7 +36,9 @@ public sealed class AccountAccessGate(IConnectionMultiplexer connection, Account
         }
     }
 
-    public async Task<bool> IsContractReadyAsync(CancellationToken cancellationToken)
+    public int RetryAfterSeconds => options.RetryAfter;
+
+    public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
         try
         {

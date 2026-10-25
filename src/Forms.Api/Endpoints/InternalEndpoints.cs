@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
+using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Infrastructure.Auth;
-using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -76,8 +76,8 @@ public static class InternalEndpoints
                 return Problem(StatusCodes.Status400BadRequest, "invalid_erasure_command");
 
             // Ele geçirilmiş bir çağıran, silme istememiş birinin verisini sildiremesin: core kişiyi önce engeller,
-            // Forms engeli kendisi okur. Kapı yalnız enforce modunda kayıtlıdır; engel okunamıyorsa iş yapılmaz.
-            var gate = context.RequestServices.GetService<AccountAccessGate>();
+            // Forms engeli kendisi okur. Engel listesi yalnız açıkça seçildiyse kayıtlıdır; okunamıyorsa iş yapılmaz.
+            var gate = context.RequestServices.GetService<IAccountAccessPolicy>();
             if (gate is null)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel kapısı kapalı", command.RequestId);
@@ -87,7 +87,7 @@ public static class InternalEndpoints
 
             // Forms tek bir issuer'ın token'ını kabul eder; core'un token'ını veren, silinecek kişininkini de vermiştir.
             var decision = context.User.FindFirst("iss")?.Value is { Length: > 0 } issuer
-                ? await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct)
+                ? await gate.CheckAsync(issuer, command.SubjectId.ToString(), ct)
                 : AccountAccessDecision.Unavailable;
             if (decision == AccountAccessDecision.Unavailable)
             {

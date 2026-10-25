@@ -77,7 +77,7 @@ public static class SkylabCoreRegistration
 
         if (!string.Equals(configuration[$"{AccountAccessGateOptions.SectionName}:Mode"]?.Trim(), "enforce", StringComparison.OrdinalIgnoreCase)) return;
 
-        services.AddSingleton(provider =>
+        services.AddSingleton<IAccountAccessPolicy>(provider =>
         {
             var gate = provider.GetRequiredService<IOptions<AccountAccessGateOptions>>().Value;
             return new AccountAccessGate(ConnectionMultiplexer.Connect(gate.ToRedisConfiguration()), gate);
