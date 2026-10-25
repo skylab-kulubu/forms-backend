@@ -1,9 +1,9 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
+using Skylab.Forms.Infrastructure.Scheduling;
 using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Infrastructure.ResponseNotifications;
@@ -13,64 +13,31 @@ namespace Skylab.Forms.Infrastructure.ResponseNotifications;
 /// bildirimi iki kez almaktan etkilenmez, bu yüzden ulaşılamazsa bildirim yedi gün boyunca artan
 /// aralıklarla yeniden denenir. Core'daki uç ya da rol henüz yokken gelen bildirimler de böylece kaybolmaz.
 /// </summary>
-public class ResponseNotificationWorker : BackgroundService
+public class ResponseNotificationWorker(
+    IServiceScopeFactory scopeFactory,
+    ICacheService cache,
+    IHttpClientFactory httpClientFactory,
+    ILogger<ResponseNotificationWorker> logger) : ScheduledWorker(cache, logger)
 {
     public const string HttpClientName = "core-responses";
 
-    private const string LockKey = "forms:response-notifications:lock";
     private const int BatchSize = 50;
-    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
-    // Core yanıt vermezse bir tur 50 x 10 sn sürer; kilit ondan uzun tutulur ki iki örnek aynı satırları işlemesin.
-    private static readonly TimeSpan LockTtl = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan GiveUpAfter = TimeSpan.FromDays(7);
-    private static readonly TimeSpan MaxBackoff = TimeSpan.FromHours(1);
 
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ICacheService _cache;
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<ResponseNotificationWorker> _logger;
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+    private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
+    private readonly ILogger<ResponseNotificationWorker> _logger = logger;
 
-    public ResponseNotificationWorker(IServiceScopeFactory scopeFactory, ICacheService cache, IHttpClientFactory httpClientFactory, ILogger<ResponseNotificationWorker> logger)
-    {
-        _scopeFactory = scopeFactory;
-        _cache = cache;
-        _httpClientFactory = httpClientFactory;
-        _logger = logger;
-    }
+    protected override string LockKey => "forms:response-notifications:lock";
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(Interval);
+    protected override TimeSpan Interval => TimeSpan.FromSeconds(10);
 
-        do
-        {
-            try
-            {
-                if (await _cache.AcquireLockAsync(LockKey, LockTtl, stoppingToken))
-                {
-                    try
-                    {
-                        await SendDueAsync(stoppingToken);
-                    }
-                    finally
-                    {
-                        await _cache.ReleaseLockAsync(LockKey, CancellationToken.None);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Cevap bildirimlerinin taraması başarısız");
-            }
-        }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
-    }
+    // Core yanıt vermezse bir tur 50 x 10 sn sürer; kilit ondan uzun tutulur ki iki örnek aynı satırları işlemesin.
+    protected override TimeSpan LockTtl => TimeSpan.FromMinutes(15);
 
-    private async Task SendDueAsync(CancellationToken ct)
+    protected override bool ReleasesLock => true;
+
+    protected override async Task RunAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
@@ -99,7 +66,7 @@ public class ResponseNotificationWorker : BackgroundService
             else
             {
                 notification.Attempts++;
-                notification.NextAttemptAt = now + Backoff(notification.Attempts);
+                notification.NextAttemptAt = now + RetryBackoff.After(notification.Attempts);
             }
 
             await db.SaveChangesAsync(ct);
@@ -126,6 +93,4 @@ public class ResponseNotificationWorker : BackgroundService
         }
     }
 
-    private static TimeSpan Backoff(int attempts) =>
-        TimeSpan.FromSeconds(Math.Min(30 * Math.Pow(2, attempts - 1), MaxBackoff.TotalSeconds));
 }

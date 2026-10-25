@@ -1,60 +1,33 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.Mail;
+using Skylab.Forms.Infrastructure.Scheduling;
 
 namespace Skylab.Forms.Infrastructure.Mail;
 
-public class PendingResponseReminderWorker : BackgroundService
+public class PendingResponseReminderWorker(
+    IServiceScopeFactory scopeFactory,
+    ICacheService cache,
+    IMailDispatcher dispatcher,
+    IOptions<FormMailOptions> options,
+    ILogger<PendingResponseReminderWorker> logger) : ScheduledWorker(cache, logger)
 {
-    private const string LockKey = "forms:pending-reminder:lock";
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+    private readonly IMailDispatcher _dispatcher = dispatcher;
+    private readonly FormMailOptions _options = options.Value;
 
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ICacheService _cache;
-    private readonly IMailDispatcher _dispatcher;
-    private readonly FormMailOptions _options;
-    private readonly ILogger<PendingResponseReminderWorker> _logger;
+    protected override string LockKey => "forms:pending-reminder:lock";
 
-    public PendingResponseReminderWorker(IServiceScopeFactory scopeFactory, ICacheService cache, IMailDispatcher dispatcher, IOptions<FormMailOptions> options, ILogger<PendingResponseReminderWorker> logger)
-    {
-        _scopeFactory = scopeFactory;
-        _cache = cache;
-        _dispatcher = dispatcher;
-        _options = options.Value;
-        _logger = logger;
-    }
+    protected override TimeSpan Interval => TimeSpan.FromMinutes(_options.ReminderScanIntervalMinutes);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        if (string.IsNullOrEmpty(_options.PendingReminderTemplateKey)) return;
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        string.IsNullOrEmpty(_options.PendingReminderTemplateKey) ? Task.CompletedTask : base.ExecuteAsync(stoppingToken);
 
-        var interval = TimeSpan.FromMinutes(_options.ReminderScanIntervalMinutes);
-        using var timer = new PeriodicTimer(interval);
-
-        do
-        {
-            try
-            {
-                if (await _cache.AcquireLockAsync(LockKey, interval, stoppingToken))
-                    await ScanAndNotifyAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Bekleyen cevap hatırlatma taraması başarısız");
-            }
-        }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
-    }
-
-    private async Task ScanAndNotifyAsync(CancellationToken ct)
+    protected override async Task RunAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var responses = scope.ServiceProvider.GetRequiredService<IFormResponseRepository>();
