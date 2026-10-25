@@ -20,4 +20,4 @@ public record ComponentGroupUpsertRequest(
 
 public record ShareTokenContract(string Token, DateTime ExpiresAt);
 
-public record ComponentGroupMetaContract(string Title, string? Description, UserContract? SharedBy);
+public record ComponentGroupMetaContract(string Title, string? Description, PublicUserContract? SharedBy);

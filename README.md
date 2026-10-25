@@ -540,8 +540,8 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft and keep its file answers linked in core (see [Signed-in answer files](#signed-in-answer-files)); a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
 | `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft with its `savedAt`; a stored draft with only blank answers is deleted and answers 404 |
 | `DELETE` | `/api/forms/responses/draft/{formId}` | Delete an authenticated user's response draft |
-| `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata |
-| `GET` | `/api/forms/responses/{id}/meta` | Get shared response metadata |
+| `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata; `sharedBy` carries the owner's id, name and photo, never the address |
+| `GET` | `/api/forms/responses/{id}/meta` | Get shared response metadata; `sharedBy` carries the sharer's id, name and photo, never the address |
 
 ### Forms - Admin
 

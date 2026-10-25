@@ -147,7 +147,7 @@ public class ComponentGroupService : IComponentGroupService
 
         return new ServiceResult<ComponentGroupMetaContract>(
             ServiceStatus.Success,
-            Data: new ComponentGroupMetaContract(group.Title, group.Description, sharedBy)
+            Data: new ComponentGroupMetaContract(group.Title, group.Description, PublicUserContract.From(sharedBy))
         );
     }
 
