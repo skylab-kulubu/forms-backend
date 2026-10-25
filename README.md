@@ -623,7 +623,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 
 | Action | Viewer | Editor | Owner | Service administrator without a role |
 |---|---|---|---|---|
-| See the form, its answers, files, analytics, exports and mail audience | ✓ | ✓ | ✓ | ✓ |
+| See the form, its answers, files, analytics, exports, mail audience and short link | ✓ | ✓ | ✓ | ✓ |
 | Decide on answers: approve, decline, ask for changes, archive, share; extend, accept or close timed attempts | ✓ | ✓ | ✓ | |
 | Open the form in the editor, manage its short link | | ✓ | ✓ | ✓ |
 | Edit the form, void a workflow application | | ✓ | ✓ | |

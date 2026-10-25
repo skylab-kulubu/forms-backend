@@ -79,6 +79,15 @@ public class AuthorizationTests(FormsApiFactory api)
     }
 
     [Fact]
+    public async Task A_token_whose_subject_is_not_a_guid_counts_as_not_signed_in()
+    {
+        var client = api.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", TestTokens.CreateWithSubject("service-account-without-guid"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/admin/forms/")).StatusCode);
+    }
+
+    [Fact]
     public async Task A_signed_in_member_gets_403_in_the_service_envelope_from_an_admin_list()
     {
         var response = await api.ClientFor(Guid.NewGuid()).GetAsync("/api/admin/workflows/orphaned");

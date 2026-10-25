@@ -47,6 +47,13 @@ public class ProviderRoleClaimsTests
         Assert.False(FormsPermissions.Has(principal, FormsPermissions.PlatformAdmin));
     }
 
+    [Theory]
+    [InlineData("[\"skyforms:*\"]")]
+    [InlineData("{\"forms\":[\"skyforms:*\"]}")]
+    [InlineData("{\"forms\":{\"roles\":[1,\"other\"]}}")]
+    public async Task A_resource_access_claim_of_an_unexpected_shape_grants_nothing_and_does_not_throw(string json) =>
+        Assert.False(FormsPermissions.Has(await SignInAsync(Roles, new Claim("resource_access", json, "JSON")), FormsPermissions.PlatformAdmin));
+
     [Fact]
     public async Task An_unconfigured_role_is_granted_to_nobody() =>
         Assert.False(FormsPermissions.Has(await SignInAsync(new ProviderRoleOptions { Clients = ["forms"] }, ClientRoles("forms", "")), FormsPermissions.PlatformAdmin));

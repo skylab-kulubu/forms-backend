@@ -19,11 +19,17 @@ internal static class TestTokens
     public static string Service(string clientId, params string[] formsRoles) =>
         Create(Guid.NewGuid(), SigningKey, DateTime.UtcNow.AddHours(1), formsRoles, clientId);
 
-    public static string Create(Guid userId, SecurityKey key, DateTime expires, string[]? formsRoles = null, string? azp = null)
+    public static string CreateWithSubject(string subject) =>
+        Create(subject, SigningKey, DateTime.UtcNow.AddHours(1), null, null);
+
+    public static string Create(Guid userId, SecurityKey key, DateTime expires, string[]? formsRoles = null, string? azp = null) =>
+        Create(userId.ToString(), key, expires, formsRoles, azp);
+
+    private static string Create(string subject, SecurityKey key, DateTime expires, string[]? formsRoles, string? azp)
     {
         var claims = new Dictionary<string, object>
         {
-            ["sub"] = userId.ToString(),
+            ["sub"] = subject,
             ["resource_access"] = new Dictionary<string, object>
             {
                 ["forms"] = new Dictionary<string, object> { ["roles"] = formsRoles ?? [] }
