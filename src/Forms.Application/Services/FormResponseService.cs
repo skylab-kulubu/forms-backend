@@ -266,12 +266,8 @@ public class FormResponseService : IFormResponseService
                 r.Guest);
         }).ToList();
 
-        var resultData = new PagedResult<ResponseSummaryContract>(
-            mappedItems,
-            paged.TotalCount,
-            request.Page,
-            request.PageSize
-        );
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+        var resultData = new PagedResult<ResponseSummaryContract>(mappedItems, paged.TotalCount, page, pageSize);
 
         var counts = paged.Counts;
         var finalResult = new FormResponsesListResult(
