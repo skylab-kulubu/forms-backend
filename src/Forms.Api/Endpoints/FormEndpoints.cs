@@ -24,7 +24,7 @@ public static class FormEndpoints
         group.MapGet("/guest-uploads", (IGuestUploadService service) =>
             new ServiceResult<GuestUploadsContract?>(ServiceStatus.Success, service.Capability).ToApiResult());
 
-        group.MapGet("/turnstile", async (ITurnstileVerifier verifier, CancellationToken ct) =>
+        group.MapGet("/turnstile", async (IHumanVerifier verifier, CancellationToken ct) =>
         {
             var status = new TurnstileStatusContract(verifier.IsEnabled, verifier.IsEnabled && await verifier.IsReachableAsync(ct));
             return new ServiceResult<TurnstileStatusContract>(ServiceStatus.Success, status).ToApiResult();

@@ -22,14 +22,14 @@ public class GuestUploadService : IGuestUploadService
     private static readonly Refusal FormNotFound = new(ServiceStatus.NotFound, "Form bulunamadı.");
 
     private readonly IFormRepository _forms;
-    private readonly ITurnstileVerifier _turnstile;
+    private readonly IHumanVerifier _turnstile;
     private readonly IGuestUploadStore _store;
     private readonly ICoreMedia _media;
     private readonly GuestUploadOptions _options;
 
     public GuestUploadService(
         IFormRepository forms,
-        ITurnstileVerifier turnstile,
+        IHumanVerifier turnstile,
         IGuestUploadStore store,
         ICoreMedia media,
         GuestUploadOptions options)
@@ -69,8 +69,8 @@ public class GuestUploadService : IGuestUploadService
             return ToSessionResult(Refuse(GuestUploadReason.GuestUploadsUnavailable));
         }
 
-        var verdict = await _turnstile.VerifyAsync(turnstileToken, TurnstileActions.GuestUpload, client, ct);
-        if (verdict != TurnstileVerdict.Passed) return ToSessionResult(RefuseVerification(verdict));
+        var verdict = await _turnstile.VerifyAsync(turnstileToken, HumanCheckActions.GuestUpload, client, ct);
+        if (verdict != HumanCheckVerdict.Passed) return ToSessionResult(RefuseVerification(verdict));
 
         try
         {
@@ -171,10 +171,10 @@ public class GuestUploadService : IGuestUploadService
         var subject = GuestUploadKeys.ClientSubject(client);
         if (await CountSubmitAsync(subject, form.Id, ct) is { } busy) return Reject(busy);
 
-        var verdict = await _turnstile.VerifyAsync(request.TurnstileToken, TurnstileActions.GuestSubmit, client, ct);
-        if (verdict == TurnstileVerdict.Rejected) return Reject(Refuse(GuestUploadReason.VerificationFailed));
+        var verdict = await _turnstile.VerifyAsync(request.TurnstileToken, HumanCheckActions.GuestSubmit, client, ct);
+        if (verdict == HumanCheckVerdict.Rejected) return Reject(Refuse(GuestUploadReason.VerificationFailed));
 
-        var verified = verdict != TurnstileVerdict.Unavailable;
+        var verified = verdict != HumanCheckVerdict.Unavailable;
         if (!verified && await CountUnverifiedSubmitAsync(subject, form.Id, ct) is { } held) return Reject(held);
 
         var answers = form.Schema
@@ -422,10 +422,10 @@ public class GuestUploadService : IGuestUploadService
         };
     }
 
-    private Refusal RefuseVerification(TurnstileVerdict verdict) => verdict switch
+    private Refusal RefuseVerification(HumanCheckVerdict verdict) => verdict switch
     {
-        TurnstileVerdict.Rejected => Refuse(GuestUploadReason.VerificationFailed),
-        TurnstileVerdict.Unavailable => Refuse(GuestUploadReason.GuestUploadsUnavailable),
+        HumanCheckVerdict.Rejected => Refuse(GuestUploadReason.VerificationFailed),
+        HumanCheckVerdict.Unavailable => Refuse(GuestUploadReason.GuestUploadsUnavailable),
         _ => Refuse(GuestUploadReason.GuestUploadsDisabled)
     };
 
