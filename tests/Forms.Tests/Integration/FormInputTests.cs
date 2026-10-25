@@ -72,6 +72,42 @@ public class FormInputTests(FormsApiFactory api)
         Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (longKey.StatusCode, samePriority.StatusCode));
     }
 
+    [Fact]
+    public async Task A_collaborator_role_the_code_does_not_know_is_refused()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var request = Api.NewForm("Kulüp başvurusu") with { Collaborators = [new CollaboratorUpsertRequest(api.Users.Add("Can Demir").Id, (CollaboratorRole)99)] };
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PostAsJsonAsync("/api/admin/forms/", request)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_draft_workflow_cannot_use_one_form_in_two_steps()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var form = await owner.CreateFormAsync(Api.NewForm("Başvuru", Api.Question("name")));
+        var workflowId = await owner.CreateWorkflowAsync("Başvuru akışı");
+
+        var saved = await owner.PutAsJsonAsync($"/api/admin/workflows/{workflowId}/definition", new WorkflowDefinitionRequest(
+            [new WorkflowNodeRequest("apply", form.Id, IsStart: true), new WorkflowNodeRequest("again", form.Id, IsStart: false)],
+            []));
+
+        Assert.Equal(HttpStatusCode.BadRequest, saved.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(500, 100)]
+    [InlineData(0, 1)]
+    public async Task The_answer_list_reports_the_page_size_it_used(int asked, int used)
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var form = await owner.CreateFormAsync(Api.NewForm("Kulüp başvurusu", Api.Question("name")));
+
+        var list = await (await owner.GetAsync($"/api/admin/forms/{form.Id}/responses?PageSize={asked}")).DataAsync<FormResponsesListResult>();
+
+        Assert.Equal(used, list.PaginationData.PageSize);
+    }
+
     [Theory]
     [InlineData("/api/admin/forms/?Page=0&PageSize=10")]
     [InlineData("/api/admin/forms/component-groups?Page=-3")]

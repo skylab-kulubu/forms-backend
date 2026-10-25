@@ -357,7 +357,7 @@ These are constraints rather than checks in code, so a race cannot get past them
 
 ### Publishing
 
-`POST /api/admin/workflows/{id}/publish` validates before it promotes anything. A draft that does not validate leaves the live version untouched and returns every finding at once, and a draft may be saved in any state so the editor can work on an unfinished graph.
+`POST /api/admin/workflows/{id}/publish` validates before it promotes anything. A draft that does not validate leaves the live version untouched and returns every finding at once, and a draft may be saved unfinished so the editor can work on it. Saving still refuses what the database would reject: a missing, duplicated or over 64-character step key, one form in two steps, an unknown trigger, and two routes of a trigger tied at one priority.
 
 Publishing refuses a definition that has no start node or more than one, contains a cycle, has a route longer than three forms, leaves a node unreachable, points a route at a node that does not exist, mixes a trigger with the wrong review setting, leaves a conditional group without a default route, ties two routes at one priority, or reads a question the form does not have.
 
@@ -525,6 +525,8 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 
 ## API Endpoints
 
+Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the values they used. Form titles, template titles and workflow names hold at most 100 characters and may not be blank.
+
 ### Forms - Public
 
 | Method | Endpoint | Description |
@@ -582,7 +584,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
 | `PUT` | `/api/admin/workflows/{id}/intake` | Set the intake (`0` open, `1` closed to new applications, `2` closed) from a body such as `{ "intake": 1 }` |
-| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
+| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole, refusing what the database would reject (see [Publishing](#publishing)); each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
 | `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
 | `GET` | `/api/admin/workflows/available-forms` | The same list before a workflow exists, judged as for a new workflow that runs once, so a client can pick the steps first and create the workflow with them |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |

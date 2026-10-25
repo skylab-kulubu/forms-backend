@@ -46,7 +46,7 @@ public class ResponseDraftTests(FormsApiFactory api)
     }
 
     [Fact]
-    public async Task An_editor_draft_that_only_reorders_property_keys_counts_as_the_saved_form()
+    public async Task An_editor_draft_equal_to_the_saved_form_is_dropped_although_jsonb_reordered_its_keys()
     {
         var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
         var form = await owner.CreateFormAsync(Api.NewForm("Kulüp başvurusu", NameQuestion("Adın?")));

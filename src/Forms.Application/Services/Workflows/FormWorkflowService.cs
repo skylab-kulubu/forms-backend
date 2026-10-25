@@ -536,6 +536,7 @@ public class FormWorkflowService : IFormWorkflowService
     {
         var nodes = new List<FormWorkflowNode>();
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenForms = new HashSet<Guid>();
 
         foreach (var node in request.Nodes)
         {
@@ -544,6 +545,7 @@ public class FormWorkflowService : IFormWorkflowService
             if (key.Length == 0) return ([], [], "Her adımın bir anahtarı olmalıdır.");
             if (key.Length > WorkflowLimits.MaxNodeKeyLength) return ([], [], $"Adım anahtarı en fazla {WorkflowLimits.MaxNodeKeyLength} karakter olabilir.");
             if (!seenKeys.Add(key)) return ([], [], $"'{key}' adım anahtarı birden fazla kez kullanılmış.");
+            if (!seenForms.Add(node.FormId)) return ([], [], "Aynı form akışta birden fazla adımda kullanılamaz.");
 
             nodes.Add(new FormWorkflowNode
             {
@@ -568,7 +570,7 @@ public class FormWorkflowService : IFormWorkflowService
                 return ([], [], $"'{transition.SourceNodeKey}' adımı akışta bulunmuyor.");
 
             if (!Enum.IsDefined(transition.Trigger))
-                return ([], [], "Bilinmeyen bir yönlendirme tetiği gönderildi.");
+                return ([], [], $"'{source.NodeKey}' adımına bilinmeyen bir tetikle yönlendirme gönderildi.");
 
             // Benzersiz index taslağı da korur: bu denetim yayına bırakılırsa taslak kaydı 500 ile düşer.
             if (!priorities.Add((source.Id, transition.Trigger, transition.Priority)))
