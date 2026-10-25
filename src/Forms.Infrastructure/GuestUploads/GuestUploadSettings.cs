@@ -17,16 +17,8 @@ public sealed class GuestUploadSettings
         if (!requested && !string.Equals(mode, "off", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("FORMS_GUEST_UPLOADS must be exactly 'off' or 'on'.");
 
-        var sessionMinutes = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_SESSION_MINUTES", "SessionMinutes", 360, minimum: 10, maximum: 1_440);
-        var sessionMaxFiles = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_SESSION_MAX_FILES", "SessionMaxFiles", 10, minimum: 1, maximum: 100);
-        var ipSessionsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE", "IpSessionsPerMinute", 30, minimum: 1, maximum: 10_000);
-        var ipFilesPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE", "IpFilesPerMinute", 60, minimum: 1, maximum: 10_000);
-        var formFilesPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE", "FormFilesPerMinute", 200, minimum: 1, maximum: 100_000);
         var ipSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_SUBMIT_IP_PER_MINUTE", "IpSubmitsPerMinute", 300, minimum: 1, maximum: 100_000);
         var formSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_SUBMIT_FORM_PER_MINUTE", "FormSubmitsPerMinute", 1000, minimum: 1, maximum: 100_000);
-        var unverifiedIpSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE", "UnverifiedIpSubmitsPerMinute", 20, minimum: 1, maximum: 100_000);
-        var unverifiedFormSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE", "UnverifiedFormSubmitsPerMinute", 60, minimum: 1, maximum: 100_000);
-        var unverifiedSubmitsPerMinute = ReadBoundedInt(configuration, "FORMS_GUEST_UNVERIFIED_PER_MINUTE", "UnverifiedSubmitsPerMinute", 300, minimum: 1, maximum: 1_000_000);
 
         return new GuestUploadSettings
         {
@@ -34,16 +26,8 @@ public sealed class GuestUploadSettings
             Options = new GuestUploadOptions
             {
                 Enabled = requested && turnstileEnabled,
-                SessionLifetime = TimeSpan.FromMinutes(sessionMinutes),
-                SessionMaxFiles = sessionMaxFiles,
-                IpSessionsPerMinute = ipSessionsPerMinute,
-                IpFilesPerMinute = ipFilesPerMinute,
-                FormFilesPerMinute = formFilesPerMinute,
                 IpSubmitsPerMinute = ipSubmitsPerMinute,
-                FormSubmitsPerMinute = formSubmitsPerMinute,
-                UnverifiedIpSubmitsPerMinute = unverifiedIpSubmitsPerMinute,
-                UnverifiedFormSubmitsPerMinute = unverifiedFormSubmitsPerMinute,
-                UnverifiedSubmitsPerMinute = unverifiedSubmitsPerMinute
+                FormSubmitsPerMinute = formSubmitsPerMinute
             }
         };
     }

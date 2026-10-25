@@ -62,7 +62,7 @@ public class GuestUploadService : IGuestUploadService
             var (bucket, retryAfter) = MinuteBucket(DateTime.UtcNow);
 
             var sessions = await _store.CountAsync(GuestUploadKeys.IpSessions(GuestUploadKeys.ClientSubject(client), bucket), MinuteWindow, ct);
-            if (sessions > _options.IpSessionsPerMinute) return ToSessionResult(Refuse(GuestUploadReason.TooManySessions, retryAfter));
+            if (sessions > GuestRateLimits.IpSessionsPerMinute) return ToSessionResult(Refuse(GuestUploadReason.TooManySessions, retryAfter));
         }
         catch (GuestUploadStoreUnavailableException)
         {
@@ -75,7 +75,7 @@ public class GuestUploadService : IGuestUploadService
         try
         {
             var now = DateTime.UtcNow;
-            var session = new GuestUploadSession(GuestUploadKeys.NewSessionId(), formId, now, now + _options.SessionLifetime);
+            var session = new GuestUploadSession(GuestUploadKeys.NewSessionId(), formId, now, now + GuestRateLimits.SessionLifetime);
             await _store.SaveSessionAsync(session, ct);
 
             return new ServiceResult<GuestUploadSessionContract>(
@@ -321,15 +321,15 @@ public class GuestUploadService : IGuestUploadService
         var sessionWindow = remaining > MinimumSessionWindow ? remaining : MinimumSessionWindow;
 
         var sessionUploads = await _store.CountAsync(GuestUploadKeys.SessionCount(session.Id), sessionWindow, ct);
-        if (sessionUploads > _options.SessionMaxFiles) return Refuse(GuestUploadReason.SessionFileLimit);
+        if (sessionUploads > GuestRateLimits.SessionMaxFiles) return Refuse(GuestUploadReason.SessionFileLimit);
 
         var (bucket, retryAfter) = MinuteBucket(now);
 
         var clientUploads = await _store.CountAsync(GuestUploadKeys.IpFiles(GuestUploadKeys.ClientSubject(client), bucket), MinuteWindow, ct);
-        if (clientUploads > _options.IpFilesPerMinute) return Refuse(GuestUploadReason.TooManyUploads, retryAfter);
+        if (clientUploads > GuestRateLimits.IpFilesPerMinute) return Refuse(GuestUploadReason.TooManyUploads, retryAfter);
 
         var formUploads = await _store.CountAsync(GuestUploadKeys.FormFiles(formId, bucket), MinuteWindow, ct);
-        if (formUploads > _options.FormFilesPerMinute) return Refuse(GuestUploadReason.TooManyUploads, retryAfter);
+        if (formUploads > GuestRateLimits.FormFilesPerMinute) return Refuse(GuestUploadReason.TooManyUploads, retryAfter);
 
         return null;
     }
@@ -358,13 +358,13 @@ public class GuestUploadService : IGuestUploadService
         try
         {
             var fromClient = await _store.CountAsync(GuestUploadKeys.UnverifiedIpSubmits(subject, bucket), MinuteWindow, ct);
-            if (fromClient > _options.UnverifiedIpSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+            if (fromClient > GuestRateLimits.UnverifiedIpSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
 
             var toForm = await _store.CountAsync(GuestUploadKeys.UnverifiedFormSubmits(formId, bucket), MinuteWindow, ct);
-            if (toForm > _options.UnverifiedFormSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+            if (toForm > GuestRateLimits.UnverifiedFormSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
 
             var total = await _store.CountAsync(GuestUploadKeys.UnverifiedSubmits(bucket), MinuteWindow, ct);
-            if (total > _options.UnverifiedSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
+            if (total > GuestRateLimits.UnverifiedSubmitsPerMinute) return Refuse(GuestUploadReason.TooManySubmissions, retryAfter);
         }
         catch (GuestUploadStoreUnavailableException)
         {
@@ -447,7 +447,7 @@ public class GuestUploadService : IGuestUploadService
             GuestUploadReason.GuestUploadsUnavailable => (ServiceStatus.ServiceUnavailable, "Dosya yükleme şu an kullanılamıyor. Biraz sonra tekrar deneyin."),
             GuestUploadReason.SessionExpired => (ServiceStatus.NotAvailable, "Yükleme oturumunun süresi doldu."),
             GuestUploadReason.TooManySessions or GuestUploadReason.TooManyUploads => (ServiceStatus.TooManyRequests, "Kısa sürede çok fazla dosya yüklendi. Biraz sonra tekrar deneyin."),
-            GuestUploadReason.SessionFileLimit => (ServiceStatus.TooManyRequests, $"Bu formda bir seferde en fazla {_options.SessionMaxFiles} dosya yüklenebilir."),
+            GuestUploadReason.SessionFileLimit => (ServiceStatus.TooManyRequests, $"Bu formda bir seferde en fazla {GuestRateLimits.SessionMaxFiles} dosya yüklenebilir."),
             GuestUploadReason.QuestionNotFound => (ServiceStatus.NotAcceptable, "Dosya sorusu bulunamadı."),
             GuestUploadReason.FileEmpty => (ServiceStatus.NotAcceptable, "Dosya boş."),
             GuestUploadReason.FileTooLarge => (ServiceStatus.NotAcceptable, "Dosya boyutu sınırı aşıldı."),

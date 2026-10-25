@@ -404,7 +404,7 @@ Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTI
 
 ### Flow
 
-1. **Session.** `POST /api/forms/{id}/guest-uploads/sessions` with `{ "turnstileToken": "..." }` returns `{ sessionId, expiresAt }`. A session belongs to one form and lives `FORMS_GUEST_UPLOAD_SESSION_MINUTES`.
+1. **Session.** `POST /api/forms/{id}/guest-uploads/sessions` with `{ "turnstileToken": "..." }` returns `{ sessionId, expiresAt }`. A session belongs to one form and lives six hours.
 2. **Upload.** `POST /api/forms/{id}/guest-uploads` as `multipart/form-data` with `questionId` and `file`, the session in the `X-Guest-Upload-Session` header. Forms checks the question, the size and type, and the counters, uploads the file to core and answers with the media `id` and `status: "scanning"`.
 3. **Scan.** `GET /api/forms/{id}/guest-uploads/{mediaId}` with the same header answers `status` `scanning`, `ready`, `rejected` (with `scanResult`) or `missing` (core no longer has the file).
 4. **Submit.** The answer to a file question is the media id. `POST /api/forms/responses` carries `turnstileToken` and, when it has file answers, `guestUploadSession`. Forms accepts a file only when the session holds it for that question and core reports it clean and unattached. It links the files to the new response id in core **before** saving; if the save fails, it removes those links again, and after a successful save the session forgets the files.
@@ -416,10 +416,10 @@ Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTI
 | File size | 50 MiB, or the question's `maxSize` when that is smaller |
 | File types | PDF, JPEG and PNG, narrowed by the question's `acceptedFiles`. Core checks the content again |
 | Request body | 52 MiB, larger bodies get `413` |
-| Files per session | `FORMS_GUEST_UPLOAD_SESSION_MAX_FILES` (10) |
-| Sessions per client address and minute | `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` (30) |
-| Files per client address and minute | `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` (60) |
-| Guest files per form and minute | `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` (200) |
+| Files per session | 10 |
+| Sessions per client address and minute | 30 |
+| Files per client address and minute | 60 |
+| Guest files per form and minute | 200 |
 
 The counters run on clock minutes, so `retryAfterSeconds` is at most 60. Short windows let a burst through (an event where everyone uploads at once from one network) and keep anyone over a limit waiting seconds, not an hour. Sessions are counted **before** Turnstile is asked, so a flood of session requests never reaches Cloudflare. A client address counts as itself for IPv4 and as its `/64` for IPv6, and is kept only as a hash. Every guest upload is also charged to the Forms service account's budget in core (100 uploads per 10 minutes and 2 GiB a day by default, shared by all guests; at 50 MiB a file that is about 40 files a day); a refusal there reaches the guest as `tooManyUploads` with core's `retryAfterSeconds`.
 
@@ -429,11 +429,11 @@ Every guest answer is counted per client address and per form, with or without f
 
 | Limit | Verified answer | Answer accepted without verification |
 |-------|-----------------|--------------------------------------|
-| Per client address and minute | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` (300) | `FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE` (20) |
-| Per form and minute | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` (1000) | `FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE` (60) |
-| All forms per minute | none | `FORMS_GUEST_UNVERIFIED_PER_MINUTE` (300) |
+| Per client address and minute | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` (300) | 20 |
+| Per form and minute | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` (1000) | 60 |
+| All forms per minute | none | 300 |
 
-The verified limits are wide because an event's check-in form can get a few hundred answers within a minute from one network. An answer accepted without verification (see [Failure behavior](#failure-behavior)) is counted again against the tight limits, because during an outage nothing else stops a script. Over a limit, the answer is refused with `429` `tooManySubmissions` and `retryAfterSeconds`; the frontend waits and sends it again by itself.
+The verified limits are wide because an event's check-in form can get a few hundred answers within a minute from one network, and they are the only limits a deployment sets; raise them for such an evening. The other limits are constants in `GuestRateLimits`. An answer accepted without verification (see [Failure behavior](#failure-behavior)) is counted again against the tight limits, because during an outage nothing else stops a script. Over a limit, the answer is refused with `429` `tooManySubmissions` and `retryAfterSeconds`; the frontend waits and sends it again by itself.
 
 When Redis cannot be reached, verified answers skip the counters, so a Redis outage does not lose answers, and unverified answers are refused with `503` `submitUnavailable`, because nothing would bound them.
 
@@ -716,20 +716,12 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on` (anything else stops startup). Active only together with `TURNSTILE_SECRET_KEY`, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, defaults to `off` |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest submissions are not verified and guest uploads stay off | No |
 | `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |
-| `FORMS_GUEST_UPLOAD_SESSION_MINUTES` | Guest upload session lifetime in minutes, from 10 to 1440 | No, defaults to `360` |
-| `FORMS_GUEST_UPLOAD_SESSION_MAX_FILES` | Files one guest upload session may upload, from 1 to 100 | No, defaults to `10` |
-| `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` | Guest upload sessions one client address may open per minute, from 1 to 10000 | No, defaults to `30` |
-| `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` | Guest files one client address may upload per minute, from 1 to 10000 | No, defaults to `60` |
-| `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` | Guest files one form may receive per minute, from 1 to 100000 | No, defaults to `200` |
 | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, defaults to `300` |
 | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, defaults to `1000` |
-| `FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE` | Guest answers accepted without verification from one client address per minute, from 1 to 100000 | No, defaults to `20` |
-| `FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE` | Guest answers accepted without verification for one form per minute, from 1 to 100000 | No, defaults to `60` |
-| `FORMS_GUEST_UNVERIFIED_PER_MINUTE` | Guest answers accepted without verification across all forms per minute, from 1 to 1000000 | No, defaults to `300` |
 | `TURNSTILE_ALLOW_TEST_SECRET` | `true` lets a Cloudflare test secret run outside `Development` | No |
 | `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; an invalid entry stops startup | No, defaults to `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
 
-The guest upload, Turnstile and proxy settings read the environment variable first and then the configuration key: `GuestUploads:Mode`, `GuestUploads:SessionMinutes`, `GuestUploads:SessionMaxFiles`, `GuestUploads:IpSessionsPerHour`, `GuestUploads:IpFilesPerHour`, `GuestUploads:FormFilesPerHour`, `Turnstile:SecretKey`, `Turnstile:AllowedHostnames` and `ForwardedHeaders:TrustedProxyRanges`. A number outside its range stops startup even while guest uploads are off.
+The guest upload, Turnstile and proxy settings read the environment variable first and then the configuration key: `GuestUploads:Mode`, `GuestUploads:IpSubmitsPerMinute`, `GuestUploads:FormSubmitsPerMinute`, `Turnstile:SecretKey`, `Turnstile:AllowedHostnames`, `Turnstile:AllowTestSecret` and `ForwardedHeaders:TrustedProxyRanges`. A number outside its range stops startup even while guest uploads are off.
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 
