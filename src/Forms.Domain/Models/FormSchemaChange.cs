@@ -13,9 +13,9 @@ public static class FormSchemaChange
     public static bool BreaksDrafts(IEnumerable<FormSchemaItem> before, IEnumerable<FormSchemaItem> after)
     {
         var types = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var item in after) types.TryAdd(item.Id, item.Type);
+        foreach (var item in after) types.TryAdd(item.Id ?? string.Empty, item.Type);
 
-        return before.Any(item => types.TryGetValue(item.Id, out var type) && !string.Equals(type, item.Type, StringComparison.Ordinal));
+        return before.Any(item => types.TryGetValue(item.Id ?? string.Empty, out var type) && !string.Equals(type, item.Type, StringComparison.Ordinal));
     }
 
     private static JsonNode? ToNode(IReadOnlyList<FormSchemaItem>? schema) =>
