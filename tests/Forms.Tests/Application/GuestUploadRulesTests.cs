@@ -50,4 +50,8 @@ public class GuestUploadRulesTests
 
         Assert.Equal(expected, GuestUploadRules.EffectiveMaxBytes(question));
     }
+
+    [Fact]
+    public void A_new_session_id_passes_the_session_id_check() =>
+        Assert.True(GuestUploadKeys.IsSessionId(GuestUploadKeys.NewSessionId()));
 }

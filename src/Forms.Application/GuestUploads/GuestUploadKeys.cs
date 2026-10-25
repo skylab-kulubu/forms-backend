@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
@@ -37,8 +38,7 @@ public static class GuestUploadKeys
 
     public static string UnverifiedSubmits(long bucket) => $"{SubmitPrefix}unverified:all:{bucket}";
 
-    public static string NewSessionId() =>
-        Convert.ToBase64String(RandomNumberGenerator.GetBytes(SessionIdBytes)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    public static string NewSessionId() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(SessionIdBytes));
 
     public static bool IsSessionId([NotNullWhen(true)] string? value) =>
         value is { Length: SessionIdLength } && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_');
