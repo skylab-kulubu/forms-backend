@@ -23,9 +23,9 @@ public class FormMetricService : IFormMetricService
     private readonly IFormMetricsRepository _metrics;
     private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
-    private readonly ICoreShortLinks _links;
+    private readonly IShortLinkProvider _links;
 
-    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUser currentUser, ICacheService cache, ICoreShortLinks links)
+    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUser currentUser, ICacheService cache, IShortLinkProvider links)
     {
         _forms = forms;
         _metrics = metrics;
@@ -179,10 +179,10 @@ public class FormMetricService : IFormMetricService
             .ToList();
     }
 
-    private async Task<CoreLinkStats?> GetLinkStatsAsync(Guid formId, CancellationToken cancellationToken)
+    private async Task<ShortLinkStats?> GetLinkStatsAsync(Guid formId, CancellationToken cancellationToken)
     {
         var cacheKey = FormCacheKeys.LinkStats(formId);
-        var cached = await _cache.TryGetAsync<CoreLinkStats>(cacheKey, cancellationToken);
+        var cached = await _cache.TryGetAsync<ShortLinkStats>(cacheKey, cancellationToken);
         if (cached != null) return cached;
 
         var stats = await _links.GetStatsAsync(formId, cancellationToken);

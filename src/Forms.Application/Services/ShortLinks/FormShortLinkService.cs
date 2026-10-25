@@ -12,12 +12,12 @@ namespace Skylab.Forms.Application.Services.ShortLinks;
 public class FormShortLinkService : IFormShortLinkService
 {
     private readonly IFormRepository _forms;
-    private readonly ICoreShortLinks _links;
+    private readonly IShortLinkProvider _links;
     private readonly IUserDirectory _users;
     private readonly ICurrentUser _currentUser;
     private readonly ShortLinkOptions _options;
 
-    public FormShortLinkService(IFormRepository forms, ICoreShortLinks links, IUserDirectory users, ICurrentUser currentUser, ShortLinkOptions options)
+    public FormShortLinkService(IFormRepository forms, IShortLinkProvider links, IUserDirectory users, ICurrentUser currentUser, ShortLinkOptions options)
     {
         _forms = forms;
         _links = links;
@@ -32,7 +32,7 @@ public class FormShortLinkService : IFormShortLinkService
         if (access.Denied is not null) return new ServiceResult<FormShortLinkContract>(access.Denied.Value, Message: access.Message);
 
         var result = await _links.GetAsync(formId, cancellationToken);
-        if (result.Status == CoreLinkStatus.NotFound) return new ServiceResult<FormShortLinkContract>(ServiceStatus.Success);
+        if (result.Status == ShortLinkStatus.NotFound) return new ServiceResult<FormShortLinkContract>(ServiceStatus.Success);
         return await ToResultAsync(result, cancellationToken);
     }
 
@@ -76,13 +76,13 @@ public class FormShortLinkService : IFormShortLinkService
         if (access.Denied is not null) return new ServiceResult<QrImageContract>(access.Denied.Value, Message: access.Message);
 
         var link = await _links.GetAsync(formId, cancellationToken);
-        if (link.Status == CoreLinkStatus.NotFound || link.Link is null)
-            return new ServiceResult<QrImageContract>(link.Status == CoreLinkStatus.NotFound ? ServiceStatus.NotFound : ServiceStatus.ServiceUnavailable, Message: "Bu formun kısa linki yok.");
+        if (link.Status == ShortLinkStatus.NotFound || link.Link is null)
+            return new ServiceResult<QrImageContract>(link.Status == ShortLinkStatus.NotFound ? ServiceStatus.NotFound : ServiceStatus.ServiceUnavailable, Message: "Bu formun kısa linki yok.");
 
         var channel = AttributionNormalizer.NormalizeSource(source);
         if (channel == QrSource) channel = null;
         var contentTag = AttributionNormalizer.NormalizeTag(content);
-        var tags = new CoreQrTags(channel ?? QrSource, channel is null ? null : QrMedium, AttributionNormalizer.NormalizeTag(campaign), contentTag);
+        var tags = new QrTags(channel ?? QrSource, channel is null ? null : QrMedium, AttributionNormalizer.NormalizeTag(campaign), contentTag);
 
         var image = await _links.GetQrAsync(link.Link.Alias, svg, 1024, tags, cancellationToken);
         if (image is null)
@@ -110,32 +110,35 @@ public class FormShortLinkService : IFormShortLinkService
         return (form, null, null);
     }
 
-    private async Task<ServiceResult<FormShortLinkContract>> ToResultAsync(CoreLinkResult result, CancellationToken cancellationToken)
+    private async Task<ServiceResult<FormShortLinkContract>> ToResultAsync(ShortLinkResult result, CancellationToken cancellationToken)
     {
         return result.Status switch
         {
-            CoreLinkStatus.Ok when result.Link is not null => new ServiceResult<FormShortLinkContract>(ServiceStatus.Success, Data: await ToContractAsync(result.Link, cancellationToken)),
-            CoreLinkStatus.NotFound => new ServiceResult<FormShortLinkContract>(ServiceStatus.NotFound, Message: "Bu formun kısa linki yok."),
-            CoreLinkStatus.Conflict => new ServiceResult<FormShortLinkContract>(ServiceStatus.Conflict, Message: "Bu kısa ad başka bir linkte kullanılıyor."),
-            CoreLinkStatus.Invalid => new ServiceResult<FormShortLinkContract>(ServiceStatus.NotAcceptable, Message: "Kısa ad harf ya da rakamla başlamalı; yalnız harf, rakam, - ve _ içerebilir."),
-            CoreLinkStatus.EventManaged => new ServiceResult<FormShortLinkContract>(ServiceStatus.NotAuthorized, Message: "Bu kısa ad etkinlik panelinden değiştiriliyor."),
+            ShortLinkStatus.Ok when result.Link is not null => new ServiceResult<FormShortLinkContract>(ServiceStatus.Success, Data: await ToContractAsync(result.Link, cancellationToken)),
+            ShortLinkStatus.NotFound => new ServiceResult<FormShortLinkContract>(ServiceStatus.NotFound, Message: "Bu formun kısa linki yok."),
+            ShortLinkStatus.Conflict => new ServiceResult<FormShortLinkContract>(ServiceStatus.Conflict, Message: "Bu kısa ad başka bir linkte kullanılıyor."),
+            ShortLinkStatus.Invalid => new ServiceResult<FormShortLinkContract>(ServiceStatus.NotAcceptable, Message: "Kısa ad harf ya da rakamla başlamalı; yalnız harf, rakam, - ve _ içerebilir."),
+            ShortLinkStatus.ManagedElsewhere => new ServiceResult<FormShortLinkContract>(ServiceStatus.NotAuthorized, Message: "Bu kısa ad başka bir yerden yönetiliyor; buradan değiştirilemez."),
             _ => new ServiceResult<FormShortLinkContract>(ServiceStatus.ServiceUnavailable, Message: "Kısa link servisine ulaşılamadı.")
         };
     }
 
-    private async Task<FormShortLinkContract> ToContractAsync(CoreLink link, CancellationToken cancellationToken)
+    private async Task<FormShortLinkContract> ToContractAsync(ShortLink link, CancellationToken cancellationToken)
     {
         var creator = link.CreatedBy is { } creatorId ? await _users.GetUserAsync(creatorId, cancellationToken) : null;
-        var managedByEvent = link.EventId is not null;
+        var manager = link.ManagedElsewhere ? link.Label : null;
+
         return new FormShortLinkContract(
             link.Id,
             link.Alias,
             link.ClickCount,
             link.Label,
-            managedByEvent,
-            managedByEvent ? link.Label : null,
+            link.ManagedElsewhere,
+            manager,
             creator,
-            link.CreatedAt
+            link.CreatedAt,
+            link.ManagedElsewhere,
+            manager
         );
     }
 }

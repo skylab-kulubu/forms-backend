@@ -5,31 +5,32 @@ using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Infrastructure.Auth;
 
-public sealed class CoreShortLinks : ICoreShortLinks
+public sealed class CoreShortLinkProvider : IShortLinkProvider
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
 
-    public CoreShortLinks(HttpClient httpClient)
+    public CoreShortLinkProvider(HttpClient httpClient)
     {
         _httpClient = httpClient;
     }
 
-    public Task<CoreLinkResult> GetAsync(Guid formId, CancellationToken ct = default) =>
+    public Task<ShortLinkResult> GetAsync(Guid formId, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Get, $"/v1/urls/forms/{formId}", null, ct);
 
-    public Task<CoreLinkResult> EnsureAsync(Guid formId, string url, string? label, string alias, Guid? actorId, CancellationToken ct = default) =>
+    public Task<ShortLinkResult> EnsureAsync(Guid formId, string url, string? label, string alias, Guid? actorId, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, $"/v1/urls/forms/{formId}", new { url, label, alias, actorId }, ct);
 
-    public Task<CoreLinkResult> RenameAsync(Guid formId, string alias, string suggestion, CancellationToken ct = default) =>
+    public Task<ShortLinkResult> RenameAsync(Guid formId, string alias, string suggestion, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Patch, $"/v1/urls/forms/{formId}", new { alias, suggestion }, ct);
 
-    public async Task<CoreAliasAvailability?> CheckAliasAsync(string alias, CancellationToken ct = default)
+    public async Task<AliasAvailability?> CheckAliasAsync(string alias, CancellationToken ct = default)
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<CoreAliasAvailability>($"/v1/urls/availability?alias={Uri.EscapeDataString(alias)}", Json, ct);
+            var answer = await _httpClient.GetFromJsonAsync<CoreAvailability>($"/v1/urls/availability?alias={Uri.EscapeDataString(alias)}", Json, ct);
+            return answer is null ? null : new AliasAvailability(answer.Alias, answer.Available, answer.Reason);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !ct.IsCancellationRequested)
         {
@@ -37,11 +38,12 @@ public sealed class CoreShortLinks : ICoreShortLinks
         }
     }
 
-    public async Task<CoreLinkStats?> GetStatsAsync(Guid formId, CancellationToken ct = default)
+    public async Task<ShortLinkStats?> GetStatsAsync(Guid formId, CancellationToken ct = default)
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<CoreLinkStats>($"/v1/urls/forms/{formId}/stats", Json, ct);
+            var stats = await _httpClient.GetFromJsonAsync<CoreStats>($"/v1/urls/forms/{formId}/stats", Json, ct);
+            return stats is null ? null : new ShortLinkStats(stats.Since, stats.Total, [.. stats.Sources.Select(source => new ShortLinkSourceCount(source.Source, source.Count, source.Scans))]);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !ct.IsCancellationRequested)
         {
@@ -49,7 +51,7 @@ public sealed class CoreShortLinks : ICoreShortLinks
         }
     }
 
-    public async Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CoreQrTags tags, CancellationToken ct = default)
+    public async Task<QrImage?> GetQrAsync(string alias, bool svg, int size, QrTags tags, CancellationToken ct = default)
     {
         var query = new List<string> { "logo=1", svg ? "format=svg" : $"size={size}" };
         foreach (var (key, value) in new[] { ("utm_source", tags.Source), ("utm_medium", tags.Medium), ("utm_campaign", tags.Campaign), ("utm_content", tags.Content) })
@@ -62,7 +64,7 @@ public sealed class CoreShortLinks : ICoreShortLinks
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsByteArrayAsync(ct);
             var contentType = response.Content.Headers.ContentType?.MediaType ?? (svg ? "image/svg+xml" : "image/png");
-            return new CoreQrImage(content, contentType);
+            return new QrImage(content, contentType);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
@@ -70,7 +72,7 @@ public sealed class CoreShortLinks : ICoreShortLinks
         }
     }
 
-    private async Task<CoreLinkResult> SendAsync(HttpMethod method, string path, object? body, CancellationToken ct)
+    private async Task<ShortLinkResult> SendAsync(HttpMethod method, string path, object? body, CancellationToken ct)
     {
         try
         {
@@ -81,32 +83,32 @@ public sealed class CoreShortLinks : ICoreShortLinks
             if (response.IsSuccessStatusCode)
             {
                 var link = await response.Content.ReadFromJsonAsync<CoreLink>(Json, ct);
-                return link is null ? new CoreLinkResult(CoreLinkStatus.Failed) : new CoreLinkResult(CoreLinkStatus.Ok, link);
+                return link is null ? new ShortLinkResult(ShortLinkStatus.Failed) : new ShortLinkResult(ShortLinkStatus.Ok, link.ToShortLink());
             }
 
-            return new CoreLinkResult(await StatusOfAsync(response, ct));
+            return new ShortLinkResult(await StatusOfAsync(response, ct));
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !ct.IsCancellationRequested)
         {
-            return new CoreLinkResult(CoreLinkStatus.Failed);
+            return new ShortLinkResult(ShortLinkStatus.Failed);
         }
     }
 
-    private static async Task<CoreLinkStatus> StatusOfAsync(HttpResponseMessage response, CancellationToken ct)
+    private static async Task<ShortLinkStatus> StatusOfAsync(HttpResponseMessage response, CancellationToken ct)
     {
         switch (response.StatusCode)
         {
             case HttpStatusCode.NotFound:
-                return CoreLinkStatus.NotFound;
+                return ShortLinkStatus.NotFound;
             case HttpStatusCode.Conflict:
-                return CoreLinkStatus.Conflict;
+                return ShortLinkStatus.Conflict;
             case HttpStatusCode.BadRequest:
-                return CoreLinkStatus.Invalid;
+                return ShortLinkStatus.Invalid;
             case HttpStatusCode.Forbidden:
                 var problem = await ReadProblemAsync(response, ct);
-                return problem?.Code == "event_managed" ? CoreLinkStatus.EventManaged : CoreLinkStatus.Failed;
+                return problem?.Code == "event_managed" ? ShortLinkStatus.ManagedElsewhere : ShortLinkStatus.Failed;
             default:
-                return CoreLinkStatus.Failed;
+                return ShortLinkStatus.Failed;
         }
     }
 
@@ -123,4 +125,15 @@ public sealed class CoreShortLinks : ICoreShortLinks
     }
 
     private sealed record CoreProblem(string? Code);
+
+    private sealed record CoreAvailability(string Alias, bool Available, string? Reason);
+
+    private sealed record CoreSourceCount(string Source, int Count, int Scans = 0);
+
+    private sealed record CoreStats(DateTime Since, int Total, List<CoreSourceCount> Sources);
+
+    private sealed record CoreLink(Guid Id, string Alias, string Url, int ClickCount, Guid? CreatedBy, Guid? FormId, Guid? EventId, string? Label, DateTime CreatedAt)
+    {
+        public ShortLink ToShortLink() => new(Id, Alias, Url, ClickCount, CreatedBy, Label, EventId is not null, CreatedAt);
+    }
 }

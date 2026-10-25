@@ -79,7 +79,7 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
         }).AddHttpMessageHandler<ServiceTokenHandler>();
 
-        services.AddHttpClient<ICoreShortLinks, CoreShortLinks>(client =>
+        services.AddHttpClient<IShortLinkProvider, CoreShortLinkProvider>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
             client.Timeout = TimeSpan.FromSeconds(10);
