@@ -19,15 +19,14 @@ public enum AccountAccessDecision
 /// </summary>
 public sealed class AccountAccessGate(IConnectionMultiplexer connection, AccountAccessGateOptions options) : IDisposable
 {
-    private const string Issuer = "https://e.yildizskylab.com/realms/e-skylab";
     private const string ContractKey = "skylab:account-access:v1:contract";
     private const string ContractValue = "sha256(iss\\0sub);marker=1;ttl=none";
     private const string MarkerPrefix = "skylab:account-access:v1:blocked:";
     private const string MarkerValue = "1";
 
-    public async Task<AccountAccessDecision> CheckSubjectAsync(string subject, CancellationToken cancellationToken)
+    public async Task<AccountAccessDecision> CheckSubjectAsync(string issuer, string subject, CancellationToken cancellationToken)
     {
-        RedisKey[] keys = [ContractKey, MarkerKey(subject)];
+        RedisKey[] keys = [ContractKey, MarkerKey(issuer, subject)];
 
         try
         {
@@ -65,8 +64,8 @@ public sealed class AccountAccessGate(IConnectionMultiplexer connection, Account
             .WaitAsync(TimeSpan.FromMilliseconds(options.OperationTimeoutMilliseconds), cancellationToken);
 
     // Redis'e subject değil, yalnız sha256(issuer + NUL + subject) yazılır.
-    private static RedisKey MarkerKey(string subject) =>
-        MarkerPrefix + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{Issuer}\0{subject}")));
+    private static RedisKey MarkerKey(string issuer, string subject) =>
+        MarkerPrefix + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{issuer}\0{subject}")));
 
     private static bool Matches(RedisValue value, string expected) =>
         value.HasValue && string.Equals(value.ToString(), expected, StringComparison.Ordinal);

@@ -92,7 +92,7 @@ Forms reads the permanent denylist of blocked accounts that core writes (core's 
 
 The mTLS files are required when TLS is on; mount them read-only and never put key contents in an environment variable.
 
-A blocked subject gets `401`. A missing contract, malformed marker, timeout, or Redis failure gets `503` with `Retry-After`, without reaching the endpoint. `GET /health/live` never touches Redis; `GET /health/ready` reports `503` until the gate contract reads back.
+A marker is looked up as `sha256(iss + NUL + sub)` with the `iss` of the validated token itself, so moving `Authentication:Issuer` to a new realm keeps the gate working. A blocked subject gets `401`. A missing contract, malformed marker, timeout, or Redis failure gets `503` with `Retry-After`, without reaching the endpoint. `GET /health/live` never touches Redis; `GET /health/ready` reports `503` until the gate contract reads back.
 
 ## Account erasure
 
