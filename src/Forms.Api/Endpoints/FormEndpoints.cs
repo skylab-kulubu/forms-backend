@@ -52,9 +52,9 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}", async (Guid id, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, IFormService service, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             var result = await service.GetDisplayFormByIdAsync(id, userId, ct);
 
             return result.ToApiResult();
@@ -67,18 +67,18 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/{id:guid}/attempt", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/attempt", async (Guid id, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Görevi başlatmak için giriş yapmalısınız.");
 
             var result = await service.StartAsync(id, userId.Value, ct);
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IFormResponseService service, ICurrentUserService userService, HttpContext httpContext, CancellationToken ct) =>
+        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IFormResponseService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             var result = await service.SubmitResponseAsync(request, userId, httpContext.Connection.RemoteIpAddress, ct);
 
             if (result.Status == ServiceStatus.Success || result.Status == ServiceStatus.PendingApproval)
@@ -87,27 +87,27 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses/draft", async ([FromBody] ResponseDraftRequest request, IFormDraftService draftService, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapPost("/responses/draft", async ([FromBody] ResponseDraftRequest request, IFormDraftService draftService, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult();
 
             var result = await draftService.SaveResponseDraftAsync(request.FormId, userId.Value, request, ct);
             return result.ToApiResult();
         });
 
-        group.MapGet("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult();
 
             var result = await draftService.GetResponseDraftAsync(formId, userId.Value, ct);
             return result.ToApiResult();
         });
 
-        group.MapDelete("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapDelete("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult();
 
             var result = await draftService.DeleteResponseDraftAsync(formId, userId.Value, ct);

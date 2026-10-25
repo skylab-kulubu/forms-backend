@@ -37,7 +37,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormDraftService _draftService;
     private readonly ICacheService _cache;
     private readonly IFormMailNotifier _mailNotifier;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormAttemptService _attempts;
@@ -55,7 +55,7 @@ public class FormResponseService : IFormResponseService
         IFormDraftService draftService,
         ICacheService cache,
         IFormMailNotifier mailNotifier,
-        ICurrentUserService currentUserService,
+        ICurrentUser currentUser,
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
         IFormAttemptService attempts,
@@ -77,7 +77,7 @@ public class FormResponseService : IFormResponseService
         _draftService = draftService;
         _cache = cache;
         _mailNotifier = mailNotifier;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _workflowRuntime = workflowRuntime;
         _instances = instances;
     }
@@ -232,7 +232,7 @@ public class FormResponseService : IFormResponseService
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
         var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<FormResponsesListResult>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var form = await _forms.GetByIdAsync(formId, cancellationToken);
@@ -309,7 +309,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<ResponseContract>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+        var canView = isCollaborator || _currentUser.IsPlatformAdmin;
 
         ShareCacheEntry? shareEntry = null;
         if (!canView)
@@ -433,7 +433,7 @@ public class FormResponseService : IFormResponseService
         if (response == null) return (ServiceStatus.NotFound, "Yanıt bulunamadı.");
 
         var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
+        var canView = isCollaborator || _currentUser.IsPlatformAdmin;
 
         if (!canView)
         {
@@ -574,7 +574,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
@@ -645,7 +645,7 @@ public class FormResponseService : IFormResponseService
             return new ServiceResult<byte[]>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<byte[]>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını dışa aktarma yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);

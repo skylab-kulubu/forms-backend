@@ -25,7 +25,7 @@ public class FormService : IFormService
     private readonly IFormsUnitOfWork _uow;
     private readonly IExternalUserService _userService;
     private readonly IFormDraftService _draftService;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowRuntime _workflowRuntime;
@@ -38,7 +38,7 @@ public class FormService : IFormService
         IFormsUnitOfWork uow,
         IExternalUserService userService,
         IFormDraftService draftService,
-        ICurrentUserService currentUserService,
+        ICurrentUser currentUser,
         ICacheService cache,
         IFormWorkflowRepository workflows,
         IFormWorkflowRuntime workflowRuntime,
@@ -50,7 +50,7 @@ public class FormService : IFormService
         _uow = uow;
         _userService = userService;
         _draftService = draftService;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _cache = cache;
         _workflows = workflows;
         _workflowRuntime = workflowRuntime;
@@ -209,7 +209,7 @@ public class FormService : IFormService
         if (form == null) return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
-        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (collaborator == null && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var userRole = collaborator?.Role ?? CollaboratorRole.None;
@@ -362,7 +362,7 @@ public class FormService : IFormService
 
         var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && c.Role != CollaboratorRole.None);
 
-        if (collaborator == null && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (collaborator == null && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<FormInfoContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var counts = await _responses.GetCountsAsync(id, cancellationToken);

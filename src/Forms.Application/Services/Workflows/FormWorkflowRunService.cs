@@ -11,18 +11,18 @@ public class FormWorkflowRunService : IFormWorkflowRunService
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IExternalUserService _userService;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
 
     public FormWorkflowRunService(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
         IExternalUserService userService,
-        ICurrentUserService currentUserService)
+        ICurrentUser currentUser)
     {
         _workflows = workflows;
         _instances = instances;
         _userService = userService;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
     }
 
     public async Task<ServiceResult<WorkflowRunOverviewContract>> GetOverviewAsync(
@@ -120,7 +120,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return (ServiceStatus.NotFound, "Akış bulunamadı.");
 
-        if (workflow.OwnerUserId != userId && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return (ServiceStatus.NotAuthorized, "Bu akış üzerinde yetkiniz yok.");
 
         return null;

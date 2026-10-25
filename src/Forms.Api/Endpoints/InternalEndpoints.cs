@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
-using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Infrastructure.AccountAccess;
+using Skylab.Forms.Infrastructure.Auth;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -55,7 +55,7 @@ public static class InternalEndpoints
         var group = routes.MapGroup("internal/v1").ExcludeFromDescription();
 
         // Core'un hesap silme komutu (core docs/account-erasure-command.md).
-        group.MapPut("/account-erasures/{requestId}", async (string requestId, HttpContext context, IAccountErasureService service, ICurrentUserService userService, ILoggerFactory loggerFactory, CancellationToken ct) =>
+        group.MapPut("/account-erasures/{requestId}", async (string requestId, HttpContext context, IAccountErasureService service, ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("Skylab.Forms.Api.AccountErasure");
             context.Response.Headers.CacheControl = "no-store";
@@ -68,7 +68,7 @@ public static class InternalEndpoints
 
             // Token JwtBearer zincirinde doğrulandı (imza, issuer, süre, aud ∋ forms).
             if (context.User.FindFirst("azp")?.Value != "core-erasure" ||
-                !await userService.HasRoleAsync("skyforms:account:erase", "forms", ct))
+                !FormsPermissions.Has(context.User, FormsPermissions.AccountErasure))
                 return Problem(StatusCodes.Status403Forbidden, "erasure_forbidden");
 
             var command = await ReadErasureCommandAsync(context.Request, requestId, ct);

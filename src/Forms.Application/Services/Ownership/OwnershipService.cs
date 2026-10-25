@@ -18,7 +18,7 @@ public class OwnershipService : IOwnershipService
     private readonly IFormWorkflowRepository _workflows;
     private readonly IComponentGroupService _groupService;
     private readonly IExternalUserService _users;
-    private readonly ICurrentUserService _currentUser;
+    private readonly ICurrentUser _currentUser;
     private readonly IFormsUnitOfWork _uow;
 
     public OwnershipService(
@@ -27,7 +27,7 @@ public class OwnershipService : IOwnershipService
         IFormWorkflowRepository workflows,
         IComponentGroupService groupService,
         IExternalUserService users,
-        ICurrentUserService currentUser,
+        ICurrentUser currentUser,
         IFormsUnitOfWork uow)
     {
         _forms = forms;
@@ -46,7 +46,7 @@ public class OwnershipService : IOwnershipService
         if (form is null || ownerId is null || form.Status == FormStatus.Deleted)
             return Fail(ServiceStatus.NotFound, "Form bulunamadı.");
 
-        if (!await CanTransferAsync(ownerId.Value, userId, ct))
+        if (!CanTransfer(ownerId.Value, userId))
             return Fail(ServiceStatus.NotAuthorized, "Bu formu devretme yetkiniz yok.");
 
         if (await FindTargetProblemAsync(ownerId.Value, targetUserId, ct) is { } problem)
@@ -66,7 +66,7 @@ public class OwnershipService : IOwnershipService
         var group = await _groups.GetForEditAsync(groupId, ct);
         if (group is null) return Fail(ServiceStatus.NotFound, "Şablon bulunamadı.");
 
-        if (!await CanTransferAsync(group.OwnedBy, userId, ct))
+        if (!CanTransfer(group.OwnedBy, userId))
             return Fail(ServiceStatus.NotAuthorized, "Bu şablonu devretme yetkiniz yok.");
 
         if (await FindTargetProblemAsync(group.OwnedBy, targetUserId, ct) is { } problem)
@@ -87,7 +87,7 @@ public class OwnershipService : IOwnershipService
         if (workflow is null) return Fail(ServiceStatus.NotFound, "Akış bulunamadı.");
 
         var ownerId = workflow.OwnerUserId;
-        if (!await CanTransferAsync(ownerId, userId, ct))
+        if (!CanTransfer(ownerId, userId))
             return Fail(ServiceStatus.NotAuthorized, "Bu akışı devretme yetkiniz yok.");
 
         if (await FindTargetProblemAsync(ownerId, targetUserId, ct) is { } problem)
@@ -157,8 +157,8 @@ public class OwnershipService : IOwnershipService
         return null;
     }
 
-    private async Task<bool> CanTransferAsync(Guid ownerId, Guid userId, CancellationToken ct) =>
-        ownerId == userId || (ownerId == DeletedUser.Id && await _currentUser.HasRoleAsync("skyforms:*", "forms", ct));
+    private bool CanTransfer(Guid ownerId, Guid userId) =>
+        ownerId == userId || (ownerId == DeletedUser.Id && _currentUser.IsPlatformAdmin);
 
     private static ServiceResult<bool> Fail(ServiceStatus status, string message) => new(status, Message: message);
 }

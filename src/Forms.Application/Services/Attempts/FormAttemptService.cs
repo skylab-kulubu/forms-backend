@@ -25,7 +25,7 @@ public class FormAttemptService : IFormAttemptService
     private readonly IFormsUnitOfWork _uow;
     private readonly IFormMailNotifier _mail;
     private readonly IExternalUserService _users;
-    private readonly ICurrentUserService _currentUser;
+    private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
 
     public FormAttemptService(
@@ -38,7 +38,7 @@ public class FormAttemptService : IFormAttemptService
         IFormsUnitOfWork uow,
         IFormMailNotifier mail,
         IExternalUserService users,
-        ICurrentUserService currentUser,
+        ICurrentUser currentUser,
         ICacheService cache)
     {
         _attempts = attempts;
@@ -487,7 +487,7 @@ public class FormAttemptService : IFormAttemptService
             return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotFound, Message: "Kayıt bulunamadı.");
 
         var isCollaborator = attempt.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isCollaborator && !await _currentUser.HasRoleAsync("skyforms:*", "forms", ct))
+        if (!isCollaborator && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotAuthorized, Message: "Bu kaydı görüntüleme yetkiniz yok.");
 
         var user = await _users.GetUserAsync(attempt.UserId, ct) ?? new UserContract(attempt.UserId, null, "??", null);
@@ -515,7 +515,7 @@ public class FormAttemptService : IFormAttemptService
         if (form is null)
             return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!await _currentUser.HasRoleAsync("skyforms:*", "forms", ct) && !await _forms.IsUserCollaboratorAsync(formId, userId, ct))
+        if (!_currentUser.IsPlatformAdmin && !await _forms.IsUserCollaboratorAsync(formId, userId, ct))
             return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
         if (!form.HasTimeLimit)
