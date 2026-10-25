@@ -17,7 +17,7 @@ public class OwnershipService : IOwnershipService
     private readonly IComponentGroupRepository _groups;
     private readonly IFormWorkflowRepository _workflows;
     private readonly IComponentGroupService _groupService;
-    private readonly IExternalUserService _users;
+    private readonly IUserDirectory _users;
     private readonly ICurrentUser _currentUser;
     private readonly IFormsUnitOfWork _uow;
 
@@ -26,7 +26,7 @@ public class OwnershipService : IOwnershipService
         IComponentGroupRepository groups,
         IFormWorkflowRepository workflows,
         IComponentGroupService groupService,
-        IExternalUserService users,
+        IUserDirectory users,
         ICurrentUser currentUser,
         IFormsUnitOfWork uow)
     {

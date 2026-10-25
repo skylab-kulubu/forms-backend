@@ -4,7 +4,7 @@ using Skylab.Forms.Application.Contracts.Identity;
 
 namespace Skylab.Forms.Tests.Integration.Fakes;
 
-public sealed class FakeUserDirectory : IExternalUserService
+public sealed class FakeUserDirectory : IUserDirectory
 {
     private readonly ConcurrentDictionary<Guid, UserContract> _users = new();
 

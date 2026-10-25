@@ -74,7 +74,7 @@ public static class DependencyInjection
         services.AddSingleton<IServiceTokenProvider, KeycloakServiceTokenProvider>();
         services.AddTransient<ServiceTokenHandler>();
 
-        services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
+        services.AddHttpClient<IUserDirectory, CoreUserDirectory>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
         }).AddHttpMessageHandler<ServiceTokenHandler>();

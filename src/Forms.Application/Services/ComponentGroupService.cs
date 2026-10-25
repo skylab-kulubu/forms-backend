@@ -18,9 +18,9 @@ public class ComponentGroupService : IComponentGroupService
     private readonly IComponentGroupRepository _groups;
     private readonly IFormsUnitOfWork _uow;
     private readonly ICacheService _cache;
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
 
-    public ComponentGroupService(IComponentGroupRepository groups, IFormsUnitOfWork uow, ICacheService cache, IExternalUserService userService)
+    public ComponentGroupService(IComponentGroupRepository groups, IFormsUnitOfWork uow, ICacheService cache, IUserDirectory userService)
     {
         _groups = groups;
         _uow = uow;

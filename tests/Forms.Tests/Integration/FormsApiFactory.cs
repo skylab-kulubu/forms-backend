@@ -82,8 +82,8 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
                 options.TokenValidationParameters.IssuerSigningKey = TestTokens.SigningKey;
             });
 
-            services.RemoveAll<IExternalUserService>();
-            services.AddSingleton<IExternalUserService>(Users);
+            services.RemoveAll<IUserDirectory>();
+            services.AddSingleton<IUserDirectory>(Users);
             services.RemoveAll<IMailDispatcher>();
             services.AddSingleton<IMailDispatcher>(Mail);
             services.RemoveAll<ICoreMedia>();

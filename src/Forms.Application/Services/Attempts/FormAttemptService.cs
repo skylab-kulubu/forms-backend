@@ -24,7 +24,7 @@ public class FormAttemptService : IFormAttemptService
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormsUnitOfWork _uow;
     private readonly IFormMailNotifier _mail;
-    private readonly IExternalUserService _users;
+    private readonly IUserDirectory _users;
     private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
 
@@ -37,7 +37,7 @@ public class FormAttemptService : IFormAttemptService
         IFormWorkflowRuntime workflowRuntime,
         IFormsUnitOfWork uow,
         IFormMailNotifier mail,
-        IExternalUserService users,
+        IUserDirectory users,
         ICurrentUser currentUser,
         ICacheService cache)
     {

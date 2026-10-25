@@ -19,13 +19,13 @@ public class FormMailNotifier : IFormMailNotifier
     private static readonly CultureInfo Culture = new("tr-TR");
     private static readonly TimeSpan GuestCopyWindow = TimeSpan.FromDays(1);
 
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
     private readonly IMailDispatcher _dispatcher;
     private readonly FormMailOptions _options;
     private readonly IFormResponseRepository _responses;
     private readonly ICacheService _cache;
 
-    public FormMailNotifier(IExternalUserService userService, IMailDispatcher dispatcher, FormMailOptions options, IFormResponseRepository responses, ICacheService cache)
+    public FormMailNotifier(IUserDirectory userService, IMailDispatcher dispatcher, FormMailOptions options, IFormResponseRepository responses, ICacheService cache)
     {
         _userService = userService;
         _dispatcher = dispatcher;

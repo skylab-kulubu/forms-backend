@@ -16,7 +16,7 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormsUnitOfWork _uow;
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
     private readonly ICurrentUser _currentUser;
     private readonly IFormWorkflowRuntime _runtime;
     private readonly IFormMailNotifier _mailNotifier;
@@ -26,7 +26,7 @@ public class FormWorkflowService : IFormWorkflowService
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
         IFormsUnitOfWork uow,
-        IExternalUserService userService,
+        IUserDirectory userService,
         ICurrentUser currentUser,
         IFormWorkflowRuntime runtime,
         IFormMailNotifier mailNotifier,

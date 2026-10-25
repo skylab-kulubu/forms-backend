@@ -58,7 +58,7 @@ public class PendingResponseReminderWorker : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var responses = scope.ServiceProvider.GetRequiredService<IFormResponseRepository>();
-        var userService = scope.ServiceProvider.GetRequiredService<IExternalUserService>();
+        var userService = scope.ServiceProvider.GetRequiredService<IUserDirectory>();
 
         var cutoff = DateTime.UtcNow.AddHours(-_options.ReminderThresholdHours);
         var overdueForms = await responses.GetOverduePendingByFormAsync(cutoff, ct);

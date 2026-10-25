@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Skylab.Forms.Infrastructure.Auth.Contracts;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions;
@@ -7,15 +8,17 @@ using Skylab.Forms.Domain.Common;
 
 namespace Skylab.Forms.Infrastructure.Auth;
 
-public class ExternalUserService : IExternalUserService
+public class CoreUserDirectory : IUserDirectory
 {
-    private readonly HttpClient _httpClient;
-    private readonly JsonSerializerOptions _jsonOptions;
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public ExternalUserService(HttpClient httpClient)
+    private readonly HttpClient _httpClient;
+    private readonly ILogger<CoreUserDirectory> _logger;
+
+    public CoreUserDirectory(HttpClient httpClient, ILogger<CoreUserDirectory> logger)
     {
         _httpClient = httpClient;
-        _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        _logger = logger;
     }
 
     public async Task<UserContract?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -25,12 +28,14 @@ public class ExternalUserService : IExternalUserService
 
         try
         {
-            var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", _jsonOptions, cancellationToken);
+            var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", JsonOptions, cancellationToken);
             return user is null || user.Id == Guid.Empty ? null : MapToContract(user);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // Bulunamayan kullanıcı listede "??" görünür; çağrıyı düşürmek kayıtlı bir değişikliğe 500 döndürürdü.
+            // Yine de iz kalır: core'un çökmesi aksi hâlde yalnız "??" olarak görünürdü.
+            _logger.LogWarning("Core kullanıcısı okunamadı: {Error}", ex is HttpRequestException { StatusCode: { } status } ? (int)status : ex.GetType().Name);
             return null;
         }
     }
