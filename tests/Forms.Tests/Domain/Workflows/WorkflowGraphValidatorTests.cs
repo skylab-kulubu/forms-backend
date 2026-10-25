@@ -164,6 +164,18 @@ public class WorkflowGraphValidatorTests
     }
 
     [Fact]
+    public void A_condition_on_a_step_the_start_cannot_reach_is_reported_as_unreachable()
+    {
+        var graph = new GraphBuilder();
+        graph.Node("a", start: true, questions: ["q"]);
+        var orphan = graph.Node("orphan");
+        graph.Route(orphan, null, priority: 0, condition: When("q", WorkflowConditionComparison.IsEmpty, nodeKey: "a"));
+        graph.Route(orphan, null, priority: 1);
+
+        Assert.Equal(new[] { "nodeUnreachable" }, graph.Codes());
+    }
+
+    [Fact]
     public void A_condition_names_a_question_of_the_form_and_carries_a_value()
     {
         var graph = new GraphBuilder();
