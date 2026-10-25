@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,10 @@ public class CoreUserDirectory : IUserDirectory
         {
             var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", JsonOptions, cancellationToken);
             return user is null || user.Id == Guid.Empty ? null : MapToContract(user);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

@@ -43,7 +43,7 @@ public sealed class CoreShortLinkProvider : IShortLinkProvider
         try
         {
             var stats = await _httpClient.GetFromJsonAsync<CoreStats>($"/v1/urls/forms/{formId}/stats", Json, ct);
-            return stats is null ? null : new ShortLinkStats(stats.Since, stats.Total, [.. stats.Sources.Select(source => new ShortLinkSourceCount(source.Source, source.Count, source.Scans))]);
+            return stats is null ? null : new ShortLinkStats(stats.Since, stats.Total, [.. (stats.Sources ?? []).Select(source => new ShortLinkSourceCount(source.Source, source.Count, source.Scans))]);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !ct.IsCancellationRequested)
         {
@@ -130,7 +130,7 @@ public sealed class CoreShortLinkProvider : IShortLinkProvider
 
     private sealed record CoreSourceCount(string Source, int Count, int Scans = 0);
 
-    private sealed record CoreStats(DateTime Since, int Total, List<CoreSourceCount> Sources);
+    private sealed record CoreStats(DateTime Since, int Total, List<CoreSourceCount>? Sources);
 
     private sealed record CoreLink(Guid Id, string Alias, string Url, int ClickCount, Guid? CreatedBy, Guid? FormId, Guid? EventId, string? Label, DateTime CreatedAt)
     {
