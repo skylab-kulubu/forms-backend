@@ -23,6 +23,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddTrustedForwardedHeaders(builder.Configuration);
 builder.Services.AddFormsJwtAuthentication(builder.Configuration);
+builder.Services.AddFormsAuthorization();
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -37,6 +38,7 @@ app.UseCors("AllowFrontend");
 app.UseStorageConflictResponses();
 app.UseFormsJwtAuthentication();
 app.UseAccountAccessGate();
+app.UseAuthorization();
 app.UseSwagger();
 app.UseSwaggerUI();
 
