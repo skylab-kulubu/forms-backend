@@ -1,4 +1,4 @@
-namespace Skylab.Forms.Application.Abstractions;
+namespace Skylab.Forms.Infrastructure.Auth;
 
 public interface IServiceTokenProvider
 {
