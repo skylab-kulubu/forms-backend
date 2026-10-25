@@ -23,21 +23,21 @@ public sealed class UnreachableCoreMedia : ICoreMedia
 }
 
 /// <summary>Kısa link servisi yokmuş gibi davranır.</summary>
-public sealed class UnreachableCoreShortLinks : ICoreShortLinks
+public sealed class UnreachableShortLinks : IShortLinkProvider
 {
-    private static readonly Task<CoreLinkResult> Failed = Task.FromResult(new CoreLinkResult(CoreLinkStatus.Failed));
+    private static readonly Task<ShortLinkResult> Failed = Task.FromResult(new ShortLinkResult(ShortLinkStatus.Failed));
 
-    public Task<CoreLinkResult> GetAsync(Guid formId, CancellationToken ct = default) => Failed;
+    public Task<ShortLinkResult> GetAsync(Guid formId, CancellationToken ct = default) => Failed;
 
-    public Task<CoreLinkResult> EnsureAsync(Guid formId, string url, string? label, string alias, Guid? actorId, CancellationToken ct = default) => Failed;
+    public Task<ShortLinkResult> EnsureAsync(Guid formId, string url, string? label, string alias, Guid? actorId, CancellationToken ct = default) => Failed;
 
-    public Task<CoreLinkResult> RenameAsync(Guid formId, string alias, string suggestion, CancellationToken ct = default) => Failed;
+    public Task<ShortLinkResult> RenameAsync(Guid formId, string alias, string suggestion, CancellationToken ct = default) => Failed;
 
-    public Task<CoreAliasAvailability?> CheckAliasAsync(string alias, CancellationToken ct = default) => Task.FromResult<CoreAliasAvailability?>(null);
+    public Task<AliasAvailability?> CheckAliasAsync(string alias, CancellationToken ct = default) => Task.FromResult<AliasAvailability?>(null);
 
-    public Task<CoreLinkStats?> GetStatsAsync(Guid formId, CancellationToken ct = default) => Task.FromResult<CoreLinkStats?>(null);
+    public Task<ShortLinkStats?> GetStatsAsync(Guid formId, CancellationToken ct = default) => Task.FromResult<ShortLinkStats?>(null);
 
-    public Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CoreQrTags tags, CancellationToken ct = default) => Task.FromResult<CoreQrImage?>(null);
+    public Task<QrImage?> GetQrAsync(string alias, bool svg, int size, QrTags tags, CancellationToken ct = default) => Task.FromResult<QrImage?>(null);
 }
 
 /// <summary>Mail aracına ulaşılamıyormuş gibi davranır; gönderilecek mailler testte RecordingMailDispatcher'da kalır.</summary>
