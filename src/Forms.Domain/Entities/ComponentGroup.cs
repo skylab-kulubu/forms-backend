@@ -5,6 +5,8 @@ namespace Skylab.Forms.Domain.Entities;
 
 public class ComponentGroup : BaseEntity
 {
+    public const int TitleMaxLength = 100;
+
     public string Title { get; set; } = "Yeni Şablon";
     public string? Description { get; set; }
     public List<FormSchemaItem> Schema { get; set; } = new();

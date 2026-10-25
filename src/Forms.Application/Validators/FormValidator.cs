@@ -2,6 +2,7 @@ using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Domain.Common;
+using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
@@ -11,6 +12,12 @@ public static class FormValidator
 {
     public static ServiceResult<bool> ValidateUpsert(FormUpsertRequest contract, List<FormSchemaItem> schema, bool guestUploadsEnabled)
     {
+        if (string.IsNullOrWhiteSpace(contract.Title))
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Form başlığı boş olamaz.");
+
+        if (contract.Title.Length > Form.TitleMaxLength)
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Form başlığı en fazla {Form.TitleMaxLength} karakter olabilir.");
+
         if (contract.Status is not (FormStatus.Open or FormStatus.Closed))
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Form yalnız açık ya da kapalı olabilir.");
 

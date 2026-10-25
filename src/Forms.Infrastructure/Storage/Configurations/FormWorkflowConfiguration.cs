@@ -12,7 +12,7 @@ public class FormWorkflowConfiguration : IEntityTypeConfiguration<FormWorkflow>
 
         builder.HasKey(w => w.Id);
 
-        builder.Property(w => w.Name).IsRequired().HasMaxLength(100);
+        builder.Property(w => w.Name).IsRequired().HasMaxLength(FormWorkflow.NameMaxLength);
 
         builder.HasIndex(w => w.OwnerUserId);
 

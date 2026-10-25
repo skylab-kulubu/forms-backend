@@ -16,7 +16,7 @@ public class FormConfiguration : IEntityTypeConfiguration<Form>
 
         builder.HasKey(f => f.Id);
 
-        builder.Property(f => f.Title).IsRequired().HasMaxLength(100);
+        builder.Property(f => f.Title).IsRequired().HasMaxLength(Form.TitleMaxLength);
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
