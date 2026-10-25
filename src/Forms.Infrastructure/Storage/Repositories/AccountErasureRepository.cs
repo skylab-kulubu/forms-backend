@@ -67,25 +67,8 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
             .Where(c => c.UserId == userId && c.Role == CollaboratorRole.Owner)
             .ExecuteUpdateAsync(s => s.SetProperty(c => c.UserId, replacementUserId), ct);
 
-    /// <summary>
-    /// Kişinin aktif koşularını Terminated yapar ve açık adımlarını kapatır. FormWorkflowRuntime'ın koşuyu
-    /// sonlandırırken değiştirdiği alanlar (koşuda Status, CompletedAt; adımda CompletedAt) burada da değişir;
-    /// runtime'daki kural değişirse bu metot da değişmeli. Outcome None kalır: koşu onaylanmadı ya da
-    /// reddedilmedi, kişi silindi.
-    /// </summary>
-    public async Task<int> CloseWorkflowRunsAsync(Guid userId, DateTime now, CancellationToken ct = default)
-    {
-        await _context.WorkflowSteps.IgnoreQueryFilters()
-            .Where(s => s.CompletedAt == null && s.WorkflowInstance.UserId == userId && s.WorkflowInstance.Status == WorkflowInstanceStatus.Active)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CompletedAt, now).SetProperty(x => x.UpdatedAt, now), ct);
-
-        return await _context.WorkflowInstances.IgnoreQueryFilters()
-            .Where(i => i.UserId == userId && i.Status == WorkflowInstanceStatus.Active)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(i => i.Status, WorkflowInstanceStatus.Terminated)
-                .SetProperty(i => i.CompletedAt, now)
-                .SetProperty(i => i.UpdatedAt, now), ct);
-    }
+    public Task<int> CloseWorkflowRunsAsync(Guid userId, DateTime now, CancellationToken ct = default) =>
+        WorkflowRunStop.StopAsync(_context, _context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.UserId == userId), now, ct);
 
     // Geçersiz sayma notu cevaptaki inceleme notu gibi kişiye yazılmıştır; cevapların notuyla birlikte silinir.
     public Task<int> DetachWorkflowRunsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default) =>

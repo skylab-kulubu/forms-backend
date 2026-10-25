@@ -19,6 +19,8 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>Cevabın bağlı olduğu adım; başvurusu ve kardeş adımlarıyla birlikte.</summary>
     Task<FormWorkflowStep?> GetStepByResponseAsync(Guid responseId, CancellationToken ct = default);
 
+    Task<int> StopRunsAwaitingApplicantAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
     /// <summary>
     /// Kullanıcının bu akıştaki en son başvurusu. Hem "daha önce çalıştırdı mı"
     /// sorusunu hem de sonuçlanmış bir başvurunun kullanıcıya gösterilecek

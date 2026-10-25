@@ -337,7 +337,7 @@ Displaying or submitting a refused form returns `410` with `reason`, `stage`, an
 
 The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes; one who may run it again gets the form with `lastRun` while intake is open (see [Application journey](#application-journey)). Someone whose application the team voided gets the form even while new applications are closed (see [Voided applications](#voided-applications)).
 
-Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change.
+Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change, and unlike closing it writes to the applications. One waiting for its applicant to fill a form ends without a result (shown as stopped) and the published version's step forms close, so an old link to a later step no longer opens as a standalone form. One waiting for review stays open: the answer can still be approved or declined, the applicant gets the decision, and the application stops there instead of moving on. Changes can no longer be requested in an archived workflow.
 
 ### What the database enforces
 
@@ -594,7 +594,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
 | `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step and finished ones by result, see [Tracking applications](#tracking-applications) |
 | `GET` | `/api/admin/workflows/{id}/runs` | List applications, paged; accepts `Page`, `PageSize`, `Filter` (`0` running, `1` waiting for review, `2` finished), and `NodeKey` |
-| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications; a service administrator may archive one left to `Silinmiş kullanıcı` |
+| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good: applications waiting for their applicant stop, step forms close, answers awaiting review stay reviewable (see [Intake](#intake)); a service administrator may archive one left to `Silinmiş kullanıcı` |
 | `POST` | `/api/admin/workflows/{id}/transfer` | Transfer ownership together with the step forms, see [Ownership transfer](#ownership-transfer) |
 | `POST` | `/api/admin/workflows/runs/{instanceId}/void` | Void an application so the person can start over, see [Voided applications](#voided-applications) |
 

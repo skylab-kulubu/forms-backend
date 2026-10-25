@@ -14,6 +14,8 @@ public interface IFormWorkflowRepository
     /// </summary>
     Task<WorkflowNodeLocation?> FindPublishedNodeAsync(Guid formId, CancellationToken ct = default);
 
+    Task<int> CloseStepFormsAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
     Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default);
 
     Task<IReadOnlyDictionary<Guid, WorkflowDefinition>> GetCurrentDefinitionsAsync(

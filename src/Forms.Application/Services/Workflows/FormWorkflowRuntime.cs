@@ -476,7 +476,12 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         var node = definition.Nodes.First(candidate => candidate.Id == step.NodeId);
 
         if (newStatus == FormResponseStatus.Returned)
+        {
+            if (instance.Workflow?.Status == WorkflowStatus.Archived)
+                return new ServiceResult<WorkflowStepOutcome>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akışta düzeltme istenemez.");
+
             return await ReturnAsync(response, step, definition, node, reviewerId, note, questionIds, cancellationToken);
+        }
 
         var trigger = newStatus == FormResponseStatus.Approved
             ? WorkflowTransitionTrigger.ResponseApproved
@@ -732,6 +737,16 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         step.CompletedAt = now;
         step.SelectedTransitionId = decision.Transition?.Id;
         instance.Touch(now);
+
+        if (instance.Workflow?.Status == WorkflowStatus.Archived)
+        {
+            step.SelectedTransitionId = null;
+            instance.Status = WorkflowInstanceStatus.Terminated;
+            instance.CompletedAt = now;
+
+            var declined = trigger is WorkflowTransitionTrigger.ResponseDeclined or WorkflowTransitionTrigger.TimedOut;
+            return (new WorkflowStepOutcome(instance.Id, declined ? WorkflowActionState.Declined : WorkflowActionState.Completed, step.Sequence, null, startFormId), null);
+        }
 
         if (decision.Outcome == WorkflowRouteOutcome.Unresolved)
         {
