@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.GuestUploads;
+using Skylab.Forms.Infrastructure.Caching;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure.GuestUploads;
@@ -12,12 +13,6 @@ public sealed class RedisGuestUploadStore : IGuestUploadStore
     private static readonly TimeSpan MinimumLifetime = TimeSpan.FromSeconds(1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private const string IncrementScript = """
-        local count = redis.call('INCR', KEYS[1])
-        if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
-        return count
-        """;
-
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<RedisGuestUploadStore> _logger;
 
@@ -27,12 +22,8 @@ public sealed class RedisGuestUploadStore : IGuestUploadStore
         _logger = logger;
     }
 
-    public async Task<long> CountAsync(string key, TimeSpan window, CancellationToken ct = default)
-    {
-        var milliseconds = Math.Max(1L, (long)window.TotalMilliseconds);
-        var count = await RunAsync("count", database => database.ScriptEvaluateAsync(IncrementScript, [key], [milliseconds]), ct);
-        return (long)count;
-    }
+    public Task<long> CountAsync(string key, TimeSpan window, CancellationToken ct = default) =>
+        RunAsync("count", database => RedisCounter.IncrementAsync(database, key, window), ct);
 
     public Task SaveSessionAsync(GuestUploadSession session, CancellationToken ct = default) =>
         SetAsync("save-session", GuestUploadKeys.Session(session.Id), session, session.ExpiresAt, ct);

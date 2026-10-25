@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
@@ -194,11 +195,7 @@ public class ComponentGroupService : IComponentGroupService
         await _cache.RemoveAsync(GroupKeyPrefix + groupId, cancellationToken);
     }
 
-    private static string GenerateToken()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-    }
+    private static string GenerateToken() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 
     private static ComponentGroupContract MapToContract(ComponentGroup group, UserContract? sharedBy = null) =>
         new(group.Id, group.Title, group.Description, group.Schema, sharedBy);

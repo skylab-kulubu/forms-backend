@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Net;
 using System.Net.Mail;
 using System.Security.Cryptography;
@@ -930,9 +931,5 @@ public class FormResponseService : IFormResponseService
         return new ResponseWorkflowRouteContract(EndsFlow: false, formId, form?.Title);
     }
 
-    private static string GenerateToken()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-    }
+    private static string GenerateToken() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 }
