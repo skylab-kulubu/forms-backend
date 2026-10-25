@@ -37,12 +37,14 @@ public sealed class ProviderRoleClaims(IOptions<ProviderRoleOptions> options) : 
         try
         {
             using var document = JsonDocument.Parse(claim);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
 
             return clients.Any(client =>
                 document.RootElement.TryGetProperty(client, out var access)
+                && access.ValueKind == JsonValueKind.Object
                 && access.TryGetProperty("roles", out var granted)
                 && granted.ValueKind == JsonValueKind.Array
-                && granted.EnumerateArray().Any(value => string.Equals(value.GetString(), role, StringComparison.OrdinalIgnoreCase)));
+                && granted.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.String && string.Equals(value.GetString(), role, StringComparison.OrdinalIgnoreCase)));
         }
         catch (JsonException)
         {

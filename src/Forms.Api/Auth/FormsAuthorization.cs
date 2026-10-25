@@ -38,11 +38,14 @@ public static class FormsAuthorization
         {
             if (result.Challenged || result.Forbidden)
             {
-                var (status, message) = result.Challenged
+                var signedIn = Guid.TryParse(context.User.FindFirst("sub")?.Value, out _);
+                var challenged = result.Challenged || !signedIn;
+
+                var (status, message) = challenged
                     ? (ServiceStatus.Unauthorized, "Bu işlem için giriş yapmalısınız.")
                     : (ServiceStatus.NotAuthorized, "Bu işlem için yetkiniz yok.");
 
-                if (result.Challenged) context.Response.Headers.WWWAuthenticate = "Bearer";
+                if (challenged) context.Response.Headers.WWWAuthenticate = "Bearer";
                 await status.ToApiResult(message).ExecuteAsync(context);
 
                 return;

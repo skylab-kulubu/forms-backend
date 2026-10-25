@@ -640,7 +640,7 @@ public class FormAttemptService : IFormAttemptService
     {
         attempt.Status = FormAttemptStatus.NoSubmission;
         attempt.ExpiredAt = deadline;
-        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Closed, CreatedAt = deadline });
+        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.ExpiredEmpty, CreatedAt = deadline });
 
         try
         {
