@@ -560,7 +560,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them |
-| `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel |
+| `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
 | `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics |
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
