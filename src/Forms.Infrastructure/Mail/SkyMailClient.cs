@@ -4,15 +4,13 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Contracts.Mail;
 using Skylab.Forms.Application.Abstractions;
-using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Responses;
 
 namespace Skylab.Forms.Infrastructure.Mail;
 
-public class SkyMailClient : ISkyMailService
+public class SkyMailClient : IEmailSender, IMailAudienceExport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(){ PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-    private const string SourceUnavailableMessage = "Kalıcı Forms mail bağlantısı şu an kullanılamıyor. Biraz sonra tekrar deneyin.";
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<SkyMailClient> _logger;
@@ -23,7 +21,7 @@ public class SkyMailClient : ISkyMailService
         _logger = logger;
     }
 
-    public async Task<ServiceResult<FormMailSourceContract>> PrepareFormMailSourceAsync(FormMailRecipientsContract request, CancellationToken ct = default)
+    public async Task<MailAudienceExport> ExportAsync(FormMailRecipientsContract request, CancellationToken ct = default)
     {
         try
         {
@@ -39,12 +37,12 @@ public class SkyMailClient : ISkyMailService
             }, JsonOptions, ct);
 
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge)
-                return new ServiceResult<FormMailSourceContract>(ServiceStatus.NotAcceptable, Message: "Bu formun alıcı listesi SkyMail sınırlarına uygun değil.");
+                return new MailAudienceExport(MailAudienceOutcome.TooLarge);
 
             if (response.StatusCode != HttpStatusCode.Created)
             {
                 _logger.LogError("skymail /form_mail_sources başarısız: {Status}", (int)response.StatusCode);
-                return new ServiceResult<FormMailSourceContract>(ServiceStatus.ServiceUnavailable, Message: SourceUnavailableMessage);
+                return new MailAudienceExport(MailAudienceOutcome.Unavailable);
             }
 
             var source = await response.Content.ReadFromJsonAsync<FormMailSourceResponse>(JsonOptions, ct);
@@ -54,12 +52,11 @@ public class SkyMailClient : ISkyMailService
                 || source.ResponseCount != request.ResponseCount || source.SkippedCount != request.SkippedCount
                 || source.DuplicateCount != request.DuplicateCount || source.PreparedAt == default
                 || source.ExpiresAt <= source.PreparedAt)
-                return new ServiceResult<FormMailSourceContract>(ServiceStatus.ServiceUnavailable, Message: SourceUnavailableMessage);
+                return new MailAudienceExport(MailAudienceOutcome.Unavailable);
 
-            return new ServiceResult<FormMailSourceContract>(ServiceStatus.Success,
-                Data: new FormMailSourceContract(source.Id, source.FormId, source.OwnerSub, source.FormTitle,
-                    source.RecipientCount, source.ResponseCount, source.SkippedCount, source.DuplicateCount,
-                    source.PreparedAt, source.ExpiresAt));
+            return new MailAudienceExport(MailAudienceOutcome.Exported, new FormMailSourceContract(source.Id, source.FormId, source.OwnerSub,
+                source.FormTitle, source.RecipientCount, source.ResponseCount, source.SkippedCount, source.DuplicateCount,
+                source.PreparedAt, source.ExpiresAt));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -69,7 +66,7 @@ public class SkyMailClient : ISkyMailService
         {
             // Taşıma/JSON hataları alıcı veya token içerebilir; hata içeriği yazılmaz.
             _logger.LogError("skymail /form_mail_sources isteği tamamlanamadı.");
-            return new ServiceResult<FormMailSourceContract>(ServiceStatus.ServiceUnavailable, Message: SourceUnavailableMessage);
+            return new MailAudienceExport(MailAudienceOutcome.Unavailable);
         }
     }
 
@@ -78,11 +75,15 @@ public class SkyMailClient : ISkyMailService
         int ResponseCount, int SkippedCount, int DuplicateCount,
         DateTimeOffset PreparedAt, DateTimeOffset ExpiresAt);
 
-    public async Task<bool> SendSingleAsync(SingleMailRequest request, CancellationToken ct = default)
+    // SkyMail'in tekli mail gövdesi; Forms'un EmailMessage'ı onun sözleşmesi değildir.
+    private sealed record SingleMailTask(string TemplateKey, string RecipientEmail, string RecipientFullName, Dictionary<string, object> BodyVariables);
+
+    public async Task<bool> SendAsync(EmailMessage request, CancellationToken ct = default)
     {
         try
         {
-            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", request, JsonOptions, ct);
+            var task = new SingleMailTask(request.TemplateKey, request.RecipientEmail, request.RecipientFullName, request.BodyVariables);
+            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", task, JsonOptions, ct);
 
             if (!response.IsSuccessStatusCode)
             {

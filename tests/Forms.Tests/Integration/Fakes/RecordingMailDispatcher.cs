@@ -6,11 +6,11 @@ namespace Skylab.Forms.Tests.Integration.Fakes;
 
 public sealed class RecordingMailDispatcher : IMailDispatcher
 {
-    private readonly ConcurrentQueue<SingleMailRequest> _queued = new();
+    private readonly ConcurrentQueue<EmailMessage> _queued = new();
 
-    public IEnumerable<SingleMailRequest> To(string email) => _queued.Where(mail => mail.RecipientEmail == email);
+    public IEnumerable<EmailMessage> To(string email) => _queued.Where(mail => mail.RecipientEmail == email);
 
-    public bool Enqueue(SingleMailRequest request)
+    public bool Enqueue(EmailMessage request)
     {
         _queued.Enqueue(request);
         return true;

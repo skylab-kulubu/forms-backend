@@ -118,10 +118,13 @@ public static class DependencyInjection
         services.AddScoped<IDraftFileHolds, DraftFileHolds>();
         services.AddHostedService<AnswerFileLinkWorker>();
 
-        services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
+        services.AddHttpClient<SkyMailClient>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail:3000/v1/");
         }).AddHttpMessageHandler<ServiceTokenHandler>();
+
+        services.AddTransient<IEmailSender>(sp => sp.GetRequiredService<SkyMailClient>());
+        services.AddTransient<IMailAudienceExport>(sp => sp.GetRequiredService<SkyMailClient>());
 
         services.AddSingleton<ChannelMailDispatcher>();
         services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());

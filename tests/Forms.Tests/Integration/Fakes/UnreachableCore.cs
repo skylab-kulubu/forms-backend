@@ -1,5 +1,4 @@
 using Skylab.Forms.Application.Abstractions;
-using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Mail;
 using Skylab.Forms.Application.Contracts.Responses;
 
@@ -41,11 +40,11 @@ public sealed class UnreachableCoreShortLinks : ICoreShortLinks
     public Task<CoreQrImage?> GetQrAsync(string alias, bool svg, int size, CoreQrTags tags, CancellationToken ct = default) => Task.FromResult<CoreQrImage?>(null);
 }
 
-/// <summary>SkyMail'e ulaşılamıyormuş gibi davranır; gönderilecek mailler testte RecordingMailDispatcher'da kalır.</summary>
-public sealed class UnreachableSkyMail : ISkyMailService
+/// <summary>Mail aracına ulaşılamıyormuş gibi davranır; gönderilecek mailler testte RecordingMailDispatcher'da kalır.</summary>
+public sealed class UnreachableMail : IEmailSender, IMailAudienceExport
 {
-    public Task<bool> SendSingleAsync(SingleMailRequest request, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<bool> SendAsync(EmailMessage message, CancellationToken ct = default) => Task.FromResult(false);
 
-    public Task<ServiceResult<FormMailSourceContract>> PrepareFormMailSourceAsync(FormMailRecipientsContract request, CancellationToken ct = default) =>
-        Task.FromResult(new ServiceResult<FormMailSourceContract>(ServiceStatus.ServiceUnavailable));
+    public Task<MailAudienceExport> ExportAsync(FormMailRecipientsContract audience, CancellationToken ct = default) =>
+        Task.FromResult(new MailAudienceExport(MailAudienceOutcome.Unavailable));
 }

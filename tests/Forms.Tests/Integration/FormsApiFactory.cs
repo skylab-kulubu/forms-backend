@@ -90,8 +90,10 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
             services.AddSingleton<ICoreMedia, UnreachableCoreMedia>();
             services.RemoveAll<ICoreShortLinks>();
             services.AddSingleton<ICoreShortLinks, UnreachableCoreShortLinks>();
-            services.RemoveAll<ISkyMailService>();
-            services.AddSingleton<ISkyMailService, UnreachableSkyMail>();
+            services.RemoveAll<IEmailSender>();
+            services.AddSingleton<IEmailSender, UnreachableMail>();
+            services.RemoveAll<IMailAudienceExport>();
+            services.AddSingleton<IMailAudienceExport, UnreachableMail>();
 
             foreach (var worker in services.Where(service => service.ServiceType == typeof(IHostedService) && Workers.Contains(service.ImplementationType)).ToList())
                 services.Remove(worker);

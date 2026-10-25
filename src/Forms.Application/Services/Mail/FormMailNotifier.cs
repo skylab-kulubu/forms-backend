@@ -57,7 +57,7 @@ public class FormMailNotifier : IFormMailNotifier
             ["answers"] = answers
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new EmailMessage(_options.FormCopyTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public async Task NotifyStatusChangedAsync(Form form, FormResponse response, Guid? nextFormId = null, CancellationToken ct = default)
@@ -93,7 +93,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (response.ReturnedQuestionIds is { Count: > 0 } flagged)
             variables["questionCount"] = flagged.Count;
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new EmailMessage(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public async Task NotifyRunReopenedAsync(WorkflowRunVoided voided, CancellationToken ct = default)
@@ -112,7 +112,7 @@ public class FormMailNotifier : IFormMailNotifier
             ["nextFormId"] = voided.StartFormId.ToString()
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new EmailMessage(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateKey);
@@ -143,7 +143,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        _dispatcher.Enqueue(new EmailMessage(_options.AttemptUpdateTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
     }
 
     /// <summary>Misafirin hesabı yok; mail formda yazdığı adrese gider.</summary>

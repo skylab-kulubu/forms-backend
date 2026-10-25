@@ -41,14 +41,14 @@ public class MailWorker : BackgroundService
         }
     }
 
-    private async Task SendWithRetryAsync(SingleMailRequest request, CancellationToken ct)
+    private async Task SendWithRetryAsync(EmailMessage request, CancellationToken ct)
     {
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
             using var scope = _scopeFactory.CreateScope();
-            var mail = scope.ServiceProvider.GetRequiredService<ISkyMailService>();
+            var mail = scope.ServiceProvider.GetRequiredService<IEmailSender>();
 
-            if (await mail.SendSingleAsync(request, ct))
+            if (await mail.SendAsync(request, ct))
                 return;
 
             if (attempt < MaxAttempts)
