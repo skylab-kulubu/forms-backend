@@ -46,3 +46,6 @@ app.MapFormEndpoints();
 app.MapInternalEndpoints();
 
 app.Run();
+
+// Entegrasyon testleri uygulamayı WebApplicationFactory<Program> ile açar.
+public partial class Program;

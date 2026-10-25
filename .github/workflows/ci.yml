@@ -4,9 +4,28 @@ on:
   push:
     branches: [main, production]
     tags: ["v*.*.*"]
+  pull_request:
+    branches: [main, production]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      # Integration tests start PostgreSQL and Redis through the runner's Docker.
+      - name: Test
+        run: dotnet test src/Forms.sln -c Release
+
   build-and-push:
+    needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read

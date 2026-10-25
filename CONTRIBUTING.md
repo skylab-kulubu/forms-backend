@@ -24,6 +24,7 @@ Thanks for your interest in contributing! This document covers the project archi
 - .NET 9.0 SDK
 - PostgreSQL
 - Redis
+- Docker, for the integration tests
 - An IDE (Visual Studio, Rider, or VS Code + C# Dev Kit)
 
 ### First-Time Setup
@@ -77,7 +78,20 @@ src/
 │   ├── Storage/                           # DbContext, configurations, repositories
 │   └── DependencyInjection.cs             # Infrastructure registration
 └── Forms.sln
+tests/
+└── Forms.Tests/
+    ├── Domain/, Application/              # Pure rules, no setup
+    ├── Infrastructure/                    # Model invariants such as account erasure coverage
+    └── Integration/                       # The API on real PostgreSQL and Redis, with core and SkyMail faked
 ```
+
+### Tests
+
+```bash
+dotnet test src/Forms.sln
+```
+
+Test names are sentences in snake case that state the rule, such as `A_cycle_is_rejected`. Integration tests start PostgreSQL 16 and Redis 7 containers with Testcontainers, so Docker must be running. They share one database: each test creates its own users and forms and never assumes an empty table. Core, SkyMail and Keycloak are replaced in `FormsApiFactory`; tokens are signed by `TestTokens`, so the real JWT pipeline runs. Background workers are switched off, so a test that needs one calls its service directly.
 
 ---
 
@@ -282,6 +296,7 @@ Do not place business rules or direct DbContext access in endpoint files.
 ```bash
 dotnet restore src/Forms.sln
 dotnet build src/Forms.sln -c Release
+dotnet test src/Forms.sln
 dotnet list src/Forms.sln package --vulnerable --include-transitive
 ```
 
@@ -301,6 +316,7 @@ docker compose config --quiet
 - [ ] Endpoint code remains thin
 - [ ] Cancellation tokens flow through I/O operations
 - [ ] Migration and model snapshot are reviewed when persistence changes
+- [ ] A test covers the changed rule: a unit test for a pure rule, an integration test for a flow
 - [ ] Release build succeeds without warnings
 - [ ] Package vulnerability scan is clean
 - [ ] Documentation is updated when behavior or configuration changes

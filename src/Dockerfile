@@ -6,7 +6,7 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 COPY . .
-RUN dotnet restore "Forms.sln"
+RUN dotnet restore "Forms.Api/Forms.Api.csproj"
 
 WORKDIR "/src/Forms.Api"
 RUN dotnet publish "Forms.Api.csproj" -c Release -o /app/publish --no-restore
