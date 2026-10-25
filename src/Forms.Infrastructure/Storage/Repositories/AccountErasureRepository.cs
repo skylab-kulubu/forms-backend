@@ -3,6 +3,7 @@ using Npgsql;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
+using Skylab.Forms.Infrastructure.Outbox;
 
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
@@ -87,17 +88,17 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
     public async Task<int> ClearNotificationsAsync(Guid userId, IReadOnlyList<string> emails, CancellationToken ct = default)
     {
         var deleted = await _context.Database.ExecuteSqlRawAsync(
-            """DELETE FROM "ResponseNotifications" WHERE "Payload" ->> 'userId' = @userId""",
-            [new NpgsqlParameter("userId", userId.ToString())], ct);
+            """DELETE FROM "OutboxMessages" WHERE "Type" = @type AND "Payload" ->> 'userId' = @userId""",
+            [new NpgsqlParameter("type", OutboxTypes.ResponseStatusChanged), new NpgsqlParameter("userId", userId.ToString())], ct);
 
         if (emails.Count == 0) return deleted;
 
         return deleted + await _context.Database.ExecuteSqlRawAsync(
             """
-            UPDATE "ResponseNotifications" SET "Payload" = jsonb_set("Payload", ARRAY['guest', 'email'], 'null')
-            WHERE "Payload" -> 'guest' ->> 'email' = ANY (@emails)
+            UPDATE "OutboxMessages" SET "Payload" = jsonb_set("Payload", ARRAY['guest', 'email'], 'null')
+            WHERE "Type" = @type AND "Payload" -> 'guest' ->> 'email' = ANY (@emails)
             """,
-            [new NpgsqlParameter("emails", emails.ToArray())], ct);
+            [new NpgsqlParameter("type", OutboxTypes.ResponseStatusChanged), new NpgsqlParameter("emails", emails.ToArray())], ct);
     }
 
     private static object[] Patterns(IReadOnlyList<string> emails) =>
