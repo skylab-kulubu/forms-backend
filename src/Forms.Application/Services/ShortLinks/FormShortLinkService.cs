@@ -14,15 +14,15 @@ public class FormShortLinkService : IFormShortLinkService
     private readonly IFormRepository _forms;
     private readonly ICoreShortLinks _links;
     private readonly IExternalUserService _users;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
     private readonly ShortLinkOptions _options;
 
-    public FormShortLinkService(IFormRepository forms, ICoreShortLinks links, IExternalUserService users, ICurrentUserService currentUserService, ShortLinkOptions options)
+    public FormShortLinkService(IFormRepository forms, ICoreShortLinks links, IExternalUserService users, ICurrentUser currentUser, ShortLinkOptions options)
     {
         _forms = forms;
         _links = links;
         _users = users;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _options = options;
     }
 
@@ -106,7 +106,7 @@ public class FormShortLinkService : IFormShortLinkService
             ? role is CollaboratorRole.Owner or CollaboratorRole.Editor
             : role != CollaboratorRole.None;
 
-        if (!allowed && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!allowed && !_currentUser.IsPlatformAdmin)
         {
             var message = requiresEdit ? "Kısa adı yalnız sahip ve editörler değiştirebilir." : "Bu formu paylaşma yetkiniz yok.";
             return (form, ServiceStatus.NotAuthorized, message);

@@ -20,15 +20,15 @@ public class FormMetricService : IFormMetricService
 
     private readonly IFormRepository _forms;
     private readonly IFormMetricsRepository _metrics;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
     private readonly ICoreShortLinks _links;
 
-    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUserService currentUserService, ICacheService cache, ICoreShortLinks links)
+    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUser currentUser, ICacheService cache, ICoreShortLinks links)
     {
         _forms = forms;
         _metrics = metrics;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _cache = cache;
         _links = links;
     }
@@ -38,7 +38,7 @@ public class FormMetricService : IFormMetricService
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken)
+        if (!_currentUser.IsPlatformAdmin
             && !await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
@@ -65,7 +65,7 @@ public class FormMetricService : IFormMetricService
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun metriklerini görüntüleme yetkiniz yok.");
 
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);

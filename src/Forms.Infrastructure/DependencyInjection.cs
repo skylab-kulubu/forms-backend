@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,7 +65,9 @@ public static class DependencyInjection
         services.AddScoped<IExcelService, ExcelService>();
 
         services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUserService, JwtCurrentUserService>();
+        services.Configure<ProviderRoleOptions>(configuration.GetSection(ProviderRoleOptions.SectionName));
+        services.AddTransient<IClaimsTransformation, ProviderRoleClaims>();
+        services.AddScoped<ICurrentUser, HttpCurrentUser>();
 
         services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
         services.AddHttpClient("keycloak");

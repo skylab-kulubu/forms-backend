@@ -17,7 +17,7 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormsUnitOfWork _uow;
     private readonly IExternalUserService _userService;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
     private readonly IFormWorkflowRuntime _runtime;
     private readonly IFormMailNotifier _mailNotifier;
     private readonly IFormWorkflowRunService _runs;
@@ -27,7 +27,7 @@ public class FormWorkflowService : IFormWorkflowService
         IFormWorkflowInstanceRepository instances,
         IFormsUnitOfWork uow,
         IExternalUserService userService,
-        ICurrentUserService currentUserService,
+        ICurrentUser currentUser,
         IFormWorkflowRuntime runtime,
         IFormMailNotifier mailNotifier,
         IFormWorkflowRunService runs)
@@ -36,7 +36,7 @@ public class FormWorkflowService : IFormWorkflowService
         _instances = instances;
         _uow = uow;
         _userService = userService;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _runtime = runtime;
         _mailNotifier = mailNotifier;
         _runs = runs;
@@ -160,7 +160,7 @@ public class FormWorkflowService : IFormWorkflowService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<WorkflowContract>();
 
-        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken))
+        if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return NotOwner<WorkflowContract>();
 
         return await BuildContractAsync(workflow, cancellationToken);
@@ -211,7 +211,7 @@ public class FormWorkflowService : IFormWorkflowService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<List<WorkflowVersionSummaryContract>>();
 
-        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken))
+        if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return NotOwner<List<WorkflowVersionSummaryContract>>();
 
         var versions = await _workflows.GetVersionsAsync(workflowId, cancellationToken);
@@ -466,7 +466,7 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow is null) return NotFound<bool>();
 
         // Silinmiş kullanıcıya kalan akışı devralan olmazsa platform admini arşivleyebilir.
-        var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && await IsPlatformAdminAsync(cancellationToken);
+        var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && _currentUser.IsPlatformAdmin;
         if (workflow.OwnerUserId != userId && !adminMayArchive) return NotOwner<bool>();
 
         var now = DateTime.UtcNow;
@@ -753,9 +753,6 @@ public class FormWorkflowService : IFormWorkflowService
             true,
             voided.Data.WasActive ? "Başvuru baştan başlatıldı." : "Adaya yeniden başvuru hakkı verildi.");
     }
-
-    private Task<bool> IsPlatformAdminAsync(CancellationToken cancellationToken) =>
-        _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
 
     private static ServiceResult<T> NotFound<T>() => new(ServiceStatus.NotFound, Message: "Akış bulunamadı.");
 
