@@ -552,7 +552,7 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
-| `PUT` | `/api/admin/forms/{id}` | Update a form |
+| `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared only when the status changes or a question changes type, and never on a timed form, where the draft is what the provisional response is built from |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
