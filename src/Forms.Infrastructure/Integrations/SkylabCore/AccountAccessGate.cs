@@ -1,10 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 
-namespace Skylab.Forms.Infrastructure.AccountAccess;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 public enum AccountAccessDecision
 {
@@ -73,19 +71,4 @@ public sealed class AccountAccessGate(IConnectionMultiplexer connection, Account
     private static bool IsOutage(Exception ex, CancellationToken cancellationToken) =>
         ex is TimeoutException or RedisException or ObjectDisposedException
         || ex is OperationCanceledException && !cancellationToken.IsCancellationRequested;
-}
-
-public static class AccountAccessGateRegistration
-{
-    /// <summary>off modunda kapı hiç kaydedilmez; middleware ve hazırlık ucu bunu kapalı kapı sayar.</summary>
-    public static IServiceCollection AddAccountAccessGate(this IServiceCollection services, IConfiguration configuration)
-    {
-        var options = AccountAccessGateOptions.FromConfiguration(configuration);
-        services.AddSingleton(options);
-
-        if (options.Mode == AccountAccessGateMode.Enforce)
-            services.AddSingleton(_ => new AccountAccessGate(ConnectionMultiplexer.Connect(options.ToRedisConfiguration()), options));
-
-        return services;
-    }
 }

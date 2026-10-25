@@ -1,10 +1,10 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Skylab.Forms.Infrastructure.Turnstile;
+using Skylab.Forms.Infrastructure.Integrations.Cloudflare;
 
 namespace Skylab.Forms.Infrastructure.GuestUploads;
 
-public sealed class GuestUploadStartupLog : IHostedService
+internal sealed class GuestUploadStartupLog : IHostedService
 {
     private readonly GuestUploadSettings _settings;
     private readonly TurnstileOptions _turnstile;
@@ -19,7 +19,7 @@ public sealed class GuestUploadStartupLog : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (_settings.Requested && !_turnstile.IsEnabled)
+        if (_settings.Options.Enabled && !_turnstile.IsEnabled)
             _logger.LogWarning("FORMS_GUEST_UPLOADS=on ama TURNSTILE_SECRET_KEY boş; misafir dosya yükleme kapalı kalıyor");
 
         if (_turnstile.UsesTestSecret)
@@ -28,7 +28,7 @@ public sealed class GuestUploadStartupLog : IHostedService
         _logger.LogInformation(
             "Turnstile doğrulaması {TurnstileState}, misafir dosya yükleme {GuestUploadState}",
             _turnstile.IsEnabled ? "on" : "off",
-            _settings.Options.Enabled ? "on" : "off");
+            _settings.Options.Enabled && _turnstile.IsEnabled ? "on" : "off");
 
         return Task.CompletedTask;
     }

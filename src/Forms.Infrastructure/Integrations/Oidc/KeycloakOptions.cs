@@ -1,6 +1,6 @@
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
-public class KeycloakOptions
+internal class KeycloakOptions
 {
     public const string SectionName = "Keycloak";
 

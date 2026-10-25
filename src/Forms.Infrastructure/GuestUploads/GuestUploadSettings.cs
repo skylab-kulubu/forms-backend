@@ -6,10 +6,9 @@ namespace Skylab.Forms.Infrastructure.GuestUploads;
 
 public sealed class GuestUploadSettings
 {
-    public bool Requested { get; private init; }
     public GuestUploadOptions Options { get; private init; } = new();
 
-    public static GuestUploadSettings FromConfiguration(IConfiguration configuration, bool turnstileEnabled)
+    public static GuestUploadSettings FromConfiguration(IConfiguration configuration)
     {
         var mode = (Read(configuration, "FORMS_GUEST_UPLOADS", "Mode") ?? "off").Trim();
         var requested = string.Equals(mode, "on", StringComparison.OrdinalIgnoreCase);
@@ -22,10 +21,9 @@ public sealed class GuestUploadSettings
 
         return new GuestUploadSettings
         {
-            Requested = requested,
             Options = new GuestUploadOptions
             {
-                Enabled = requested && turnstileEnabled,
+                Enabled = requested,
                 IpSubmitsPerMinute = ipSubmitsPerMinute,
                 FormSubmitsPerMinute = formSubmitsPerMinute
             }

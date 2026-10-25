@@ -4,8 +4,8 @@ using Npgsql;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Domain.Common;
-using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Api.Endpoints;
 

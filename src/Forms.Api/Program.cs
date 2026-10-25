@@ -4,6 +4,10 @@ using Skylab.Forms.Api.Endpoints;
 using Skylab.Forms.Api.Extensions;
 using Skylab.Forms.Application;
 using Skylab.Forms.Infrastructure;
+using Skylab.Forms.Infrastructure.Integrations.Cloudflare;
+using Skylab.Forms.Infrastructure.Integrations.Oidc;
+using Skylab.Forms.Infrastructure.Integrations.SkyMail;
+using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,6 +30,10 @@ builder.Services.AddFormsJwtAuthentication(builder.Configuration);
 builder.Services.AddFormsAuthorization();
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddOidcIdentity(builder.Configuration);
+builder.Services.AddSkylabCore(builder.Configuration);
+builder.Services.AddSkyMail(builder.Configuration);
+builder.Services.AddTurnstile(builder.Configuration);
 
 var app = builder.Build();
 

@@ -4,7 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Configuration;
 using StackExchange.Redis;
 
-namespace Skylab.Forms.Infrastructure.AccountAccess;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 public enum AccountAccessGateMode
 {

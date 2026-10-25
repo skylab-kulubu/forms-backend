@@ -69,13 +69,18 @@ src/
 ├── Forms.Domain/                          # Entities, enums, domain models and rules
 │   └── Workflows/                         # Graph validation, condition and route resolution
 ├── Forms.Infrastructure/                  # Technical adapters and persistence
-│   ├── Auth/                              # Current-user, external-user, Keycloak adapters
+│   ├── Auth/                              # Current user and Forms permissions
 │   ├── Caching/                           # Redis implementation
 │   ├── Exports/                           # ClosedXML implementation
-│   ├── Mail/                              # SkyMail client, queue, and background workers
+│   ├── Integrations/                      # One folder per external provider, each with its AddXxx
+│   │   ├── SkylabCore/                    # People, answer files, short links, account gate
+│   │   ├── SkyMail/                       # Mail and mail audiences
+│   │   ├── Cloudflare/                    # Turnstile bot check
+│   │   └── Oidc/                          # Provider roles, service account token
+│   ├── Mail/                              # Mail queue and background workers
 │   ├── Migrations/                        # EF Core migrations
 │   ├── Storage/                           # DbContext, configurations, repositories
-│   └── DependencyInjection.cs             # Infrastructure registration
+│   └── DependencyInjection.cs             # Registration of Forms' own infrastructure
 └── Forms.sln
 ```
 
@@ -210,7 +215,7 @@ public sealed class FormDocumentService : IFormDocumentService
 }
 ```
 
-Register the implementation in `src/Forms.Infrastructure/DependencyInjection.cs`.
+Register the implementation in `src/Forms.Infrastructure/DependencyInjection.cs`. An adapter for an external provider goes under `Integrations/<Provider>/` instead: it is `internal`, keeps the provider's wire types private, and is registered by that provider's `AddXxx`, which `Program.cs` calls. A second provider for the same port is a new folder, not a change to the first.
 
 ### Step 7 - Update Persistence
 
@@ -274,7 +279,7 @@ Do not place business rules or direct DbContext access in endpoint files.
 ### Step 9 - Register Services
 
 - Register use-case services in `Forms.Application/DependencyInjection.cs`.
-- Register adapters, repositories, clients, and workers in `Forms.Infrastructure/DependencyInjection.cs`.
+- Register repositories, workers and Forms' own adapters in `Forms.Infrastructure/DependencyInjection.cs`, and a provider's adapters in its `Integrations/<Provider>/` registration.
 - Avoid growing `Forms.Api/Program.cs` with individual service registrations.
 
 ### Step 10 - Validate

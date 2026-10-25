@@ -5,9 +5,9 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
-public sealed class CoreAnswerFileStore : IAnswerFileStore
+internal sealed class CoreAnswerFileStore : IAnswerFileStore
 {
     private const string FormsService = "forms";
     private const string AnswerRole = "answer";

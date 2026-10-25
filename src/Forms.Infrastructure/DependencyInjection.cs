@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,15 +9,12 @@ using Skylab.Forms.Application.ShortLinks;
 using Skylab.Forms.Infrastructure.AnswerFiles;
 using Skylab.Forms.Infrastructure.Attempts;
 using Skylab.Forms.Infrastructure.Auth;
-using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
 using Skylab.Forms.Infrastructure.Exports;
 using Skylab.Forms.Infrastructure.GuestUploads;
 using Skylab.Forms.Infrastructure.Mail;
-using Skylab.Forms.Infrastructure.ResponseNotifications;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
-using Skylab.Forms.Infrastructure.Turnstile;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure;
@@ -29,8 +25,6 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddAccountAccessGate(configuration);
-
         var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING")
             ?? configuration.GetConnectionString("Forms")
             ?? throw new InvalidOperationException("Forms database connection string is not configured.");
@@ -65,66 +59,19 @@ public static class DependencyInjection
         services.AddScoped<IExcelService, ExcelService>();
 
         services.AddHttpContextAccessor();
-        services.Configure<ProviderRoleOptions>(configuration.GetSection(ProviderRoleOptions.SectionName));
-        services.AddTransient<IClaimsTransformation, ProviderRoleClaims>();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
-
-        services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
-        services.AddHttpClient("keycloak");
-        services.AddSingleton<IServiceTokenProvider, KeycloakServiceTokenProvider>();
-        services.AddTransient<ServiceTokenHandler>();
-
-        services.AddHttpClient<IUserDirectory, CoreUserDirectory>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-
-        services.AddHttpClient<IShortLinkProvider, CoreShortLinkProvider>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-            client.Timeout = TimeSpan.FromSeconds(10);
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-
-        services.AddHttpClient(ResponseNotificationWorker.HttpClientName, client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-            client.Timeout = TimeSpan.FromSeconds(10);
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-        services.AddHostedService<ResponseNotificationWorker>();
 
         services.Configure<ShortLinkOptions>(configuration.GetSection(ShortLinkOptions.SectionName));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<ShortLinkOptions>>().Value);
 
-        var turnstileOptions = TurnstileOptions.FromConfiguration(configuration);
-        var guestUploadSettings = GuestUploadSettings.FromConfiguration(configuration, turnstileOptions.IsEnabled);
-        services.AddSingleton(turnstileOptions);
-        services.AddSingleton<TurnstileReachability>();
+        var guestUploadSettings = GuestUploadSettings.FromConfiguration(configuration);
         services.AddSingleton(guestUploadSettings);
         services.AddSingleton(guestUploadSettings.Options);
         services.AddSingleton<IGuestUploadStore, RedisGuestUploadStore>();
         services.AddHostedService<GuestUploadStartupLog>();
 
-        services.AddHttpClient<IHumanVerifier, CloudflareTurnstileVerifier>(client =>
-        {
-            client.BaseAddress = new Uri("https://challenges.cloudflare.com");
-            client.Timeout = TimeSpan.FromSeconds(5);
-        });
-
-        services.AddHttpClient<IAnswerFileStore, CoreAnswerFileStore>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-            client.Timeout = TimeSpan.FromSeconds(60);
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
         services.AddScoped<IDraftFileHolds, DraftFileHolds>();
         services.AddHostedService<AnswerFileLinkWorker>();
-
-        services.AddHttpClient<SkyMailClient>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail:3000/v1/");
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-
-        services.AddTransient<IEmailSender>(sp => sp.GetRequiredService<SkyMailClient>());
-        services.AddTransient<IMailAudienceExport>(sp => sp.GetRequiredService<SkyMailClient>());
 
         services.AddSingleton<ChannelMailDispatcher>();
         services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());

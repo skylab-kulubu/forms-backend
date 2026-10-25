@@ -3,9 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Skylab.Forms.Application.Abstractions;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
-public sealed class CoreShortLinkProvider : IShortLinkProvider
+internal sealed class CoreShortLinkProvider : IShortLinkProvider
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

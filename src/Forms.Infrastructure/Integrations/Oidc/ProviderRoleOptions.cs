@@ -1,6 +1,6 @@
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
-public sealed class ProviderRoleOptions
+internal sealed class ProviderRoleOptions
 {
     public const string SectionName = "Authentication:Roles";
 

@@ -1,6 +1,6 @@
-namespace Skylab.Forms.Infrastructure.Turnstile;
+namespace Skylab.Forms.Infrastructure.Integrations.Cloudflare;
 
-public sealed class TurnstileReachability
+internal sealed class TurnstileReachability
 {
     private static readonly TimeSpan ReachableFor = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan UnreachableFor = TimeSpan.FromSeconds(15);

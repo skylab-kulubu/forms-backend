@@ -2,14 +2,13 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Skylab.Forms.Infrastructure.Auth.Contracts;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Domain.Common;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
-public class CoreUserDirectory : IUserDirectory
+internal class CoreUserDirectory : IUserDirectory
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 

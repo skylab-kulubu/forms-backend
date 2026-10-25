@@ -1,4 +1,4 @@
-namespace Skylab.Forms.Infrastructure.Auth.Contracts;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 internal sealed class ExternalUserResponse
 {

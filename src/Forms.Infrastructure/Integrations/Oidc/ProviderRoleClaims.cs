@@ -2,10 +2,11 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using Skylab.Forms.Infrastructure.Auth;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
-public sealed class ProviderRoleClaims(IOptions<ProviderRoleOptions> options) : IClaimsTransformation
+internal sealed class ProviderRoleClaims(IOptions<ProviderRoleOptions> options) : IClaimsTransformation
 {
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
