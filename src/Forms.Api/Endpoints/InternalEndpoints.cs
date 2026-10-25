@@ -85,8 +85,9 @@ public static class InternalEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
             }
 
-            var issuer = context.User.FindFirst("iss")?.Value ?? string.Empty;
-            var decision = await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct);
+            var decision = context.User.FindFirst("iss")?.Value is { Length: > 0 } issuer
+                ? await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct)
+                : AccountAccessDecision.Unavailable;
             if (decision == AccountAccessDecision.Unavailable)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel okunamadı", command.RequestId);
