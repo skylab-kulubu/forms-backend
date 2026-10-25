@@ -687,8 +687,8 @@ public class FormResponseService : IFormResponseService
             {
                 response.Id.ToString(),
                 response.UserId?.ToString() ?? "Anonim",
-                response.SubmittedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm"),
-                response.Status.ToString(),
+                ClubTime.ToLocal(response.SubmittedAt).ToString("dd.MM.yyyy HH:mm"),
+                StatusLabel(response.Status),
                 response.ReviewNote ?? "",
                 response.Attribution?.Source ?? "",
                 response.Attribution?.Medium ?? "",
@@ -699,7 +699,7 @@ public class FormResponseService : IFormResponseService
             {
                 var timing = timings.TryGetValue(response.Id, out var found) ? found : null;
 
-                row.Add(timing?.StartedAt?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "");
+                row.Add(timing?.StartedAt is { } started ? ClubTime.ToLocal(started).ToString("dd.MM.yyyy HH:mm") : "");
                 row.Add(timing?.StartedAt is { } startedAt ? Math.Max(0, (int)Math.Round((response.SubmittedAt - startedAt).TotalMinutes)).ToString() : "");
                 row.Add(timing is { ExtendedMinutes: > 0 } ? timing.ExtendedMinutes.ToString() : "");
             }
@@ -713,11 +713,21 @@ public class FormResponseService : IFormResponseService
             rows.Add(row);
         }
 
-        string sheetName = form.Title.Length > 31 ? form.Title.Substring(0, 31) : form.Title;
-
-        var exportRequest = new ExcelExportRequest(sheetName, headers, rows);
-        return _excelService.GenerateExcel(exportRequest);
+        return new ServiceResult<byte[]>(ServiceStatus.Success, _excelService.GenerateExcel(new ExcelExportRequest(form.Title, headers, rows)));
     }
+
+    // Arayüzdeki adlarla aynı: forms-frontend ResponseActions.jsx STATUS_META.
+    private static string StatusLabel(FormResponseStatus status) => status switch
+    {
+        FormResponseStatus.NonRestrict => "Gönderildi",
+        FormResponseStatus.Pending => "Beklemede",
+        FormResponseStatus.Approved => "Onaylandı",
+        FormResponseStatus.Declined => "Reddedildi",
+        FormResponseStatus.Provisional => "Geçici",
+        FormResponseStatus.Flagged => "Doğrulanmadı",
+        FormResponseStatus.Returned => "Düzeltme istendi",
+        _ => status.ToString()
+    };
 
     private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, ResponseGuest? guest = null)
     {

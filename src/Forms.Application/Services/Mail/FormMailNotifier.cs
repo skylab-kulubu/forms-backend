@@ -53,7 +53,7 @@ public class FormMailNotifier : IFormMailNotifier
         var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
             ["formTitle"] = form.Title,
-            ["submittedAt"] = ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["submittedAt"] = ClubTime.ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
             ["answers"] = answers
         };
 
@@ -85,7 +85,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (response.ReviewedAt.HasValue)
-            variables["reviewedAt"] = ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["reviewedAt"] = ClubTime.ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
@@ -108,7 +108,7 @@ public class FormMailNotifier : IFormMailNotifier
             ["formTitle"] = voided.WorkflowName,
             ["status"] = "reopened",
             ["reviewNote"] = voided.Note ?? string.Empty,
-            ["reviewedAt"] = ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["reviewedAt"] = ClubTime.ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
             ["nextFormId"] = voided.StartFormId.ToString()
         };
 
@@ -132,7 +132,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (deadlineAt.HasValue)
-            variables["deadlineAt"] = ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["deadlineAt"] = ClubTime.ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
 
         if (minutes.HasValue)
         {
@@ -191,22 +191,5 @@ public class FormMailNotifier : IFormMailNotifier
 
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{local}@{domain}")));
         return $"mail:guest-copies:{hash}";
-    }
-
-    private static readonly TimeZoneInfo Istanbul = ResolveIstanbul();
-
-    private static DateTime ToLocal(DateTime utc) =>
-        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), Istanbul);
-
-    private static TimeZoneInfo ResolveIstanbul()
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul");
-        }
-        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
-            return TimeZoneInfo.CreateCustomTimeZone("Europe/Istanbul", TimeSpan.FromHours(3), "Türkiye", "Türkiye");
-        }
     }
 }
