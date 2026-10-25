@@ -33,4 +33,6 @@ public class FormWorkflowInstance : BaseEntity
     public string? VoidNote { get; set; }
 
     public ICollection<FormWorkflowStep> Steps { get; set; } = new List<FormWorkflowStep>();
+
+    public void Touch(DateTime now) => UpdatedAt = now;
 }

@@ -34,6 +34,7 @@ app.UseForwardedHeaders();
 await app.Services.ApplyDatabaseMigrationsAsync();
 
 app.UseCors("AllowFrontend");
+app.UseStorageConflictResponses();
 app.UseFormsJwtAuthentication();
 app.UseAccountAccessGate();
 app.UseSwagger();
