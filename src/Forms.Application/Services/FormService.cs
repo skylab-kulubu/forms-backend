@@ -159,9 +159,10 @@ public class FormService : IFormService
 
         var schemaChanged = !FormSchemaChange.IsSame(existingForm.Schema, schema);
 
-        // Süreli formda taslak, süre dolunca kurulacak geçici cevabın tek kaynağıdır; işleyen denemenin emeği silinmez.
+        // Süreli formda taslak, süre dolunca kurulacak geçici cevabın tek kaynağıdır ve silinmez. Form bu kayıtta süreli
+        // oluyorsa süre işlemeden yazılmış taslaklar gider; yoksa o geçici cevaba dönüşürlerdi.
         var clearResponseDrafts = !existingForm.HasTimeLimit
-            && (existingForm.Status != contract.Status || FormSchemaChange.BreaksDrafts(existingForm.Schema, schema));
+            && (timeLimit.HasValue || existingForm.Status != contract.Status || FormSchemaChange.BreaksDrafts(existingForm.Schema, schema));
 
         existingForm.Title = contract.Title;
         existingForm.Description = contract.Description;

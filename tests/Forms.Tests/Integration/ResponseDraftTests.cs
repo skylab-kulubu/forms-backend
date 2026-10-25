@@ -36,6 +36,32 @@ public class ResponseDraftTests(FormsApiFactory api)
     }
 
     [Fact]
+    public async Task Turning_a_form_into_a_timed_one_clears_the_drafts_written_without_the_clock()
+    {
+        var (owner, member, request, form) = await FormWithDraftAsync(NameQuestion("Adın?"));
+
+        await owner.PutAsJsonAsync($"/api/admin/forms/{form.Id}", request with { TimeLimitMinutes = 30 });
+
+        Assert.Equal(HttpStatusCode.NotFound, (await member.GetAsync($"/api/forms/responses/draft/{form.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task An_editor_draft_that_only_reorders_property_keys_counts_as_the_saved_form()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var form = await owner.CreateFormAsync(Api.NewForm("Kulüp başvurusu", NameQuestion("Adın?")));
+
+        FormDraftContract Draft(FormSchemaItem question) =>
+            new(form.Title, form.Description, [question], false, false, false, form.Status, DateTime.UtcNow);
+
+        await owner.PostAsJsonAsync($"/api/admin/forms/{form.Id}/draft", new FormDraftRequest(form.Id, Draft(NameQuestion("Adın?"))));
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/admin/forms/{form.Id}/draft")).StatusCode);
+
+        await owner.PostAsJsonAsync($"/api/admin/forms/{form.Id}/draft", new FormDraftRequest(form.Id, Draft(NameQuestion("Adın nedir?"))));
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync($"/api/admin/forms/{form.Id}/draft")).StatusCode);
+    }
+
+    [Fact]
     public async Task A_timed_form_keeps_the_running_attempts_draft_even_when_a_question_type_changes()
     {
         var (owner, member, request, form) = await FormWithDraftAsync(NameQuestion("Adın?"), timeLimitMinutes: 30);

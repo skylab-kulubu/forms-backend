@@ -39,4 +39,12 @@ public class FormSchemaChangeTests
         Assert.False(FormSchemaChange.BreaksDrafts(before, [Question("kept", "short_text"), Question("retyped", "short_text"), Question("added", "file")]));
         Assert.True(FormSchemaChange.BreaksDrafts(before, [Question("kept", "short_text"), Question("retyped", "long_text")]));
     }
+
+    [Fact]
+    public void A_question_without_an_id_does_not_stop_the_comparison()
+    {
+        List<FormSchemaItem> schema = [new FormSchemaItem { Id = null!, Type = "short_text" }];
+
+        Assert.False(FormSchemaChange.BreaksDrafts(schema, schema));
+    }
 }

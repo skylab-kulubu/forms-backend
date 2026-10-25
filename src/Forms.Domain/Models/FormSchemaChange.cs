@@ -20,10 +20,11 @@ public static class FormSchemaChange
     /// </summary>
     public static bool BreaksDrafts(IEnumerable<FormSchemaItem> before, IEnumerable<FormSchemaItem> after)
     {
+        // İstemci id'yi null gönderebilir; karşılaştırma bu yüzden 500'e dönmesin.
         var types = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var item in after) types.TryAdd(item.Id, item.Type);
+        foreach (var item in after) types.TryAdd(item.Id ?? string.Empty, item.Type);
 
-        return before.Any(item => types.TryGetValue(item.Id, out var type) && !string.Equals(type, item.Type, StringComparison.Ordinal));
+        return before.Any(item => types.TryGetValue(item.Id ?? string.Empty, out var type) && !string.Equals(type, item.Type, StringComparison.Ordinal));
     }
 
     private static JsonNode? ToNode(IReadOnlyList<FormSchemaItem>? schema) =>
