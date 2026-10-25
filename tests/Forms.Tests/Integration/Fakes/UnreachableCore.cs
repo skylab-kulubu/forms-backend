@@ -4,22 +4,22 @@ using Skylab.Forms.Application.Contracts.Responses;
 
 namespace Skylab.Forms.Tests.Integration.Fakes;
 
-/// <summary>Core'a ulaşılamıyormuş gibi davranır; Forms dosya deposu olmadan da çalışmalı.</summary>
-public sealed class UnreachableCoreMedia : ICoreMedia
+/// <summary>Dosya deposuna ulaşılamıyormuş gibi davranır; Forms dosya deposu olmadan da çalışmalı.</summary>
+public sealed class UnreachableFileStore : IAnswerFileStore
 {
-    public Task<CoreMediaUpload> UploadGuestAnswerAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default) =>
-        Task.FromResult(new CoreMediaUpload(CoreMediaOutcome.Unavailable));
+    public Task<FileUpload> UploadGuestFileAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default) =>
+        Task.FromResult(new FileUpload(FileStoreOutcome.Unavailable));
 
-    public Task<CoreMediaRead> GetAsync(Guid mediaId, CancellationToken ct = default) =>
-        Task.FromResult(new CoreMediaRead(CoreMediaOutcome.Unavailable));
+    public Task<FileLookup> FindAsync(Guid fileId, CancellationToken ct = default) =>
+        Task.FromResult(new FileLookup(FileStoreOutcome.Unavailable));
 
-    public Task<CoreMediaAttach> AttachAsync(Guid mediaId, CoreMediaOwner owner, Guid? onBehalfOf, CancellationToken ct = default) =>
-        Task.FromResult(new CoreMediaAttach(CoreMediaOutcome.Unavailable));
+    public Task<FileHold> HoldAsync(Guid fileId, FileHolder holder, Guid? onBehalfOf, CancellationToken ct = default) =>
+        Task.FromResult(new FileHold(FileStoreOutcome.Unavailable));
 
-    public Task<bool> DetachAsync(Guid mediaId, Guid attachmentId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<bool> ReleaseAsync(Guid fileId, Guid holdId, CancellationToken ct = default) => Task.FromResult(false);
 
-    public Task<CoreMediaLink> CreateLinkAsync(Guid mediaId, Guid onBehalfOf, CancellationToken ct = default) =>
-        Task.FromResult(new CoreMediaLink(CoreMediaOutcome.Unavailable));
+    public Task<FileLink> CreateDownloadLinkAsync(Guid fileId, Guid viewerId, CancellationToken ct = default) =>
+        Task.FromResult(new FileLink(FileStoreOutcome.Unavailable));
 }
 
 /// <summary>Kısa link servisi yokmuş gibi davranır.</summary>

@@ -71,7 +71,7 @@ public class AnswerFileLinkWorker : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
-        var media = scope.ServiceProvider.GetRequiredService<ICoreMedia>();
+        var files = scope.ServiceProvider.GetRequiredService<IAnswerFileStore>();
         var drafts = scope.ServiceProvider.GetRequiredService<IFormDraftService>();
         var now = DateTime.UtcNow;
 
@@ -88,10 +88,10 @@ public class AnswerFileLinkWorker : BackgroundService
                 switch (link.State)
                 {
                     case AnswerFileLinkState.Linking:
-                        await LinkAsync(db, media, link, ct);
+                        await LinkAsync(db, files, link, ct);
                         break;
                     case AnswerFileLinkState.Unlinking:
-                        await UnlinkAsync(db, media, link, ct);
+                        await UnlinkAsync(db, files, link, ct);
                         break;
                     default:
                         await CheckDraftAsync(db, drafts, link, ct);
@@ -107,32 +107,32 @@ public class AnswerFileLinkWorker : BackgroundService
         }
     }
 
-    private async Task LinkAsync(FormsDbContext db, ICoreMedia media, AnswerFileLink link, CancellationToken ct)
+    private async Task LinkAsync(FormsDbContext db, IAnswerFileStore files, AnswerFileLink link, CancellationToken ct)
     {
-        var read = await media.GetAsync(link.MediaId, ct);
-        if (read.Outcome == CoreMediaOutcome.NotFound)
+        var read = await files.FindAsync(link.MediaId, ct);
+        if (read.Outcome == FileStoreOutcome.NotFound)
         {
             await DropAsync(db, link, ct);
             return;
         }
 
-        if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } file)
+        if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } file)
         {
             await RetryAsync(db, link, ct);
             return;
         }
 
         // Legacy dosya eskisi gibi bağlanmaz; başkasının ya da taramada reddedilmiş dosya hiç bağlanmaz.
-        if (!string.Equals(file.Purpose, CoreMediaPurpose.AnswerFile, StringComparison.Ordinal)
+        if (file.Origin != FileOrigin.SignedInAnswer
             || file.UploadedBy != link.UserId
-            || file.Status == CoreMediaStatus.Rejected)
+            || file.State == FileState.Rejected)
         {
             await DropAsync(db, link, ct);
             return;
         }
 
-        var attach = await media.AttachAsync(link.MediaId, link.Owner(), link.UserId, ct);
-        if (attach is { Outcome: CoreMediaOutcome.Ok, AttachmentId: { } attachmentId })
+        var attach = await files.HoldAsync(link.MediaId, link.Holder(), link.UserId, ct);
+        if (attach is { Outcome: FileStoreOutcome.Ok, HoldId: { } attachmentId })
         {
             DateTime? nextCheck = link.ResponseId is null ? DateTime.UtcNow + DraftCheckInterval : null;
 
@@ -147,7 +147,7 @@ public class AnswerFileLinkWorker : BackgroundService
             return;
         }
 
-        if (attach.Outcome == CoreMediaOutcome.NotLinkable)
+        if (attach.Outcome == FileStoreOutcome.NotHoldable)
         {
             if (link.ResponseId is { } responseId)
                 _logger.LogWarning("Cevap {ResponseId} dosyası {MediaId} core'da cevaba bağlanamadı; core onu süresi dolunca silecek", responseId, link.MediaId);
@@ -159,9 +159,9 @@ public class AnswerFileLinkWorker : BackgroundService
         await RetryAsync(db, link, ct);
     }
 
-    private static async Task UnlinkAsync(FormsDbContext db, ICoreMedia media, AnswerFileLink link, CancellationToken ct)
+    private static async Task UnlinkAsync(FormsDbContext db, IAnswerFileStore files, AnswerFileLink link, CancellationToken ct)
     {
-        if (link.AttachmentId is { } attachmentId && !await media.DetachAsync(link.MediaId, attachmentId, ct))
+        if (link.AttachmentId is { } attachmentId && !await files.ReleaseAsync(link.MediaId, attachmentId, ct))
         {
             await RetryAsync(db, link, ct);
             return;

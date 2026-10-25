@@ -86,8 +86,8 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
             services.AddSingleton<IUserDirectory>(Users);
             services.RemoveAll<IMailDispatcher>();
             services.AddSingleton<IMailDispatcher>(Mail);
-            services.RemoveAll<ICoreMedia>();
-            services.AddSingleton<ICoreMedia, UnreachableCoreMedia>();
+            services.RemoveAll<IAnswerFileStore>();
+            services.AddSingleton<IAnswerFileStore, UnreachableFileStore>();
             services.RemoveAll<IShortLinkProvider>();
             services.AddSingleton<IShortLinkProvider, UnreachableShortLinks>();
             services.RemoveAll<IEmailSender>();

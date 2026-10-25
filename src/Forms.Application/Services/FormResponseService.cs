@@ -43,7 +43,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormAttemptService _attempts;
     private readonly IFormAttemptRepository _attemptRecords;
     private readonly IGuestUploadService _guestUploads;
-    private readonly ICoreMedia _media;
+    private readonly IAnswerFileStore _files;
     private readonly IMailAudienceExport _mailAudience;
 
     public FormResponseService(
@@ -61,14 +61,14 @@ public class FormResponseService : IFormResponseService
         IFormAttemptService attempts,
         IFormAttemptRepository attemptRecords,
         IGuestUploadService guestUploads,
-        ICoreMedia media,
+        IAnswerFileStore files,
         IMailAudienceExport mailAudience)
     {
         _mailAudience = mailAudience;
         _attempts = attempts;
         _attemptRecords = attemptRecords;
         _guestUploads = guestUploads;
-        _media = media;
+        _files = files;
         _forms = forms;
         _responses = responses;
         _uow = uow;
@@ -357,23 +357,23 @@ public class FormResponseService : IFormResponseService
         if (await CheckFileAccessAsync(responseId, mediaId, userId, token, cancellationToken) is { } denied)
             return new ServiceResult<ResponseFileContract>(denied.Status, Message: denied.Message);
 
-        var read = await _media.GetAsync(mediaId, cancellationToken);
+        var read = await _files.FindAsync(mediaId, cancellationToken);
 
-        if (read.Outcome == CoreMediaOutcome.NotFound)
+        if (read.Outcome == FileStoreOutcome.NotFound)
         {
             return new ServiceResult<ResponseFileContract>(
                 ServiceStatus.Success,
                 new ResponseFileContract(mediaId, null, null, null, ResponseFileStatus.Deleted, null, false, null));
         }
 
-        if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } media)
+        if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } media)
             return new ServiceResult<ResponseFileContract>(ServiceStatus.ServiceUnavailable, Message: "Dosya bilgisi şu an alınamıyor. Biraz sonra tekrar deneyin.");
 
-        var isPrivate = string.Equals(media.Visibility, CoreMediaVisibility.Private, StringComparison.Ordinal);
-        var status = media.Status switch
+        var isPrivate = media.IsPrivate;
+        var status = media.State switch
         {
-            CoreMediaStatus.Scanning => ResponseFileStatus.Scanning,
-            CoreMediaStatus.Rejected => ResponseFileStatus.Rejected,
+            FileState.Scanning => ResponseFileStatus.Scanning,
+            FileState.Rejected => ResponseFileStatus.Rejected,
             _ => ResponseFileStatus.Ready
         };
 
@@ -382,12 +382,12 @@ public class FormResponseService : IFormResponseService
             new ResponseFileContract(
                 mediaId,
                 media.Name,
-                media.Type,
+                media.ContentType,
                 media.Size,
                 status,
                 media.ScanResult,
                 isPrivate,
-                !isPrivate && !string.IsNullOrEmpty(media.Url) ? media.Url : null));
+                !isPrivate && !string.IsNullOrEmpty(media.PublicUrl) ? media.PublicUrl : null));
     }
 
     public async Task<ServiceResult<ResponseFileLinkContract>> CreateResponseFileLinkAsync(Guid responseId, Guid mediaId, Guid userId, string? token, CancellationToken cancellationToken = default)
@@ -395,26 +395,26 @@ public class FormResponseService : IFormResponseService
         if (await CheckFileAccessAsync(responseId, mediaId, userId, token, cancellationToken) is { } denied)
             return new ServiceResult<ResponseFileLinkContract>(denied.Status, Message: denied.Message);
 
-        var link = await _media.CreateLinkAsync(mediaId, userId, cancellationToken);
+        var link = await _files.CreateDownloadLinkAsync(mediaId, userId, cancellationToken);
 
         return link.Outcome switch
         {
-            CoreMediaOutcome.Ok when !string.IsNullOrEmpty(link.Url) => new ServiceResult<ResponseFileLinkContract>(
+            FileStoreOutcome.Ok when !string.IsNullOrEmpty(link.Url) => new ServiceResult<ResponseFileLinkContract>(
                 ServiceStatus.Success,
                 new ResponseFileLinkContract(link.Url, link.ExpiresAt)),
-            CoreMediaOutcome.Scanning => new ServiceResult<ResponseFileLinkContract>(
+            FileStoreOutcome.Scanning => new ServiceResult<ResponseFileLinkContract>(
                 ServiceStatus.Conflict,
                 new ResponseFileLinkContract(Reason: ResponseFileReason.Scanning, RetryAfterSeconds: link.RetryAfterSeconds),
                 "Dosya hâlâ taranıyor. Biraz sonra tekrar deneyin."),
-            CoreMediaOutcome.Rejected => new ServiceResult<ResponseFileLinkContract>(
+            FileStoreOutcome.Rejected => new ServiceResult<ResponseFileLinkContract>(
                 ServiceStatus.NotAvailable,
                 new ResponseFileLinkContract(Reason: ResponseFileReason.Rejected, ScanResult: link.ScanResult),
                 "Dosya güvenlik taramasından geçmedi."),
-            CoreMediaOutcome.NotFound => new ServiceResult<ResponseFileLinkContract>(
+            FileStoreOutcome.NotFound => new ServiceResult<ResponseFileLinkContract>(
                 ServiceStatus.NotFound,
                 new ResponseFileLinkContract(Reason: ResponseFileReason.Deleted),
                 "Dosya artık mevcut değil."),
-            CoreMediaOutcome.SubjectInactive => new ServiceResult<ResponseFileLinkContract>(
+            FileStoreOutcome.SubjectInactive => new ServiceResult<ResponseFileLinkContract>(
                 ServiceStatus.NotAuthorized,
                 new ResponseFileLinkContract(Reason: ResponseFileReason.SubjectInactive),
                 "Hesabınız için dosya bağlantısı oluşturulamadı."),

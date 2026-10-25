@@ -24,8 +24,8 @@ public class AnswerFileLink
 
     public DateTime CreatedAt { get; set; }
 
-    public CoreMediaOwner Owner() =>
-        ResponseId is { } responseId ? CoreMediaOwner.Response(responseId) : CoreMediaOwner.Draft(FormId, UserId);
+    public FileHolder Holder() =>
+        ResponseId is { } responseId ? new FileHolder.Response(responseId) : new FileHolder.Draft(FormId, UserId);
 
     public static IEnumerable<AnswerFileLink> ForResponse(FormResponse response, DateTime now) =>
         response.UserId is not { } userId
