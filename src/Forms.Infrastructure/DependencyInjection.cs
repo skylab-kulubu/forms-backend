@@ -110,7 +110,7 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(5);
         });
 
-        services.AddHttpClient<ICoreMedia, CoreMediaClient>(client =>
+        services.AddHttpClient<IAnswerFileStore, CoreAnswerFileStore>(client =>
         {
             client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
             client.Timeout = TimeSpan.FromSeconds(60);

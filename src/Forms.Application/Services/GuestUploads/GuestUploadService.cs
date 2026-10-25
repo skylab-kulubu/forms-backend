@@ -24,20 +24,20 @@ public class GuestUploadService : IGuestUploadService
     private readonly IFormRepository _forms;
     private readonly IHumanVerifier _turnstile;
     private readonly IGuestUploadStore _store;
-    private readonly ICoreMedia _media;
+    private readonly IAnswerFileStore _files;
     private readonly GuestUploadOptions _options;
 
     public GuestUploadService(
         IFormRepository forms,
         IHumanVerifier turnstile,
         IGuestUploadStore store,
-        ICoreMedia media,
+        IAnswerFileStore files,
         GuestUploadOptions options)
     {
         _forms = forms;
         _turnstile = turnstile;
         _store = store;
-        _media = media;
+        _files = files;
         _options = options;
     }
 
@@ -119,17 +119,17 @@ public class GuestUploadService : IGuestUploadService
 
             if (await CountUploadAsync(session, formId, client, now, ct) is { } limit) return ToUploadResult(limit);
 
-            var upload = await _media.UploadGuestAnswerAsync(file.Content, name, file.ContentType, ct);
-            if (upload.Outcome != CoreMediaOutcome.Ok || upload.Media is not { } media)
+            var upload = await _files.UploadGuestFileAsync(file.Content, name, file.ContentType, ct);
+            if (upload.Outcome != FileStoreOutcome.Ok || upload.File is not { } media)
                 return ToUploadResult(RefuseUpload(upload, maxBytes));
 
-            var type = types.FirstOrDefault(allowed => string.Equals(allowed, media.Type, StringComparison.OrdinalIgnoreCase));
+            var type = types.FirstOrDefault(allowed => string.Equals(allowed, media.ContentType, StringComparison.OrdinalIgnoreCase));
             if (type is null) return ToUploadResult(Refuse(GuestUploadReason.FileTypeNotAllowed));
 
             var stored = new GuestUploadedFile(media.Id, question.Id, type, file.Length, string.IsNullOrEmpty(media.Name) ? name : media.Name);
             await _store.SaveFileAsync(session.Id, stored, session.ExpiresAt, ct);
 
-            return new ServiceResult<GuestUploadContract>(ServiceStatus.Success, Describe(stored, NormalizeStatus(media.Status), media.ScanResult));
+            return new ServiceResult<GuestUploadContract>(ServiceStatus.Success, Describe(stored, NormalizeStatus(media.State), media.ScanResult));
         }
         catch (GuestUploadStoreUnavailableException)
         {
@@ -156,14 +156,14 @@ public class GuestUploadService : IGuestUploadService
 
         if (file is null) return ToUploadResult(Refuse(GuestUploadReason.FileExpired) with { Status = ServiceStatus.NotFound });
 
-        var read = await _media.GetAsync(mediaId, ct);
-        if (read.Outcome == CoreMediaOutcome.NotFound)
+        var read = await _files.FindAsync(mediaId, ct);
+        if (read.Outcome == FileStoreOutcome.NotFound)
             return new ServiceResult<GuestUploadContract>(ServiceStatus.Success, Describe(file, GuestUploadStatus.Missing, null));
 
-        if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } media)
+        if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } media)
             return ToUploadResult(Refuse(GuestUploadReason.GuestUploadsUnavailable));
 
-        return new ServiceResult<GuestUploadContract>(ServiceStatus.Success, Describe(file, NormalizeStatus(media.Status), media.ScanResult));
+        return new ServiceResult<GuestUploadContract>(ServiceStatus.Success, Describe(file, NormalizeStatus(media.State), media.ScanResult));
     }
 
     public async Task<GuestSubmitGate> CheckSubmitAsync(Form form, ResponseSubmitRequest request, IPAddress? client, CancellationToken ct = default)
@@ -223,11 +223,11 @@ public class GuestUploadService : IGuestUploadService
             var answer = request.Responses?.FirstOrDefault(response => response.Id == question.Id)?.Answer;
             if (!Guid.TryParse(answer, out var mediaId)) continue;
 
-            var read = await _media.GetAsync(mediaId, ct);
-            if (read.Outcome == CoreMediaOutcome.NotFound) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: question.Id));
-            if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } media) return Reject(Refuse(GuestUploadReason.GuestUploadsUnavailable));
+            var read = await _files.FindAsync(mediaId, ct);
+            if (read.Outcome == FileStoreOutcome.NotFound) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: question.Id));
+            if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } media) return Reject(Refuse(GuestUploadReason.GuestUploadsUnavailable));
 
-            if (string.Equals(media.Purpose, CoreMediaPurpose.Legacy, StringComparison.Ordinal)) continue;
+            if (media.Origin == FileOrigin.Legacy) continue;
 
             if (CheckAccountFile(question, media, userId) is { } refusal) return Reject(refusal);
         }
@@ -243,8 +243,8 @@ public class GuestUploadService : IGuestUploadService
         {
             foreach (var file in files)
             {
-                var result = await _media.AttachAsync(file.MediaId, CoreMediaOwner.Response(responseId), onBehalfOf: null, ct);
-                if (result is { Outcome: CoreMediaOutcome.Ok, AttachmentId: { } attachmentId })
+                var result = await _files.HoldAsync(file.MediaId, new FileHolder.Response(responseId), onBehalfOf: null, ct);
+                if (result is { Outcome: FileStoreOutcome.Ok, HoldId: { } attachmentId })
                 {
                     attached.Add(new GuestAttachment(file.MediaId, attachmentId));
                     continue;
@@ -252,7 +252,7 @@ public class GuestUploadService : IGuestUploadService
 
                 await DetachAsync(attached);
 
-                var refusal = result.Outcome == CoreMediaOutcome.NotLinkable
+                var refusal = result.Outcome == FileStoreOutcome.NotHoldable
                     ? Refuse(GuestUploadReason.FileExpired, questionId: file.QuestionId)
                     : Refuse(GuestUploadReason.GuestUploadsUnavailable);
 
@@ -272,7 +272,7 @@ public class GuestUploadService : IGuestUploadService
     {
         foreach (var attachment in attachments)
         {
-            try { await _media.DetachAsync(attachment.MediaId, attachment.AttachmentId, CancellationToken.None); }
+            try { await _files.ReleaseAsync(attachment.MediaId, attachment.AttachmentId, CancellationToken.None); }
             catch (Exception) { }
         }
     }
@@ -376,24 +376,24 @@ public class GuestUploadService : IGuestUploadService
 
     private async Task<Refusal?> CheckSubmittedFileAsync(FormSchemaItem question, GuestUploadedFile file, CancellationToken ct)
     {
-        var read = await _media.GetAsync(file.MediaId, ct);
-        if (read.Outcome == CoreMediaOutcome.NotFound) return Refuse(GuestUploadReason.FileExpired, questionId: question.Id);
-        if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } media) return Refuse(GuestUploadReason.GuestUploadsUnavailable);
+        var read = await _files.FindAsync(file.MediaId, ct);
+        if (read.Outcome == FileStoreOutcome.NotFound) return Refuse(GuestUploadReason.FileExpired, questionId: question.Id);
+        if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } media) return Refuse(GuestUploadReason.GuestUploadsUnavailable);
 
-        return media.Status switch
+        return media.State switch
         {
-            CoreMediaStatus.Scanning => Refuse(GuestUploadReason.FileScanning, ScanningRetryAfterSeconds, question.Id),
-            CoreMediaStatus.Rejected => Refuse(GuestUploadReason.FileRejected, questionId: question.Id, scanResult: media.ScanResult),
-            CoreMediaStatus.Attached or CoreMediaStatus.Detached => Refuse(GuestUploadReason.FileExpired, questionId: question.Id),
-            CoreMediaStatus.Pending => CheckPendingFile(question, file, media),
+            FileState.Scanning => Refuse(GuestUploadReason.FileScanning, ScanningRetryAfterSeconds, question.Id),
+            FileState.Rejected => Refuse(GuestUploadReason.FileRejected, questionId: question.Id, scanResult: media.ScanResult),
+            FileState.Attached or FileState.Detached => Refuse(GuestUploadReason.FileExpired, questionId: question.Id),
+            FileState.Unattached => CheckPendingFile(question, file, media),
             _ => Refuse(GuestUploadReason.GuestUploadsUnavailable)
         };
     }
 
-    private Refusal? CheckPendingFile(FormSchemaItem question, GuestUploadedFile file, CoreMedia media)
+    private Refusal? CheckPendingFile(FormSchemaItem question, GuestUploadedFile file, StoredFile media)
     {
-        var allowed = string.Equals(media.Purpose, CoreMediaPurpose.AnswerFileGuest, StringComparison.Ordinal)
-            && media.Type is { } type
+        var allowed = media.Origin == FileOrigin.GuestAnswer
+            && media.ContentType is { } type
             && GuestUploadRules.EffectiveTypes(question).Contains(type, StringComparer.OrdinalIgnoreCase);
         if (!allowed) return Refuse(GuestUploadReason.FileTypeNotAllowed, questionId: question.Id);
 
@@ -401,23 +401,23 @@ public class GuestUploadService : IGuestUploadService
         return file.Size > maxBytes ? Refuse(GuestUploadReason.FileTooLarge, questionId: question.Id, maxBytes: maxBytes) : null;
     }
 
-    private Refusal? CheckAccountFile(FormSchemaItem question, CoreMedia media, Guid userId)
+    private Refusal? CheckAccountFile(FormSchemaItem question, StoredFile media, Guid userId)
     {
-        if (!string.Equals(media.Purpose, CoreMediaPurpose.AnswerFile, StringComparison.Ordinal) || media.UploadedBy != userId)
+        if (media.Origin != FileOrigin.SignedInAnswer || media.UploadedBy != userId)
             return Refuse(GuestUploadReason.FileExpired, questionId: question.Id);
 
-        if (media.Type is not { } type || !GuestUploadRules.EffectiveAccountTypes(question).Contains(type, StringComparer.OrdinalIgnoreCase))
+        if (media.ContentType is not { } type || !GuestUploadRules.EffectiveAccountTypes(question).Contains(type, StringComparer.OrdinalIgnoreCase))
             return Refuse(GuestUploadReason.FileTypeNotAllowed, questionId: question.Id);
 
         // Core görseli yeniden kodlayıp sakladığı için görselde sınır saklanan boyuta uygulanır.
         var maxBytes = GuestUploadRules.EffectiveMaxBytes(question);
         if (media.Size > maxBytes) return Refuse(GuestUploadReason.FileTooLarge, questionId: question.Id, maxBytes: maxBytes);
 
-        return media.Status switch
+        return media.State switch
         {
-            CoreMediaStatus.Scanning => Refuse(GuestUploadReason.FileScanning, ScanningRetryAfterSeconds, question.Id),
-            CoreMediaStatus.Rejected => Refuse(GuestUploadReason.FileRejected, questionId: question.Id, scanResult: media.ScanResult),
-            CoreMediaStatus.Pending or CoreMediaStatus.Attached or CoreMediaStatus.Detached => null,
+            FileState.Scanning => Refuse(GuestUploadReason.FileScanning, ScanningRetryAfterSeconds, question.Id),
+            FileState.Rejected => Refuse(GuestUploadReason.FileRejected, questionId: question.Id, scanResult: media.ScanResult),
+            FileState.Unattached or FileState.Attached or FileState.Detached => null,
             _ => Refuse(GuestUploadReason.GuestUploadsUnavailable)
         };
     }
@@ -429,12 +429,12 @@ public class GuestUploadService : IGuestUploadService
         _ => Refuse(GuestUploadReason.GuestUploadsDisabled)
     };
 
-    private Refusal RefuseUpload(CoreMediaUpload upload, long maxBytes) => upload.Outcome switch
+    private Refusal RefuseUpload(FileUpload upload, long maxBytes) => upload.Outcome switch
     {
-        CoreMediaOutcome.TooLarge => Refuse(GuestUploadReason.FileTooLarge, maxBytes: maxBytes),
-        CoreMediaOutcome.TypeNotAllowed => Refuse(GuestUploadReason.FileTypeNotAllowed),
-        CoreMediaOutcome.NameInvalid => Refuse(GuestUploadReason.FileNameInvalid),
-        CoreMediaOutcome.RateLimited => Refuse(GuestUploadReason.TooManyUploads, upload.RetryAfterSeconds),
+        FileStoreOutcome.TooLarge => Refuse(GuestUploadReason.FileTooLarge, maxBytes: maxBytes),
+        FileStoreOutcome.TypeNotAllowed => Refuse(GuestUploadReason.FileTypeNotAllowed),
+        FileStoreOutcome.NameInvalid => Refuse(GuestUploadReason.FileNameInvalid),
+        FileStoreOutcome.RateLimited => Refuse(GuestUploadReason.TooManyUploads, upload.RetryAfterSeconds),
         _ => Refuse(GuestUploadReason.GuestUploadsUnavailable, upload.RetryAfterSeconds)
     };
 
@@ -495,10 +495,10 @@ public class GuestUploadService : IGuestUploadService
     private static GuestUploadContract Describe(GuestUploadedFile file, string status, string? scanResult) =>
         new(file.MediaId, file.Name, file.Type, file.Size, status, scanResult);
 
-    private static string NormalizeStatus(string? status) => status switch
+    private static string NormalizeStatus(FileState state) => state switch
     {
-        CoreMediaStatus.Pending or CoreMediaStatus.Attached or CoreMediaStatus.Detached => GuestUploadStatus.Ready,
-        CoreMediaStatus.Rejected => GuestUploadStatus.Rejected,
+        FileState.Unattached or FileState.Attached or FileState.Detached => GuestUploadStatus.Ready,
+        FileState.Rejected => GuestUploadStatus.Rejected,
         _ => GuestUploadStatus.Scanning
     };
 
