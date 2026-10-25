@@ -469,12 +469,23 @@ public class FormWorkflowService : IFormWorkflowService
         var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && await IsPlatformAdminAsync(cancellationToken);
         if (workflow.OwnerUserId != userId && !adminMayArchive) return NotOwner<bool>();
 
-        workflow.Status = WorkflowStatus.Archived;
-        workflow.Intake = WorkflowIntake.Closed;
+        var now = DateTime.UtcNow;
 
-        await _uow.SaveChangesAsync(cancellationToken);
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            workflow.Status = WorkflowStatus.Archived;
+            workflow.Intake = WorkflowIntake.Closed;
 
-        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular durduruldu.");
+            // Formu dolduracak kişinin başvurusu burada biter; adım formları kapanır ki eski linkler bağımsız
+            // form gibi açılmasın. İncelemeyi bekleyen başvuru açık kalır ve kararla birlikte durur.
+            await _instances.StopRunsAwaitingApplicantAsync(workflow.Id, now, token);
+            await _workflows.CloseStepFormsAsync(workflow.Id, now, token);
+            await _uow.SaveChangesAsync(token);
+
+            return true;
+        }, cancellationToken);
+
+        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular durduruldu ve adım formları kapatıldı.");
     }
 
     /// <summary>

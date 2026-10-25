@@ -14,6 +14,9 @@ public interface IFormWorkflowRepository
     /// </summary>
     Task<WorkflowNodeLocation?> FindPublishedNodeAsync(Guid formId, CancellationToken ct = default);
 
+    /// <summary>Yayındaki sürümün açık adım formlarını kapatır; döndürdüğü kapanan form sayısıdır.</summary>
+    Task<int> CloseStepFormsAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
     Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default);
 
     Task<IReadOnlyDictionary<Guid, WorkflowDefinition>> GetCurrentDefinitionsAsync(

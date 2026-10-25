@@ -12,12 +12,18 @@ public interface IFormWorkflowInstanceRepository
     /// Kullanıcının bu formu içeren aktif başvurusu. Arama form üzerinden yapılır
     /// çünkü başvuru, yayındaki tanımdan daha eski bir version'a bağlı olabilir.
     /// Yazma için izlenen (tracked) varlık döner; akışın güncel kabul durumu
-    /// okunabilsin diye Workflow da yüklenir.
+    /// okunabilsin diye Workflow da yüklenir. İki akışta başvuru varsa arşivlenmemiş olanı önce gelir.
     /// </summary>
     Task<FormWorkflowInstance?> GetActiveByFormAsync(Guid formId, Guid userId, CancellationToken ct = default);
 
-    /// <summary>Cevabın bağlı olduğu adım; başvurusu ve kardeş adımlarıyla birlikte.</summary>
+    /// <summary>Cevabın bağlı olduğu adım; başvurusu, kardeş adımları ve akışıyla birlikte.</summary>
     Task<FormWorkflowStep?> GetStepByResponseAsync(Guid responseId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Akışın, açık adımında cevap olmayan aktif başvurularını sonuçsuz bitirir: formu doldurması beklenen kişi
+    /// arşivlenen akışta ilerleyemez. İncelemeyi bekleyen başvurular açık kalır.
+    /// </summary>
+    Task<int> StopRunsAwaitingApplicantAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
 
     /// <summary>
     /// Kullanıcının bu akıştaki en son başvurusu. Hem "daha önce çalıştırdı mı"

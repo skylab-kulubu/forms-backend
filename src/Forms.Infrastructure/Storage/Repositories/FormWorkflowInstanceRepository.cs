@@ -24,13 +24,24 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .Where(instance => instance.UserId == userId && instance.Status == WorkflowInstanceStatus.Active)
             .Where(instance => _context.WorkflowNodes
                 .Any(node => node.WorkflowVersionId == instance.WorkflowVersionId && node.FormId == formId))
+            .OrderBy(instance => instance.Workflow.Status == WorkflowStatus.Archived)
             .FirstOrDefaultAsync(ct);
 
     public Task<FormWorkflowStep?> GetStepByResponseAsync(Guid responseId, CancellationToken ct = default) =>
         _context.WorkflowSteps
             .Include(step => step.WorkflowInstance)
             .ThenInclude(instance => instance.Steps)
+            .Include(step => step.WorkflowInstance)
+            .ThenInclude(instance => instance.Workflow)
             .FirstOrDefaultAsync(step => step.ResponseId == responseId, ct);
+
+    public Task<int> StopRunsAwaitingApplicantAsync(Guid workflowId, DateTime now, CancellationToken ct = default) =>
+        WorkflowRunStop.StopAsync(
+            _context,
+            _context.WorkflowInstances.Where(run => run.WorkflowId == workflowId
+                && !run.Steps.Any(step => step.CompletedAt == null && step.ResponseId != null)),
+            now,
+            ct);
 
     public async Task<WorkflowRunSummary?> GetLastRunAsync(Guid workflowId, Guid userId, CancellationToken ct = default)
     {

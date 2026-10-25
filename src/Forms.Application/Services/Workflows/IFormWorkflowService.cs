@@ -80,8 +80,8 @@ public interface IFormWorkflowService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Akışı arşivler ve kalıcı olarak kapatır: devam eden başvurular durur, bekleyen
-    /// cevaplar yine incelenebilir.
+    /// Akışı arşivler ve kalıcı olarak kapatır: formu doldurması beklenen başvurular sonuçsuz biter, yayındaki
+    /// sürümün adım formları kapanır. İncelemeyi bekleyen cevaplar yine incelenir; başvuru kararla birlikte durur.
     /// </summary>
     Task<ServiceResult<bool>> ArchiveAsync(
         Guid workflowId,

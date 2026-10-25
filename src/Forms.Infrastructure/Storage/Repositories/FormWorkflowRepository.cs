@@ -39,6 +39,14 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 node.WorkflowVersion.Workflow.IntakeClosesAt))
             .FirstOrDefaultAsync(ct);
 
+    public Task<int> CloseStepFormsAsync(Guid workflowId, DateTime now, CancellationToken ct = default) =>
+        _context.Forms
+            .Where(form => form.Status == FormStatus.Open && _context.WorkflowNodes.Any(node =>
+                node.FormId == form.Id
+                && node.WorkflowVersion.WorkflowId == workflowId
+                && node.WorkflowVersion.Status == WorkflowStatus.Published))
+            .ExecuteUpdateAsync(s => s.SetProperty(form => form.Status, FormStatus.Closed).SetProperty(form => form.UpdatedAt, now), ct);
+
     public async Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default)
     {
         var version = await _context.WorkflowVersions.AsNoTracking()
