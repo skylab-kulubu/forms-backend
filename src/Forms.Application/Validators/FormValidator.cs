@@ -22,7 +22,7 @@ public static class FormValidator
         if (contract.Status is not (FormStatus.Open or FormStatus.Closed))
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Form yalnız açık ya da kapalı olabilir.");
 
-        // Tanımsız bir rol kaydedilirse "Role != None" diyen her yetki denetimini Viewer gibi geçerdi.
+        // Tanımsız bir rol kaydedilmesin: sözleşmede görünür ama hiçbir izne karşılık gelmez.
         if (contract.Collaborators?.Any(collaborator => !Enum.IsDefined(collaborator.Role)) == true)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bilinmeyen bir iş birliği rolü gönderildi.");
 

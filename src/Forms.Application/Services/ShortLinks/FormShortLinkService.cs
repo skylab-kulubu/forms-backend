@@ -101,12 +101,7 @@ public class FormShortLinkService : IFormShortLinkService
         var form = await _forms.GetWithCollaboratorsAsync(formId, cancellationToken);
         if (form is null) return (null, ServiceStatus.NotFound, "Form bulunamadı.");
 
-        var role = form.Collaborators.FirstOrDefault(c => c.UserId == userId)?.Role ?? CollaboratorRole.None;
-        var allowed = requiresEdit
-            ? role is CollaboratorRole.Owner or CollaboratorRole.Editor
-            : role != CollaboratorRole.None;
-
-        if (!allowed && !_currentUser.IsPlatformAdmin)
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, requiresEdit ? FormAction.ManageShortLink : FormAction.ViewShortLink))
         {
             var message = requiresEdit ? "Kısa adı yalnız sahip ve editörler değiştirebilir." : "Bu formu paylaşma yetkiniz yok.";
             return (form, ServiceStatus.NotAuthorized, message);

@@ -619,10 +619,17 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 - **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
 - **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
 - **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
-- **Authorization:** Role-based rules are enforced in the Application services:
-  - **Owner** - Full control and collaborator management
-  - **Editor** - Edit forms and manage responses
-  - **Viewer** - Read-only access
+- **Authorization:** What each form role may do is decided in one place, `FormAccess` in the Domain; services ask it instead of comparing roles themselves:
+
+| Action | Viewer | Editor | Owner | Service administrator without a role |
+|---|---|---|---|---|
+| See the form, its answers, files, analytics, exports and mail audience | ✓ | ✓ | ✓ | ✓ |
+| Decide on answers: approve, decline, ask for changes, archive, share; extend, accept or close timed attempts | ✓ | ✓ | ✓ | |
+| Open the form in the editor, manage its short link | | ✓ | ✓ | ✓ |
+| Edit the form, void a workflow application | | ✓ | ✓ | |
+| Delete the form | | | ✓ | |
+
+A **Viewer** is a response viewer: they handle answers but never change the form. A workflow's owner may also void its applications.
 
 ## Ownership transfer
 

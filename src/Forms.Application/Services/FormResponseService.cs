@@ -231,8 +231,7 @@ public class FormResponseService : IFormResponseService
 
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
     {
-        var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormResponsesListResult>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var form = await _forms.GetByIdAsync(formId, cancellationToken);
@@ -308,8 +307,7 @@ public class FormResponseService : IFormResponseService
         if (response == null)
             return new ServiceResult<ResponseContract>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
-        var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || _currentUser.IsPlatformAdmin;
+        var canView = response.Form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses);
 
         ShareCacheEntry? shareEntry = null;
         if (!canView)
@@ -432,8 +430,7 @@ public class FormResponseService : IFormResponseService
         var response = await _responses.GetByIdWithFormAndCollaboratorsAsync(responseId, cancellationToken);
         if (response == null) return (ServiceStatus.NotFound, "Yanıt bulunamadı.");
 
-        var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        var canView = isCollaborator || _currentUser.IsPlatformAdmin;
+        var canView = response.Form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses);
 
         if (!canView)
         {
@@ -463,9 +460,7 @@ public class FormResponseService : IFormResponseService
         if (response == null)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "İlgili yanıt bulunamadı.");
 
-        var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == reviewerId && c.Role != CollaboratorRole.None);
-
-        if (!isAuthorized)
+        if (!response.Form.Allows(reviewerId, _currentUser.IsPlatformAdmin, FormAction.HandleResponses))
             return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı onaylama veya reddetme yetkiniz yok.");
 
         if (response.IsArchived)
@@ -527,7 +522,7 @@ public class FormResponseService : IFormResponseService
         if (response == null)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "İlgili yanıt bulunamadı.");
 
-        var isAuthorized = response.Form.Collaborators.Any(c => c.UserId == archiverId && c.Role != CollaboratorRole.None);
+        var isAuthorized = response.Form.Allows(archiverId, _currentUser.IsPlatformAdmin, FormAction.HandleResponses);
 
         if (!isAuthorized)
             return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı arşivleme yetkiniz yok.");
@@ -573,8 +568,7 @@ public class FormResponseService : IFormResponseService
         if (form == null)
             return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
@@ -644,8 +638,7 @@ public class FormResponseService : IFormResponseService
         if (form == null)
             return new ServiceResult<byte[]>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var isAuthorized = form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<byte[]>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını dışa aktarma yetkiniz yok.");
 
         var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
@@ -789,8 +782,7 @@ public class FormResponseService : IFormResponseService
         if (response == null)
             return new ServiceResult<ShareTokenContract>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
-        var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isCollaborator)
+        if (!response.Form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.HandleResponses))
             return new ServiceResult<ShareTokenContract>(ServiceStatus.NotAuthorized, Message: "Bu yanıtı paylaşma yetkiniz yok.");
 
         var context = await _instances.GetContextByResponseAsync(responseId, cancellationToken);
@@ -822,8 +814,7 @@ public class FormResponseService : IFormResponseService
         if (response == null)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Yanıt bulunamadı.");
 
-        var isCollaborator = response.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isCollaborator)
+        if (!response.Form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.HandleResponses))
             return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu yanıtın paylaşımını iptal etme yetkiniz yok.");
 
         var token = await _cache.GetAsync<string>(ResponseKeyPrefix + responseId, ct: cancellationToken);
@@ -904,8 +895,7 @@ public class FormResponseService : IFormResponseService
         var run = await _instances.GetRunFactsAsync(instanceId, cancellationToken);
         if (run is null) return null;
 
-        var canManage = run.WorkflowOwnerId == viewerId
-            || form.Collaborators.Any(c => c.UserId == viewerId && c.Role is CollaboratorRole.Owner or CollaboratorRole.Editor);
+        var canManage = run.WorkflowOwnerId == viewerId || form.Allows(viewerId, _currentUser.IsPlatformAdmin, FormAction.VoidApplication);
         var block = WorkflowRunVoidBlock.Of(run);
 
         return new ResponseRunContract(

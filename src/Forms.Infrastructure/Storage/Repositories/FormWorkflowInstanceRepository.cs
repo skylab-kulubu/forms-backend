@@ -386,13 +386,22 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             hasTimedStep);
     }
 
-    public Task<bool> CanManageRunAsync(Guid instanceId, Guid userId, CancellationToken ct = default) =>
-        _context.WorkflowInstances.AsNoTracking()
+    public async Task<WorkflowRunAccess?> GetRunAccessAsync(Guid instanceId, Guid userId, CancellationToken ct = default)
+    {
+        var run = await _context.WorkflowInstances.AsNoTracking()
             .Where(instance => instance.Id == instanceId)
-            .AnyAsync(instance => instance.Workflow.OwnerUserId == userId
-                || _context.Collaborators.Any(collaborator => collaborator.UserId == userId
-                    && (collaborator.Role == CollaboratorRole.Owner || collaborator.Role == CollaboratorRole.Editor)
-                    && instance.Steps.Any(step => step.Node.FormId == collaborator.FormId)), ct);
+            .Select(instance => new
+            {
+                IsWorkflowOwner = instance.Workflow.OwnerUserId == userId,
+                Roles = _context.Collaborators
+                    .Where(collaborator => collaborator.UserId == userId && instance.Steps.Any(step => step.Node.FormId == collaborator.FormId))
+                    .Select(collaborator => collaborator.Role)
+                    .ToList()
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return run is null ? null : new WorkflowRunAccess(run.IsWorkflowOwner, run.Roles);
+    }
 
     public Task<FormWorkflowInstance?> GetForVoidAsync(Guid instanceId, CancellationToken ct = default) =>
         _context.WorkflowInstances

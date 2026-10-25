@@ -74,8 +74,8 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>Başvurunun durumu ve geçersiz sayılıp sayılamayacağını belirleyen gerçekler.</summary>
     Task<WorkflowRunFacts?> GetRunFactsAsync(Guid instanceId, CancellationToken ct = default);
 
-    /// <summary>Kişi akışın sahibi ya da başvurunun bir adım formunda Owner veya Editor mı?</summary>
-    Task<bool> CanManageRunAsync(Guid instanceId, Guid userId, CancellationToken ct = default);
+    /// <summary>Kişi başvurunun akışının sahibi mi ve adım formlarında hangi rolleri taşıyor; kararı FormAccess verir.</summary>
+    Task<WorkflowRunAccess?> GetRunAccessAsync(Guid instanceId, Guid userId, CancellationToken ct = default);
 
     /// <summary>Geçersiz saymak için başvuru; adımları ve akışıyla, izlenen olarak.</summary>
     Task<FormWorkflowInstance?> GetForVoidAsync(Guid instanceId, CancellationToken ct = default);
@@ -192,3 +192,5 @@ public sealed record WorkflowRunFacts(
     string? VoidNote,
     Guid StartFormId,
     bool HasTimedStep);
+
+public sealed record WorkflowRunAccess(bool IsWorkflowOwner, IReadOnlyList<CollaboratorRole> StepFormRoles);
