@@ -1,18 +1,36 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 
 namespace Skylab.Forms.Api.Auth;
 
+public sealed class FormsAuthenticationOptions
+{
+    public const string SectionName = "Authentication";
+
+    public string Issuer { get; init; } = "";
+
+    public string Audience { get; init; } = "";
+}
+
 public static class FormsJwtAuthenticationExtensions
 {
-    public static IServiceCollection AddFormsJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddFormsJwtAuthentication(this IServiceCollection services)
     {
-        services
-            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
+        services.AddOptions<FormsAuthenticationOptions>()
+            .BindConfiguration(FormsAuthenticationOptions.SectionName)
+            .Validate(
+                settings => Uri.TryCreate(settings.Issuer, UriKind.Absolute, out var issuer) && issuer.Scheme is "https" or "http",
+                "Authentication:Issuer must be the address of the token issuer, like https://auth.example.org/realms/forms.")
+            .Validate(settings => !string.IsNullOrWhiteSpace(settings.Audience), "Authentication:Audience must name the audience Forms' tokens carry.")
+            .ValidateOnStart();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<IOptions<FormsAuthenticationOptions>>((options, settings) =>
             {
-                options.Authority = configuration["Authentication:Issuer"] ?? "https://e.yildizskylab.com/realms/e-skylab";
-                options.Audience = configuration["Authentication:Audience"] ?? "forms";
+                options.Authority = settings.Value.Issuer;
+                options.Audience = settings.Value.Audience;
                 options.MapInboundClaims = false;
                 options.BackchannelTimeout = TimeSpan.FromSeconds(5);
                 options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30);

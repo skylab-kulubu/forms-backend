@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Infrastructure.Integrations.Cloudflare;
@@ -19,22 +20,23 @@ internal sealed class CloudflareTurnstileVerifier : IHumanVerifier
 
     private readonly HttpClient _httpClient;
     private readonly TurnstileOptions _options;
+    private readonly IReadOnlySet<string> _hostnames;
     private readonly TurnstileReachability _reachability;
     private readonly ILogger<CloudflareTurnstileVerifier> _logger;
 
-    public CloudflareTurnstileVerifier(HttpClient httpClient, TurnstileOptions options, TurnstileReachability reachability, ILogger<CloudflareTurnstileVerifier> logger)
+    public CloudflareTurnstileVerifier(HttpClient httpClient, IOptions<TurnstileOptions> options, TurnstileReachability reachability, ILogger<CloudflareTurnstileVerifier> logger)
     {
         _httpClient = httpClient;
-        _options = options;
+        _options = options.Value;
+        _hostnames = _options.Hostnames;
         _reachability = reachability;
         _logger = logger;
     }
 
-    public bool IsEnabled => _options.IsEnabled;
+    public bool IsEnabled => true;
 
     public async Task<bool> IsReachableAsync(CancellationToken ct = default)
     {
-        if (_options.SecretKey is not { } secret) return false;
         if (_reachability.Current is { } known) return known;
 
         await _reachability.Probe.WaitAsync(ct);
@@ -42,7 +44,7 @@ internal sealed class CloudflareTurnstileVerifier : IHumanVerifier
         {
             if (_reachability.Current is { } settled) return settled;
 
-            var fields = new Dictionary<string, string> { ["secret"] = secret, ["response"] = string.Empty };
+            var fields = new Dictionary<string, string> { ["secret"] = _options.Secret, ["response"] = string.Empty };
 
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(TotalBudget);
@@ -68,13 +70,12 @@ internal sealed class CloudflareTurnstileVerifier : IHumanVerifier
 
     public async Task<HumanCheckVerdict> VerifyAsync(string? token, string action, IPAddress? remoteAddress, CancellationToken ct = default)
     {
-        if (_options.SecretKey is not { } secret) return HumanCheckVerdict.Disabled;
         if (token is { Length: > MaxTokenLength }) return HumanCheckVerdict.Rejected;
         if (string.IsNullOrEmpty(token)) return await IsReachableAsync(ct) ? HumanCheckVerdict.Rejected : HumanCheckVerdict.Unavailable;
 
         var fields = new Dictionary<string, string>
         {
-            ["secret"] = secret,
+            ["secret"] = _options.Secret,
             ["response"] = token,
             ["idempotency_key"] = Guid.NewGuid().ToString()
         };
@@ -137,7 +138,7 @@ internal sealed class CloudflareTurnstileVerifier : IHumanVerifier
             var codes = string.Join(',', reply.ErrorCodes ?? []);
 
             if (reply.ErrorCodes?.Any(SecretErrors.Contains) == true)
-                _logger.LogError("Turnstile gizli anahtarı kabul edilmedi ({ErrorCodes}); TURNSTILE_SECRET_KEY ayarını kontrol edin", codes);
+                _logger.LogError("Turnstile gizli anahtarı kabul edilmedi ({ErrorCodes}); Integrations:Turnstile:SecretKey ayarını kontrol edin", codes);
             else if (reply.ErrorCodes?.Any(error => error.StartsWith(HttpErrorPrefix, StringComparison.Ordinal)) == true)
                 _logger.LogWarning("Cloudflare siteverify isteği geri çevirdi ({ErrorCodes}); misafir doğrulamaları reddediliyor", codes);
             else
@@ -154,7 +155,7 @@ internal sealed class CloudflareTurnstileVerifier : IHumanVerifier
             return HumanCheckVerdict.Rejected;
         }
 
-        if (_options.AllowedHostnames.Count > 0 && (reply.Hostname is null || !_options.AllowedHostnames.Contains(reply.Hostname)))
+        if (_hostnames.Count > 0 && (reply.Hostname is null || !_hostnames.Contains(reply.Hostname)))
         {
             _logger.LogWarning("Turnstile hostname izinli listede değil: {Hostname}", reply.Hostname);
             return HumanCheckVerdict.Rejected;

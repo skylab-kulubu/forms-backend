@@ -2,9 +2,13 @@ namespace Skylab.Forms.Application.GuestUploads;
 
 public sealed class GuestUploadOptions
 {
-    public bool Enabled { get; init; }
+    public const string SectionName = "GuestUploads";
 
-    public int IpSubmitsPerMinute { get; init; } = 300;
+    public string Mode { get; set; } = "off";
 
-    public int FormSubmitsPerMinute { get; init; } = 1000;
+    public bool Enabled => string.Equals(Mode.Trim(), "on", StringComparison.OrdinalIgnoreCase);
+
+    public int IpSubmitsPerMinute { get; set; } = 300;
+
+    public int FormSubmitsPerMinute { get; set; } = 1000;
 }

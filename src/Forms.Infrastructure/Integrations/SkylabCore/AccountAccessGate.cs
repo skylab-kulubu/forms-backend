@@ -58,8 +58,8 @@ public sealed class AccountAccessGate(IConnectionMultiplexer connection, Account
     public void Dispose() => connection.Dispose();
 
     private Task<T> ReadAsync<T>(Func<IDatabase, Task<T>> read, CancellationToken cancellationToken) =>
-        read(connection.GetDatabase(options.Database))
-            .WaitAsync(TimeSpan.FromMilliseconds(options.OperationTimeoutMilliseconds), cancellationToken);
+        read(connection.GetDatabase(options.Database ?? 0))
+            .WaitAsync(TimeSpan.FromMilliseconds(options.OperationTimeout), cancellationToken);
 
     // Redis'e subject değil, yalnız sha256(issuer + NUL + subject) yazılır.
     private static RedisKey MarkerKey(string issuer, string subject) =>
