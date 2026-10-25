@@ -10,13 +10,13 @@ public class FormWorkflowRunService : IFormWorkflowRunService
 {
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowInstanceRepository _instances;
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
     private readonly ICurrentUser _currentUser;
 
     public FormWorkflowRunService(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
-        IExternalUserService userService,
+        IUserDirectory userService,
         ICurrentUser currentUser)
     {
         _workflows = workflows;

@@ -13,11 +13,11 @@ public class FormShortLinkService : IFormShortLinkService
 {
     private readonly IFormRepository _forms;
     private readonly ICoreShortLinks _links;
-    private readonly IExternalUserService _users;
+    private readonly IUserDirectory _users;
     private readonly ICurrentUser _currentUser;
     private readonly ShortLinkOptions _options;
 
-    public FormShortLinkService(IFormRepository forms, ICoreShortLinks links, IExternalUserService users, ICurrentUser currentUser, ShortLinkOptions options)
+    public FormShortLinkService(IFormRepository forms, ICoreShortLinks links, IUserDirectory users, ICurrentUser currentUser, ShortLinkOptions options)
     {
         _forms = forms;
         _links = links;

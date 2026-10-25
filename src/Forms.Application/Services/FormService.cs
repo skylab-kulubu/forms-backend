@@ -23,7 +23,7 @@ public class FormService : IFormService
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
     private readonly IFormsUnitOfWork _uow;
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
     private readonly IFormDraftService _draftService;
     private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
@@ -36,7 +36,7 @@ public class FormService : IFormService
         IFormRepository forms,
         IFormResponseRepository responses,
         IFormsUnitOfWork uow,
-        IExternalUserService userService,
+        IUserDirectory userService,
         IFormDraftService draftService,
         ICurrentUser currentUser,
         ICacheService cache,
