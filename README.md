@@ -755,6 +755,8 @@ dotnet ef migrations add MigrationName \
   --startup-project src/Forms.Api
 ```
 
+Adding a migration needs no settings: `dotnet ef` builds the DbContext from `DesignTimeFormsDbContextFactory` without opening a database. The service applies pending migrations itself at startup.
+
 ## Validation
 
 ```bash
