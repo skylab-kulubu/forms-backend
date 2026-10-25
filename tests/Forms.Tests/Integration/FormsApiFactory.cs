@@ -54,6 +54,8 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
     public FakeUserDirectory Users { get; } = new();
     public RecordingMailDispatcher Mail { get; } = new();
 
+    public string RedisEndpoint => _redis.GetConnectionString();
+
     public HttpClient ClientFor(Guid userId, params string[] formsRoles)
     {
         var client = CreateClient();

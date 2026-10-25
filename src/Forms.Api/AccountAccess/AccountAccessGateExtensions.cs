@@ -25,14 +25,13 @@ public static class AccountAccessGateExtensions
 
             var subjects = context.User.Identities
                 .Where(identity => identity.IsAuthenticated)
-                .SelectMany(identity => identity.FindAll("sub"))
-                .Select(claim => claim.Value)
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Distinct(StringComparer.Ordinal)
+                .SelectMany(identity => identity.FindAll("sub").Select(sub => (Issuer: identity.FindFirst("iss")?.Value, Subject: sub.Value)))
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Issuer) && !string.IsNullOrWhiteSpace(pair.Subject))
+                .Distinct()
                 .ToArray();
 
-            var decision = subjects is [{ Length: <= 512 } subject]
-                ? await gate.CheckSubjectAsync(subject, context.RequestAborted)
+            var decision = subjects is [{ Issuer: { } issuer, Subject: { Length: <= 512 } subject }]
+                ? await gate.CheckSubjectAsync(issuer, subject, context.RequestAborted)
                 : AccountAccessDecision.Blocked;
 
             if (decision == AccountAccessDecision.Allowed)

@@ -85,7 +85,9 @@ public static class InternalEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
             }
 
-            var decision = await gate.CheckSubjectAsync(command.SubjectId.ToString(), ct);
+            // Forms tek bir issuer'ın token'ını kabul eder; core'un token'ını veren, silinecek kişininkini de vermiştir.
+            var issuer = context.User.FindFirst("iss")?.Value ?? string.Empty;
+            var decision = await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct);
             if (decision == AccountAccessDecision.Unavailable)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel okunamadı", command.RequestId);
