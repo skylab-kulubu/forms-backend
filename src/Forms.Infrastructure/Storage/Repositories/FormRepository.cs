@@ -83,9 +83,11 @@ public sealed class FormRepository : IFormRepository
 
         var totalCount = await query.CountAsync(ct);
 
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+
         var forms = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(f => new FormSummaryContract(
                 f.Id,
                 f.Title,
@@ -100,7 +102,7 @@ public sealed class FormRepository : IFormRepository
             ))
             .ToListAsync(ct);
 
-        return new PagedResult<FormSummaryContract>(forms, totalCount, request.Page, request.PageSize);
+        return new PagedResult<FormSummaryContract>(forms, totalCount, page, pageSize);
     }
 
     private IQueryable<Form> ApplyUserFormsSorting(IQueryable<Form> query, string? sortBy, string? sortDirection, Guid userId)
@@ -190,9 +192,11 @@ public sealed class FormRepository : IFormRepository
 
         var totalCount = await query.CountAsync(ct);
 
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+
         var items = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(f => new FormAllSummaryProjection(
                 f.Id,
                 f.Title,
@@ -207,7 +211,7 @@ public sealed class FormRepository : IFormRepository
             ))
             .ToListAsync(ct);
 
-        return new PagedResult<FormAllSummaryProjection>(items, totalCount, request.Page, request.PageSize);
+        return new PagedResult<FormAllSummaryProjection>(items, totalCount, page, pageSize);
     }
 
     public void Add(Form form) => _context.Forms.Add(form);

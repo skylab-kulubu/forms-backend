@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Skylab.Forms.Application.Contracts.Collaborators;
+using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Responses;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Enums;
 
 namespace Skylab.Forms.Tests.Integration;
@@ -33,6 +35,52 @@ public class FormInputTests(FormsApiFactory api)
         var created = await api.ClientFor(owner.Id).PostAsJsonAsync("/api/admin/forms/", Api.NewForm("Kulüp başvurusu") with { Status = FormStatus.Deleted });
 
         Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+    }
+
+    [Fact]
+    public async Task Names_longer_than_their_column_are_refused_with_400()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var name = new string('a', 101);
+
+        var form = await owner.PostAsJsonAsync("/api/admin/forms/", Api.NewForm(name));
+        var workflow = await owner.PostAsJsonAsync("/api/admin/workflows/", new WorkflowUpsertRequest(name, null, AllowMultipleRuns: false));
+        var template = await owner.PostAsJsonAsync("/api/admin/forms/component-groups", new ComponentGroupUpsertRequest(null, name, null, []));
+
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (form.StatusCode, workflow.StatusCode, template.StatusCode));
+    }
+
+    [Fact]
+    public async Task A_draft_workflow_definition_is_checked_before_the_database_refuses_it()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var form = await owner.CreateFormAsync(Api.NewForm("Başvuru", Api.Question("name")));
+        var other = await owner.CreateFormAsync(Api.NewForm("Mülakat", Api.Question("name")));
+        var workflowId = await owner.CreateWorkflowAsync("Başvuru akışı");
+
+        var longKey = await owner.PutAsJsonAsync($"/api/admin/workflows/{workflowId}/definition", new WorkflowDefinitionRequest(
+            [new WorkflowNodeRequest(new string('k', 65), form.Id, IsStart: true)],
+            []));
+
+        var samePriority = await owner.PutAsJsonAsync($"/api/admin/workflows/{workflowId}/definition", new WorkflowDefinitionRequest(
+            [new WorkflowNodeRequest("apply", form.Id, IsStart: true), new WorkflowNodeRequest("interview", other.Id, IsStart: false)],
+            [
+                new WorkflowTransitionRequest("apply", "interview", WorkflowTransitionTrigger.ResponseSubmitted, null, Priority: 0),
+                new WorkflowTransitionRequest("apply", null, WorkflowTransitionTrigger.ResponseSubmitted, null, Priority: 0)
+            ]));
+
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (longKey.StatusCode, samePriority.StatusCode));
+    }
+
+    [Theory]
+    [InlineData("/api/admin/forms/?Page=0&PageSize=10")]
+    [InlineData("/api/admin/forms/component-groups?Page=-3")]
+    [InlineData("/api/admin/workflows/?Page=0")]
+    public async Task A_page_below_one_reads_the_first_page(string url)
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync(url)).StatusCode);
     }
 
     [Fact]

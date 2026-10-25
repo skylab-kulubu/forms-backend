@@ -111,8 +111,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
         DateTime now,
         CancellationToken ct = default)
     {
-        var page = Math.Max(1, request.Page);
-        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
         var finished = request.Filter == WorkflowRunFilter.Finished;
         var nodeKey = request.NodeKey?.Trim();
 

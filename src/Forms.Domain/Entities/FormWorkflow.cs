@@ -5,6 +5,9 @@ namespace Skylab.Forms.Domain.Entities;
 
 public class FormWorkflow : BaseEntity
 {
+    /// <summary>Workflows.Name kolonunun uzunluğu (varchar(100)).</summary>
+    public const int NameMaxLength = 100;
+
     public string Name { get; set; } = "Yeni Akış";
     public string? Description { get; set; }
     public Guid OwnerUserId { get; set; }

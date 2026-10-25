@@ -47,8 +47,8 @@ public class FormWorkflowService : IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akış adı boş olamaz.");
+        if (NameError(request.Name) is { } error)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: error);
 
         var workflow = new FormWorkflow
         {
@@ -77,8 +77,8 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow is null) return NotFound<WorkflowContract>();
         if (workflow.OwnerUserId != userId) return NotOwner<WorkflowContract>();
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akış adı boş olamaz.");
+        if (NameError(request.Name) is { } error)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: error);
 
         if (request.AllowMultipleRuns && !workflow.AllowMultipleRuns && await HasTimedStepAsync(workflowId, cancellationToken))
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akışta kişisel süreli bir form var; tekrar başlatma açılamaz.");
@@ -542,6 +542,7 @@ public class FormWorkflowService : IFormWorkflowService
             var key = node.NodeKey?.Trim() ?? string.Empty;
 
             if (key.Length == 0) return ([], [], "Her adımın bir anahtarı olmalıdır.");
+            if (key.Length > WorkflowLimits.MaxNodeKeyLength) return ([], [], $"Adım anahtarı en fazla {WorkflowLimits.MaxNodeKeyLength} karakter olabilir.");
             if (!seenKeys.Add(key)) return ([], [], $"'{key}' adım anahtarı birden fazla kez kullanılmış.");
 
             nodes.Add(new FormWorkflowNode
@@ -559,11 +560,19 @@ public class FormWorkflowService : IFormWorkflowService
 
         var nodesByKey = nodes.ToDictionary(node => node.NodeKey, StringComparer.OrdinalIgnoreCase);
         var transitions = new List<FormWorkflowTransition>();
+        var priorities = new HashSet<(Guid, WorkflowTransitionTrigger, int)>();
 
         foreach (var transition in request.Transitions)
         {
             if (!nodesByKey.TryGetValue(transition.SourceNodeKey?.Trim() ?? string.Empty, out var source))
                 return ([], [], $"'{transition.SourceNodeKey}' adımı akışta bulunmuyor.");
+
+            if (!Enum.IsDefined(transition.Trigger))
+                return ([], [], "Bilinmeyen bir yönlendirme tetiği gönderildi.");
+
+            // Benzersiz index taslağı da korur: bu denetim yayına bırakılırsa taslak kaydı 500 ile düşer.
+            if (!priorities.Add((source.Id, transition.Trigger, transition.Priority)))
+                return ([], [], $"'{source.NodeKey}' adımında aynı tetik için iki yönlendirme aynı önceliği paylaşıyor.");
 
             FormWorkflowNode? target = null;
             var targetKey = transition.TargetNodeKey?.Trim();
@@ -741,4 +750,9 @@ public class FormWorkflowService : IFormWorkflowService
     private static ServiceResult<T> NotFound<T>() => new(ServiceStatus.NotFound, Message: "Akış bulunamadı.");
 
     private static ServiceResult<T> NotOwner<T>() => new(ServiceStatus.NotAuthorized, Message: "Bu akış üzerinde yetkiniz yok.");
+
+    private static string? NameError(string? name) =>
+        string.IsNullOrWhiteSpace(name) ? "Akış adı boş olamaz."
+        : name.Trim().Length > FormWorkflow.NameMaxLength ? $"Akış adı en fazla {FormWorkflow.NameMaxLength} karakter olabilir."
+        : null;
 }

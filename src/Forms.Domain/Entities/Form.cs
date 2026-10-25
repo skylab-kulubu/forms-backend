@@ -6,6 +6,9 @@ namespace Skylab.Forms.Domain.Entities;
 
 public class Form : BaseEntity
 {
+    /// <summary>Forms.Title kolonunun uzunluğu (varchar(100)).</summary>
+    public const int TitleMaxLength = 100;
+
     public string Title { get; set; } = "Yeni Form";
     public string? Description { get; set; }
     public List<FormSchemaItem> Schema { get; set; } = new();

@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
@@ -21,6 +22,14 @@ internal static class Api
         response.EnsureSuccessStatusCode();
 
         return await response.DataAsync<FormContract>();
+    }
+
+    public static async Task<Guid> CreateWorkflowAsync(this HttpClient client, string name)
+    {
+        var response = await client.PostAsJsonAsync("/api/admin/workflows/", new WorkflowUpsertRequest(name, null, AllowMultipleRuns: false));
+        response.EnsureSuccessStatusCode();
+
+        return (await response.DataAsync<WorkflowContract>()).Id;
     }
 
     public static Task<HttpResponseMessage> SubmitAsync(this HttpClient client, Guid formId, params (string QuestionId, string Answer)[] answers) =>

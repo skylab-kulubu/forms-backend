@@ -30,6 +30,9 @@ public class ComponentGroupService : IComponentGroupService
 
     public async Task<ServiceResult<ComponentGroupContract>> CreateGroupAsync(ComponentGroupUpsertRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
+        if (TitleError(request.Title) is { } error)
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAcceptable, Message: error);
+
         var newGroup = new ComponentGroup
         {
             Id = Guid.NewGuid(),
@@ -54,6 +57,9 @@ public class ComponentGroupService : IComponentGroupService
 
         if (existingGroup.OwnedBy != userId)
             return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAuthorized, Message: "Bu şablonu düzenleme yetkiniz yok.");
+
+        if (TitleError(request.Title) is { } error)
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAcceptable, Message: error);
 
         existingGroup.Title = request.Title;
         existingGroup.Description = request.Description;
@@ -196,4 +202,9 @@ public class ComponentGroupService : IComponentGroupService
 
     private static ComponentGroupContract MapToContract(ComponentGroup group, UserContract? sharedBy = null) =>
         new(group.Id, group.Title, group.Description, group.Schema, sharedBy);
+
+    private static string? TitleError(string? title) =>
+        string.IsNullOrWhiteSpace(title) ? "Şablon adı boş olamaz."
+        : title.Length > ComponentGroup.TitleMaxLength ? $"Şablon adı en fazla {ComponentGroup.TitleMaxLength} karakter olabilir."
+        : null;
 }

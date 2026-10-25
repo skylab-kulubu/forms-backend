@@ -264,10 +264,12 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
 
         var totalCount = await query.CountAsync(ct);
 
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+
         var rows = await ordered
             .ThenBy(workflow => workflow.Id)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(workflow => new
             {
                 workflow.Id,
@@ -317,7 +319,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             row.HasDraft,
             row.UpdatedAt)).ToList();
 
-        return new PagedResult<WorkflowSummaryProjection>(items, totalCount, request.Page, request.PageSize);
+        return new PagedResult<WorkflowSummaryProjection>(items, totalCount, page, pageSize);
     }
 
     public Task<List<Guid>> GetFormIdsAsync(Guid workflowId, CancellationToken ct = default) =>
