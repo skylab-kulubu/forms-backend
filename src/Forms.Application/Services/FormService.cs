@@ -62,7 +62,7 @@ public class FormService : IFormService
     {
         var schema = contract.Schema ?? new();
 
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema, _guestUploads.Capability is not null);
+        var validation = FormValidator.ValidateUpsert(contract, schema, _guestUploads.Capability is not null);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 
@@ -129,7 +129,7 @@ public class FormService : IFormService
 
         var schema = contract.Schema ?? new();
 
-        var validation = FormValidator.ValidateUpsert(contract.AllowAnonymousResponses, contract.AllowMultipleResponses, schema, _guestUploads.Capability is not null);
+        var validation = FormValidator.ValidateUpsert(contract, schema, _guestUploads.Capability is not null);
         if (validation.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(validation.Status, Message: validation.Message);
 

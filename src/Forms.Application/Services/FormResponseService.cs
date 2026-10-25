@@ -458,6 +458,9 @@ public class FormResponseService : IFormResponseService
 
     public async Task<ServiceResult<bool>> UpdateResponseStatusAsync(ResponseStatusUpdateRequest contract, Guid reviewerId, CancellationToken cancellationToken = default)
     {
+        if (!Enum.IsDefined(contract.NewStatus))
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Bilinmeyen bir cevap durumu gönderildi.");
+
         var response = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(contract.ResponseId, cancellationToken);
 
         if (response == null)

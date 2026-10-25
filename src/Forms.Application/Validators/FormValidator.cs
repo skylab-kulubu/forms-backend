@@ -1,20 +1,25 @@
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts;
+using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Domain.Common;
+using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Validators;
 
 public static class FormValidator
 {
-    public static ServiceResult<bool> ValidateUpsert(bool allowAnonymous, bool allowMultiple, List<FormSchemaItem> schema, bool guestUploadsEnabled)
+    public static ServiceResult<bool> ValidateUpsert(FormUpsertRequest contract, List<FormSchemaItem> schema, bool guestUploadsEnabled)
     {
-        if (allowAnonymous && !allowMultiple)
+        if (contract.Status is not (FormStatus.Open or FormStatus.Closed))
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Form yalnız açık ya da kapalı olabilir.");
+
+        if (contract.AllowAnonymousResponses && !contract.AllowMultipleResponses)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Anonim formlarda çoklu yanıt özelliği açık olmalıdır.");
 
         bool hasFileField = schema.Any(x => x.Type.Equals("file"));
 
-        if (hasFileField && allowAnonymous && !guestUploadsEnabled)
+        if (hasFileField && contract.AllowAnonymousResponses && !guestUploadsEnabled)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Anonim formlarda dosya yüklenemez.");
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
