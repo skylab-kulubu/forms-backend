@@ -86,8 +86,9 @@ public static class InternalEndpoints
             }
 
             // Forms tek bir issuer'ın token'ını kabul eder; core'un token'ını veren, silinecek kişininkini de vermiştir.
-            var issuer = context.User.FindFirst("iss")?.Value ?? string.Empty;
-            var decision = await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct);
+            var decision = context.User.FindFirst("iss")?.Value is { Length: > 0 } issuer
+                ? await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct)
+                : AccountAccessDecision.Unavailable;
             if (decision == AccountAccessDecision.Unavailable)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel okunamadı", command.RequestId);

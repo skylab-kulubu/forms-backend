@@ -712,7 +712,7 @@ public class FormResponseService : IFormResponseService
         return new ServiceResult<byte[]>(ServiceStatus.Success, _excelService.GenerateExcel(new ExcelExportRequest(form.Title, headers, rows)));
     }
 
-    // Arayüzdeki adlarla aynı: forms-frontend ResponseActions.jsx STATUS_META.
+    // Arayüzdeki adlarla aynı: forms-frontend ResponseDisplayer.jsx STEP_STATUS ve ResponseActions.jsx STATUS_META.
     private static string StatusLabel(FormResponseStatus status) => status switch
     {
         FormResponseStatus.NonRestrict => "Gönderildi",
