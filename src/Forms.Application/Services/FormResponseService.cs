@@ -44,7 +44,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormAttemptRepository _attemptRecords;
     private readonly IGuestUploadService _guestUploads;
     private readonly ICoreMedia _media;
-    private readonly ISkyMailService _skyMailService;
+    private readonly IMailAudienceExport _mailAudience;
 
     public FormResponseService(
         IFormRepository forms,
@@ -62,9 +62,9 @@ public class FormResponseService : IFormResponseService
         IFormAttemptRepository attemptRecords,
         IGuestUploadService guestUploads,
         ICoreMedia media,
-        ISkyMailService skyMailService)
+        IMailAudienceExport mailAudience)
     {
-        _skyMailService = skyMailService;
+        _mailAudience = mailAudience;
         _attempts = attempts;
         _attemptRecords = attemptRecords;
         _guestUploads = guestUploads;
@@ -627,7 +627,14 @@ public class FormResponseService : IFormResponseService
         if (recipients.Recipients.Count == 0)
             return new ServiceResult<FormMailSourceContract>(ServiceStatus.NotAcceptable, Message: "E-posta gönderilebilecek yanıtlayan bulunamadı.");
 
-        return await _skyMailService.PrepareFormMailSourceAsync(recipients, cancellationToken);
+        var export = await _mailAudience.ExportAsync(recipients, cancellationToken);
+
+        return export switch
+        {
+            { Outcome: MailAudienceOutcome.Exported, Source: { } source } => new ServiceResult<FormMailSourceContract>(ServiceStatus.Success, source),
+            { Outcome: MailAudienceOutcome.TooLarge } => new ServiceResult<FormMailSourceContract>(ServiceStatus.NotAcceptable, Message: "Bu formun alıcı listesi mail aracının sınırlarına uygun değil."),
+            _ => new ServiceResult<FormMailSourceContract>(ServiceStatus.ServiceUnavailable, Message: "Kalıcı Forms mail bağlantısı şu an kullanılamıyor. Biraz sonra tekrar deneyin.")
+        };
     }
 
     public async Task<ServiceResult<byte[]>> ExportResponsesToExcelAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)

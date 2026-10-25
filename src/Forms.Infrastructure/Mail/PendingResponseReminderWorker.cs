@@ -94,7 +94,7 @@ public class PendingResponseReminderWorker : BackgroundService
                 }).ToList()
             };
 
-            _dispatcher.Enqueue(new SingleMailRequest(_options.PendingReminderTemplateKey, reviewer.Email!, MailNames.Full(reviewer), variables));
+            _dispatcher.Enqueue(new EmailMessage(_options.PendingReminderTemplateKey, reviewer.Email!, MailNames.Full(reviewer), variables));
         }
 
         await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, ct);

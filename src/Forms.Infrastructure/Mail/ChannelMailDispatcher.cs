@@ -9,13 +9,13 @@ public class ChannelMailDispatcher : IMailDispatcher
 {
     private const int Capacity = 1000;
 
-    private readonly Channel<SingleMailRequest> _channel;
+    private readonly Channel<EmailMessage> _channel;
     private readonly ILogger<ChannelMailDispatcher> _logger;
 
     public ChannelMailDispatcher(ILogger<ChannelMailDispatcher> logger)
     {
         _logger = logger;
-        _channel = Channel.CreateBounded<SingleMailRequest>(new BoundedChannelOptions(Capacity)
+        _channel = Channel.CreateBounded<EmailMessage>(new BoundedChannelOptions(Capacity)
         {
             SingleReader = true,
             SingleWriter = false,
@@ -23,9 +23,9 @@ public class ChannelMailDispatcher : IMailDispatcher
         });
     }
 
-    public ChannelReader<SingleMailRequest> Reader => _channel.Reader;
+    public ChannelReader<EmailMessage> Reader => _channel.Reader;
 
-    public bool Enqueue(SingleMailRequest request)
+    public bool Enqueue(EmailMessage request)
     {
         if (_channel.Writer.TryWrite(request)) return true;
 
