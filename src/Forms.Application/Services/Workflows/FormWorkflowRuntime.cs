@@ -739,15 +739,14 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         step.SelectedTransitionId = decision.Transition?.Id;
         instance.Touch(now);
 
-        // Arşivlenen akışta bekleyen karar yine verilir, ama başvuru sonraki adıma geçmez: sonuçsuz durur.
+        // Arşivlenen akışta bekleyen karar yine verilir, ama başvuru sonraki adıma geçmez: kararla birlikte durur.
         if (instance.Workflow?.Status == WorkflowStatus.Archived)
         {
             step.SelectedTransitionId = null;
+            var stopped = Complete(instance, step, trigger, now, startFormId);
             instance.Status = WorkflowInstanceStatus.Terminated;
-            instance.CompletedAt = now;
 
-            var declined = trigger is WorkflowTransitionTrigger.ResponseDeclined or WorkflowTransitionTrigger.TimedOut;
-            return (new WorkflowStepOutcome(instance.Id, declined ? WorkflowActionState.Declined : WorkflowActionState.Completed, step.Sequence, null, startFormId), null);
+            return (stopped, null);
         }
 
         if (decision.Outcome == WorkflowRouteOutcome.Unresolved)

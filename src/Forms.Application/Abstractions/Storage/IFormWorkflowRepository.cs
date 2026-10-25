@@ -17,6 +17,12 @@ public interface IFormWorkflowRepository
     /// <summary>Yayındaki sürümün açık adım formlarını kapatır; döndürdüğü kapanan form sayısıdır.</summary>
     Task<int> CloseStepFormsAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
 
+    /// <summary>
+    /// Akışı doğrudan veritabanında arşivler. İzlenen varlık üzerinden kaydetmek, commit geçici bir hatayla düşüp işlem
+    /// yeniden denendiğinde akışı arşivlenmemiş bırakırdı: varlık o an değişmemiş görünür.
+    /// </summary>
+    Task ArchiveAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
     Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default);
 
     Task<IReadOnlyDictionary<Guid, WorkflowDefinition>> GetCurrentDefinitionsAsync(

@@ -193,6 +193,15 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
         _context.WorkflowSteps.AsNoTracking()
             .AnyAsync(step => step.ResponseId == responseId && step.CompletedAt == null, ct);
 
+    public Task<bool> IsStepOpenAsync(Guid stepId, CancellationToken ct = default) =>
+        _context.WorkflowSteps.AsNoTracking()
+            .AnyAsync(step => step.Id == stepId && step.CompletedAt == null && step.WorkflowInstance.Status == WorkflowInstanceStatus.Active, ct);
+
+    public Task<int> TouchActiveRunsAsync(Guid workflowId, DateTime now, CancellationToken ct = default) =>
+        _context.WorkflowInstances
+            .Where(run => run.WorkflowId == workflowId && run.Status == WorkflowInstanceStatus.Active)
+            .ExecuteUpdateAsync(s => s.SetProperty(run => run.UpdatedAt, now), ct);
+
     public async Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default)
     {
         // Sorgu filtrelerini yok saymak bilinçli: formu sonradan silinmiş bir adımın

@@ -471,16 +471,16 @@ public class FormWorkflowService : IFormWorkflowService
 
         var now = DateTime.UtcNow;
 
+        // Her adım tekrarlanabilir bir toplu güncellemedir; işlem yeniden denenirse aynı sonuca varır.
         await _uow.ExecuteInTransactionAsync(async token =>
         {
-            workflow.Status = WorkflowStatus.Archived;
-            workflow.Intake = WorkflowIntake.Closed;
+            await _instances.TouchActiveRunsAsync(workflow.Id, now, token);
 
             // Formu dolduracak kişinin başvurusu burada biter; adım formları kapanır ki eski linkler bağımsız
             // form gibi açılmasın. İncelemeyi bekleyen başvuru açık kalır ve kararla birlikte durur.
             await _instances.StopRunsAwaitingApplicantAsync(workflow.Id, now, token);
             await _workflows.CloseStepFormsAsync(workflow.Id, now, token);
-            await _uow.SaveChangesAsync(token);
+            await _workflows.ArchiveAsync(workflow.Id, now, token);
 
             return true;
         }, cancellationToken);

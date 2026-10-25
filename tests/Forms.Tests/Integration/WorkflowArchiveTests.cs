@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
+using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Infrastructure.Storage;
 
@@ -55,6 +56,67 @@ public class WorkflowArchiveTests(FormsApiFactory api)
         var returned = await owner.PatchAsJsonAsync($"/api/admin/forms/responses/{waitingResponse}/status", new { newStatus = FormResponseStatus.Returned, note = "Adını düzelt" });
 
         Assert.Equal(HttpStatusCode.BadRequest, returned.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_decision_loaded_before_the_archive_cannot_save_after_it()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var (workflowId, apply, _) = await ReviewThenInterviewAsync(owner);
+        var waiting = api.Users.Add("Mehmet Kaya");
+        await SubmitAsync(waiting.Id, apply.Id);
+
+        using var scope = api.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
+        var run = await db.WorkflowInstances.SingleAsync(r => r.WorkflowId == workflowId && r.UserId == waiting.Id);
+
+        await owner.DeleteAsync($"/api/admin/workflows/{workflowId}");
+        run.Touch(DateTime.UtcNow);
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task A_decline_in_an_archived_workflow_stays_a_decline()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var (workflowId, apply, _) = await ReviewThenInterviewAsync(owner);
+        var waiting = api.Users.Add("Mehmet Kaya");
+        var responseId = await SubmitAsync(waiting.Id, apply.Id);
+        await owner.DeleteAsync($"/api/admin/workflows/{workflowId}");
+
+        (await owner.PatchAsJsonAsync($"/api/admin/forms/responses/{responseId}/status", new { newStatus = FormResponseStatus.Declined })).EnsureSuccessStatusCode();
+
+        using var scope = api.Services.CreateScope();
+        var run = await scope.ServiceProvider.GetRequiredService<FormsDbContext>().WorkflowInstances
+            .SingleAsync(r => r.WorkflowId == workflowId && r.UserId == waiting.Id);
+
+        Assert.Equal((WorkflowInstanceStatus.Terminated, WorkflowInstanceOutcome.Declined), (run.Status, run.Outcome));
+    }
+
+    [Fact]
+    public async Task A_timed_attempt_of_a_stopped_application_closes_quietly_when_time_runs_out()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var exam = await owner.CreateFormAsync(Api.NewForm("Sınav", Api.Question("name")) with { TimeLimitMinutes = 30 });
+        var workflowId = await owner.PublishWorkflowAsync("Sınav akışı", new WorkflowDefinitionRequest(
+            [new WorkflowNodeRequest("exam", exam.Id, IsStart: true, RequiresManualReview: false)],
+            [new WorkflowTransitionRequest("exam", null, WorkflowTransitionTrigger.ResponseSubmitted, null, Priority: 0)]));
+        var candidate = api.Users.Add("Mehmet Kaya");
+        (await api.ClientFor(candidate.Id).PostAsync($"/api/forms/{exam.Id}/attempt", null)).EnsureSuccessStatusCode();
+
+        await owner.DeleteAsync($"/api/admin/workflows/{workflowId}");
+
+        using var scope = api.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
+        var attemptId = await db.Attempts.Where(a => a.FormId == exam.Id && a.UserId == candidate.Id).Select(a => a.Id).SingleAsync();
+        await db.Attempts.Where(a => a.Id == attemptId).ExecuteUpdateAsync(s => s.SetProperty(a => a.DeadlineAt, DateTime.UtcNow.AddMinutes(-10)));
+
+        await scope.ServiceProvider.GetRequiredService<IFormAttemptService>().ExpireByIdAsync(attemptId);
+
+        Assert.Equal(FormAttemptStatus.NoSubmission, await db.Attempts.Where(a => a.Id == attemptId).Select(a => a.Status).SingleAsync());
+        Assert.False(await db.Responses.AnyAsync(r => r.FormId == exam.Id && r.UserId == candidate.Id));
+        Assert.Empty(api.Mail.To(candidate.Email!));
     }
 
     [Fact]

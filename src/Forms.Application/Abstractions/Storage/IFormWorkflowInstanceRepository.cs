@@ -26,6 +26,12 @@ public interface IFormWorkflowInstanceRepository
     Task<int> StopRunsAwaitingApplicantAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
 
     /// <summary>
+    /// Akışın bütün aktif başvurularının sürümünü değiştirir ve satırlarını işlem sonuna kadar kilitler: arşivle yarışan
+    /// bir karar sonraki adımı açamaz, 409 alır.
+    /// </summary>
+    Task<int> TouchActiveRunsAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
+    /// <summary>
     /// Kullanıcının bu akıştaki en son başvurusu. Hem "daha önce çalıştırdı mı"
     /// sorusunu hem de sonuçlanmış bir başvurunun kullanıcıya gösterilecek
     /// inceleme notunu karşılar.
@@ -49,6 +55,9 @@ public interface IFormWorkflowInstanceRepository
 
     /// <summary>Cevap, rotası henüz belirlenmemiş bir adıma mı bağlı?</summary>
     Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default);
+
+    /// <summary>Adım hâlâ açık ve başvurusu sürüyor mu; durdurulan başvurunun süreli denemesi buna bakar.</summary>
+    Task<bool> IsStepOpenAsync(Guid stepId, CancellationToken ct = default);
 
     /// <summary>Koşul değerlendirmesi için başvurunun cevaplanmış adımları.</summary>
     Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default);
