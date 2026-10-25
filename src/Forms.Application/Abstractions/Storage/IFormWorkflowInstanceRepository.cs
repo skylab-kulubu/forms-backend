@@ -21,6 +21,8 @@ public interface IFormWorkflowInstanceRepository
 
     Task<int> StopRunsAwaitingApplicantAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
 
+    Task<int> TouchActiveRunsAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
     /// <summary>
     /// Kullanıcının bu akıştaki en son başvurusu. Hem "daha önce çalıştırdı mı"
     /// sorusunu hem de sonuçlanmış bir başvurunun kullanıcıya gösterilecek
@@ -45,6 +47,8 @@ public interface IFormWorkflowInstanceRepository
 
     /// <summary>Cevap, rotası henüz belirlenmemiş bir adıma mı bağlı?</summary>
     Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default);
+
+    Task<bool> IsStepOpenAsync(Guid stepId, CancellationToken ct = default);
 
     /// <summary>Koşul değerlendirmesi için başvurunun cevaplanmış adımları.</summary>
     Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default);

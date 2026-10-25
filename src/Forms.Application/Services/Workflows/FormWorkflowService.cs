@@ -473,12 +473,11 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.ExecuteInTransactionAsync(async token =>
         {
-            workflow.Status = WorkflowStatus.Archived;
-            workflow.Intake = WorkflowIntake.Closed;
+            await _instances.TouchActiveRunsAsync(workflow.Id, now, token);
 
             await _instances.StopRunsAwaitingApplicantAsync(workflow.Id, now, token);
             await _workflows.CloseStepFormsAsync(workflow.Id, now, token);
-            await _uow.SaveChangesAsync(token);
+            await _workflows.ArchiveAsync(workflow.Id, now, token);
 
             return true;
         }, cancellationToken);

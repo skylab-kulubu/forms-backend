@@ -580,6 +580,9 @@ public class FormAttemptService : IFormAttemptService
     {
         if (attempt.Status != FormAttemptStatus.Started || attempt.DeadlineAt is not { } deadline) return attempt;
 
+        if (attempt.WorkflowStepId is { } stepOfRun && !await _instances.IsStepOpenAsync(stepOfRun, ct))
+            return await CloseStoppedAsync(attempt, deadline, ct);
+
         var draft = (await _drafts.GetResponseDraftAsync(form.Id, attempt.UserId, ct)).Data;
         var hasDraft = draft is { Responses.Count: > 0 };
 
@@ -629,6 +632,24 @@ public class FormAttemptService : IFormAttemptService
         }
 
         await _mail.NotifyAttemptAsync(form, attempt.UserId, hasDraft ? AttemptMailKind.Expired : AttemptMailKind.ExpiredEmpty, deadline, nextFormId: nextFormId, ct: ct);
+
+        return attempt;
+    }
+
+    private async Task<FormAttempt?> CloseStoppedAsync(FormAttempt attempt, DateTime deadline, CancellationToken ct)
+    {
+        attempt.Status = FormAttemptStatus.NoSubmission;
+        attempt.ExpiredAt = deadline;
+        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Closed, CreatedAt = deadline });
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (StorageConflictException)
+        {
+            return null;
+        }
 
         return attempt;
     }
