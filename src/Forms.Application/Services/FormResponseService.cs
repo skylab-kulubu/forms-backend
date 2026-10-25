@@ -851,7 +851,7 @@ public class FormResponseService : IFormResponseService
 
         return new ServiceResult<ResponseMetaContract>(
             ServiceStatus.Success,
-            Data: new ResponseMetaContract(response.Form.Title, sharedBy)
+            Data: new ResponseMetaContract(response.Form.Title, PublicUserContract.From(sharedBy))
         );
     }
 
