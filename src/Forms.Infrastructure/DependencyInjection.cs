@@ -104,7 +104,7 @@ public static class DependencyInjection
         services.AddSingleton<IGuestUploadStore, RedisGuestUploadStore>();
         services.AddHostedService<GuestUploadStartupLog>();
 
-        services.AddHttpClient<ITurnstileVerifier, CloudflareTurnstileVerifier>(client =>
+        services.AddHttpClient<IHumanVerifier, CloudflareTurnstileVerifier>(client =>
         {
             client.BaseAddress = new Uri("https://challenges.cloudflare.com");
             client.Timeout = TimeSpan.FromSeconds(5);

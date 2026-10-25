@@ -2,14 +2,14 @@ using System.Net;
 
 namespace Skylab.Forms.Application.Abstractions;
 
-public interface ITurnstileVerifier
+public interface IHumanVerifier
 {
     bool IsEnabled { get; }
-    Task<TurnstileVerdict> VerifyAsync(string? token, string action, IPAddress? remoteAddress, CancellationToken ct = default);
+    Task<HumanCheckVerdict> VerifyAsync(string? token, string action, IPAddress? remoteAddress, CancellationToken ct = default);
     Task<bool> IsReachableAsync(CancellationToken ct = default);
 }
 
-public enum TurnstileVerdict
+public enum HumanCheckVerdict
 {
     Passed,
     Rejected,
@@ -17,7 +17,7 @@ public enum TurnstileVerdict
     Disabled
 }
 
-public static class TurnstileActions
+public static class HumanCheckActions
 {
     public const string GuestUpload = "guest-upload";
     public const string GuestSubmit = "guest-submit";

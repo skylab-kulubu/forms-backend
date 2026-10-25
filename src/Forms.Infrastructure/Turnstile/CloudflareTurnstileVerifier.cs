@@ -7,7 +7,7 @@ using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Infrastructure.Turnstile;
 
-public sealed class CloudflareTurnstileVerifier : ITurnstileVerifier
+public sealed class CloudflareTurnstileVerifier : IHumanVerifier
 {
     private const string VerifyPath = "/turnstile/v0/siteverify";
     private const int MaxTokenLength = 2048;
@@ -66,11 +66,11 @@ public sealed class CloudflareTurnstileVerifier : ITurnstileVerifier
         }
     }
 
-    public async Task<TurnstileVerdict> VerifyAsync(string? token, string action, IPAddress? remoteAddress, CancellationToken ct = default)
+    public async Task<HumanCheckVerdict> VerifyAsync(string? token, string action, IPAddress? remoteAddress, CancellationToken ct = default)
     {
-        if (_options.SecretKey is not { } secret) return TurnstileVerdict.Disabled;
-        if (token is { Length: > MaxTokenLength }) return TurnstileVerdict.Rejected;
-        if (string.IsNullOrEmpty(token)) return await IsReachableAsync(ct) ? TurnstileVerdict.Rejected : TurnstileVerdict.Unavailable;
+        if (_options.SecretKey is not { } secret) return HumanCheckVerdict.Disabled;
+        if (token is { Length: > MaxTokenLength }) return HumanCheckVerdict.Rejected;
+        if (string.IsNullOrEmpty(token)) return await IsReachableAsync(ct) ? HumanCheckVerdict.Rejected : HumanCheckVerdict.Unavailable;
 
         var fields = new Dictionary<string, string>
         {
@@ -100,7 +100,7 @@ public sealed class CloudflareTurnstileVerifier : ITurnstileVerifier
 
         _reachability.Record(false);
         _logger.LogWarning("Turnstile doğrulaması {Attempts} denemede tamamlanamadı ({Failure})", MaxAttempts, failure);
-        return TurnstileVerdict.Unavailable;
+        return HumanCheckVerdict.Unavailable;
     }
 
     private async Task<(SiteverifyReply? Reply, string Failure)> SendAsync(
@@ -130,7 +130,7 @@ public sealed class CloudflareTurnstileVerifier : ITurnstileVerifier
         }
     }
 
-    private TurnstileVerdict Judge(SiteverifyReply reply, string action)
+    private HumanCheckVerdict Judge(SiteverifyReply reply, string action)
     {
         if (!reply.Success)
         {
@@ -143,24 +143,24 @@ public sealed class CloudflareTurnstileVerifier : ITurnstileVerifier
             else
                 _logger.LogInformation("Turnstile doğrulaması geçmedi ({ErrorCodes})", codes);
 
-            return TurnstileVerdict.Rejected;
+            return HumanCheckVerdict.Rejected;
         }
 
-        if (_options.UsesTestSecret) return TurnstileVerdict.Passed;
+        if (_options.UsesTestSecret) return HumanCheckVerdict.Passed;
 
         if (!string.Equals(reply.Action, action, StringComparison.Ordinal))
         {
             _logger.LogWarning("Turnstile action eşleşmedi: beklenen {ExpectedAction}, gelen {Action}", action, reply.Action);
-            return TurnstileVerdict.Rejected;
+            return HumanCheckVerdict.Rejected;
         }
 
         if (_options.AllowedHostnames.Count > 0 && (reply.Hostname is null || !_options.AllowedHostnames.Contains(reply.Hostname)))
         {
             _logger.LogWarning("Turnstile hostname izinli listede değil: {Hostname}", reply.Hostname);
-            return TurnstileVerdict.Rejected;
+            return HumanCheckVerdict.Rejected;
         }
 
-        return TurnstileVerdict.Passed;
+        return HumanCheckVerdict.Passed;
     }
 
     private sealed record SiteverifyReply(
