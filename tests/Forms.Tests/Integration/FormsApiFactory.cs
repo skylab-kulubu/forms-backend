@@ -10,7 +10,7 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Infrastructure.AnswerFiles;
 using Skylab.Forms.Infrastructure.Attempts;
 using Skylab.Forms.Infrastructure.Mail;
-using Skylab.Forms.Infrastructure.ResponseNotifications;
+using Skylab.Forms.Infrastructure.Outbox;
 using Skylab.Forms.Tests.Integration.Fakes;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -27,7 +27,7 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
     // Arka plan işleri core'a ve SkyMail'e gider; bir test bir işe ihtiyaç duyarsa onu kendisi çağırır.
     private static readonly Type[] Workers =
     [
-        typeof(ResponseNotificationWorker),
+        typeof(OutboxDispatcher),
         typeof(AnswerFileLinkWorker),
         typeof(MailWorker),
         typeof(PendingResponseReminderWorker),

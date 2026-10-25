@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.ShortLinks;
 using Skylab.Forms.Infrastructure.Integrations.Oidc;
-using Skylab.Forms.Infrastructure.ResponseNotifications;
+using Skylab.Forms.Infrastructure.Outbox;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
@@ -56,9 +56,9 @@ public static class SkylabCoreRegistration
         services.AddHttpClient<IAnswerFileStore, CoreAnswerFileStore>(Core(TimeSpan.FromSeconds(60)))
             .AddHttpMessageHandler<ServiceTokenHandler>();
 
-        services.AddHttpClient(ResponseNotificationWorker.HttpClientName, Core(TimeSpan.FromSeconds(10)))
+        services.AddHttpClient<CoreResponseFeed>(Core(TimeSpan.FromSeconds(10)))
             .AddHttpMessageHandler<ServiceTokenHandler>();
-        services.AddHostedService<ResponseNotificationWorker>();
+        services.AddTransient<IOutboxHandler>(sp => sp.GetRequiredService<CoreResponseFeed>());
 
         return services;
     }

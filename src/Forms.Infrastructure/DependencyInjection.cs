@@ -16,6 +16,7 @@ using Skylab.Forms.Infrastructure.Exports;
 using Skylab.Forms.Infrastructure.GuestUploads;
 using Skylab.Forms.Infrastructure.Integrations;
 using Skylab.Forms.Infrastructure.Mail;
+using Skylab.Forms.Infrastructure.Outbox;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
 using StackExchange.Redis;
@@ -80,6 +81,7 @@ public static class DependencyInjection
 
         services.AddScoped<IDraftFileHolds, DraftFileHolds>();
         services.AddHostedService<AnswerFileLinkWorker>();
+        services.AddHostedService<OutboxDispatcher>();
 
         services.AddSingleton<ChannelMailDispatcher>();
         services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());

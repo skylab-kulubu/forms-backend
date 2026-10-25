@@ -1,7 +1,9 @@
+using Skylab.Forms.Application.Events;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Common;
+using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Infrastructure.AnswerFiles;
-using Skylab.Forms.Infrastructure.ResponseNotifications;
+using Skylab.Forms.Infrastructure.Outbox;
 using Microsoft.EntityFrameworkCore;
 
 namespace Skylab.Forms.Infrastructure.Storage;
@@ -20,7 +22,7 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     public DbSet<FormWorkflowStep> WorkflowSteps { get; set; }
     public DbSet<FormAttempt> Attempts { get; set; }
     public DbSet<FormAttemptEvent> AttemptEvents { get; set; }
-    public DbSet<ResponseNotification> ResponseNotifications { get; set; }
+    public DbSet<OutboxMessage> Outbox { get; set; }
     public DbSet<AnswerFileLink> AnswerFileLinks { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,7 +33,7 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         SetTimestamps();
-        QueueResponseNotifications();
+        PublishResponseChanges();
         await QueueAnswerFileLinksAsync(cancellationToken);
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
@@ -71,20 +73,18 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     }
 
     /// <summary>
-    /// Yeni ya da durumu değişen her cevap core'a bildirilmek üzere sıraya girer; core etkinlik biletini
-    /// buna göre yazar. Bildirim cevapla aynı işlemde yazıldığı için biri diğeri olmadan kalmaz.
+    /// Yeni ya da durumu değişen her cevap, cevapla aynı işlemde outbox'a bir olay olarak yazılır; biri diğeri olmadan
+    /// kalmaz. Geçici cevap henüz gönderilmiş sayılmaz, kesinleşince yazılır.
     /// </summary>
-    private void QueueResponseNotifications()
+    private void PublishResponseChanges()
     {
         var now = DateTime.UtcNow;
 
-        var notifications = ChangeTracker.Entries<FormResponse>()
+        Outbox.AddRange(ChangeTracker.Entries<FormResponse>()
             .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified && e.Property(r => r.Status).IsModified)
-            .Select(e => ResponseNotification.For(e.Entity, now))
-            .OfType<ResponseNotification>()
-            .ToList();
-
-        ResponseNotifications.AddRange(notifications);
+            .Where(e => e.Entity.Status != FormResponseStatus.Provisional)
+            .Select(e => OutboxMessage.Of(OutboxTypes.ResponseStatusChanged, ResponseStatusChanged.Of(e.Entity), now))
+            .ToList());
     }
 
     private void SetTimestamps()

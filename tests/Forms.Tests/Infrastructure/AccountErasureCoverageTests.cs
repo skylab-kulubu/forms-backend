@@ -63,9 +63,8 @@ public static class AccountErasureColumns
         "FormWorkflowVersion.Id",
         "FormWorkflowVersion.WorkflowId",
         "ResponseAttribution.FormResponseId",
-        "ResponseGuest.FormResponseId",
-        "ResponseNotification.FormId",
-        "ResponseNotification.Id"
+        "OutboxMessage.Id",
+        "ResponseGuest.FormResponseId"
     ];
 
     public static IEnumerable<IProperty> GuidProperties(IModel model) =>

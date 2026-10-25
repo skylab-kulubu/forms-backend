@@ -106,8 +106,8 @@ What changes, deleted forms and archived templates included:
 
 - The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay. The team's note on an application of theirs that was voided is emptied too.
 - Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts and answer file links are deleted; active workflow runs are terminated.
-- The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending core notification loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
-- Pending core notifications of the person's own responses are deleted, and a response owned by `Silinmiş kullanıcı` is never reported to core again.
+- The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending response event in the outbox loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
+- Pending response events of the person's own responses are deleted from the outbox, and the core adapter never reports a response owned by `Silinmiş kullanıcı` again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
 
 ## Forms Capabilities
@@ -132,7 +132,7 @@ Dynamic form creation and response management service.
 - Response and component-group sharing tokens
 - XLSX response export
 - Mail notifications and pending-response reminders
-- Response notifications to core: each new response and each status change is queued in `ResponseNotifications` in the same transaction and posted to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. Undelivered notifications are retried with backoff for seven days
+- Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days, and with core off no adapter takes it and the dispatcher drops it
 
 **Database Models:**
 
@@ -148,7 +148,7 @@ Dynamic form creation and response management service.
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
-| `ResponseNotifications` | Response notifications waiting for core; a row is deleted once core accepts it |
+| `OutboxMessages` | Messages written in the same transaction as the change that caused them and delivered after it by one dispatcher, such as response events for core; a row is deleted once delivered |
 
 ## Form Workflows
 

@@ -639,7 +639,7 @@ namespace Forms.Infrastructure.Migrations
                     b.ToTable("AnswerFileLinks", (string)null);
                 });
 
-            modelBuilder.Entity("Skylab.Forms.Infrastructure.ResponseNotifications.ResponseNotification", b =>
+            modelBuilder.Entity("Skylab.Forms.Infrastructure.Outbox.OutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -651,9 +651,6 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("FormId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime>("NextAttemptAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -661,11 +658,16 @@ namespace Forms.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("NextAttemptAt");
 
-                    b.ToTable("ResponseNotifications", (string)null);
+                    b.ToTable("OutboxMessages", (string)null);
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.Form", b =>
