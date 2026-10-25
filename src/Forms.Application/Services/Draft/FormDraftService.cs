@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
@@ -207,9 +206,6 @@ public class FormDraftService : IFormDraftService
         return new ServiceResult<FormDraftContract?>(ServiceStatus.Success, Data: draftRequest.Data);
     }
 
-    /// <summary>
-    /// jsonb anahtar sırasını değiştirdiği için şemalar metin olarak değil, ağaç olarak karşılaştırılır.
-    /// </summary>
     private static bool IsDraftIdenticalToForm(FormDraftContract draft, Form form)
     {
         if (draft.Title != form.Title) return false;
@@ -222,11 +218,8 @@ public class FormDraftService : IFormDraftService
         if (draft.ClosesAt != form.ClosesAt) return false;
         if (JsonSerializer.Serialize(draft.Task, CamelCase) != JsonSerializer.Serialize(form.Task, CamelCase)) return false;
 
-        return JsonNode.DeepEquals(ToJsonNode(draft.Schema), ToJsonNode(form.Schema));
+        return FormSchemaChange.IsSame(draft.Schema, form.Schema);
     }
-
-    private static JsonNode? ToJsonNode(IReadOnlyList<FormSchemaItem>? schema) =>
-        JsonNode.Parse(JsonSerializer.Serialize(schema, CamelCase));
 
     public async Task<ServiceResult<bool>> DeleteFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {

@@ -15,7 +15,6 @@ using Skylab.Forms.Application.Validators;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
-using System.Text.Json;
 
 namespace Skylab.Forms.Application.Services;
 
@@ -158,12 +157,11 @@ public class FormService : IFormService
         if (timing.Status != ServiceStatus.Success)
             return new ServiceResult<FormContract>(timing.Status, Message: timing.Message);
 
-        bool statusChanged = existingForm.Status != contract.Status;
+        var schemaChanged = !FormSchemaChange.IsSame(existingForm.Schema, schema);
 
-        var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        string existingSchemaJson = JsonSerializer.Serialize(existingForm.Schema, jsonOptions);
-        string newSchemaJson = JsonSerializer.Serialize(schema, jsonOptions);
-        bool schemaChanged = existingSchemaJson != newSchemaJson;
+        // Süreli formda taslak, süre dolunca kurulacak geçici cevabın tek kaynağıdır; işleyen denemenin emeği silinmez.
+        var clearResponseDrafts = !existingForm.HasTimeLimit
+            && (existingForm.Status != contract.Status || FormSchemaChange.BreaksDrafts(existingForm.Schema, schema));
 
         existingForm.Title = contract.Title;
         existingForm.Description = contract.Description;
@@ -189,10 +187,8 @@ public class FormService : IFormService
 
         await _draftService.ClearFormDraftsAsync(formId, cancellationToken);
 
-        if (statusChanged || schemaChanged)
-        {
+        if (clearResponseDrafts)
             await _draftService.ClearResponseDraftsAsync(formId, cancellationToken);
-        }
 
         if (schemaChanged)
             await _cache.TryRemoveAsync(FormCacheKeys.Analytics(formId), cancellationToken);
