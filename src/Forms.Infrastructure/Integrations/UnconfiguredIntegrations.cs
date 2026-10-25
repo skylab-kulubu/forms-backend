@@ -53,10 +53,10 @@ internal sealed class UnconfiguredShortLinks : IShortLinkProvider
     public Task<QrImage?> GetQrAsync(string alias, bool svg, int size, QrTags tags, CancellationToken ct = default) => Task.FromResult<QrImage?>(null);
 }
 
-/// <summary>Şablon anahtarları sağlayıcısız açılmadığı için gönderilecek mail oluşmaz; oluşursa gönderilemedi sayılır.</summary>
+/// <summary>Şablon anahtarları sağlayıcısız açılmadığı için gönderilecek mail oluşmaz; oluşursa bırakılır.</summary>
 internal sealed class UnconfiguredMail : IEmailSender, IMailAudienceExport
 {
-    public Task<bool> SendAsync(EmailMessage message, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<MailDelivery> SendAsync(EmailMessage message, CancellationToken ct = default) => Task.FromResult(MailDelivery.Refused);
 
     public Task<MailAudienceExport> ExportAsync(FormMailRecipientsContract audience, CancellationToken ct = default) =>
         Task.FromResult(new MailAudienceExport(MailAudienceOutcome.Unavailable));

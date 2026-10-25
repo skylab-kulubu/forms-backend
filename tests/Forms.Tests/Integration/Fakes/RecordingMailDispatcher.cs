@@ -10,9 +10,9 @@ public sealed class RecordingMailDispatcher : IMailDispatcher
 
     public IEnumerable<EmailMessage> To(string email) => _queued.Where(mail => mail.RecipientEmail == email);
 
-    public bool Enqueue(EmailMessage request)
+    public Task<bool> EnqueueAsync(EmailMessage message, CancellationToken ct = default)
     {
-        _queued.Enqueue(request);
-        return true;
+        _queued.Enqueue(message);
+        return Task.FromResult(true);
     }
 }

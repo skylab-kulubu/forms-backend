@@ -29,7 +29,6 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
     [
         typeof(OutboxDispatcher),
         typeof(AnswerFileLinkWorker),
-        typeof(MailWorker),
         typeof(PendingResponseReminderWorker),
         typeof(FormAttemptExpiryWorker)
     ];

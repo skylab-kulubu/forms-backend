@@ -65,11 +65,24 @@ public class SkyMailClientTests
         var sent = await client.SendAsync(new EmailMessage("forms.form-copy", "ayse@example.com", "Ayşe Yılmaz", new() { ["formTitle"] = "Başvuru" }));
 
         using var body = JsonDocument.Parse(handler.Body!);
-        Assert.True(sent);
+        Assert.Equal(MailDelivery.Sent, sent);
         Assert.Equal("forms.form-copy", body.RootElement.GetProperty("template_key").GetString());
         Assert.Equal("ayse@example.com", body.RootElement.GetProperty("recipient_email").GetString());
         Assert.Equal("Ayşe Yılmaz", body.RootElement.GetProperty("recipient_full_name").GetString());
         Assert.Equal("Başvuru", body.RootElement.GetProperty("body_variables").GetProperty("formTitle").GetString());
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, MailDelivery.Refused)]
+    [InlineData(HttpStatusCode.NotFound, MailDelivery.Refused)]
+    [InlineData(HttpStatusCode.TooManyRequests, MailDelivery.RetryLater)]
+    [InlineData(HttpStatusCode.RequestTimeout, MailDelivery.RetryLater)]
+    [InlineData(HttpStatusCode.BadGateway, MailDelivery.RetryLater)]
+    public async Task A_mail_skymail_refuses_for_good_is_not_tried_again(HttpStatusCode status, MailDelivery expected)
+    {
+        var (client, _) = Client(status);
+
+        Assert.Equal(expected, await client.SendAsync(new EmailMessage("forms.form-copy", "ayse@example.com", "Ayşe Yılmaz", [])));
     }
 
     [Theory]

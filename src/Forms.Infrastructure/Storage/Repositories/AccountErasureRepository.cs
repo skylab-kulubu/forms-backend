@@ -85,7 +85,7 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
         _context.AnswerFileLinks.IgnoreQueryFilters().Where(link => link.UserId == userId).ExecuteDeleteAsync(ct);
 
     // Outbox'ta bekleyen cevap olayı, core kişiyi anonimleştirdikten sonra kimliğini ona yeniden taşırdı. Misafir
-    // cevabının olayı misafirindir; yalnız kişinin adresi çıkarılır.
+    // cevabının olayı misafirindir; yalnız kişinin adresi çıkarılır. Kişiye gidecek mail de adı ve adresiyle gider.
     public async Task<int> ClearNotificationsAsync(Guid userId, IReadOnlyList<string> emails, CancellationToken ct = default)
     {
         var deleted = await _context.Database.ExecuteSqlRawAsync(
@@ -93,6 +93,10 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
             [new NpgsqlParameter("type", OutboxTypes.ResponseStatusChanged), new NpgsqlParameter("userId", userId.ToString())], ct);
 
         if (emails.Count == 0) return deleted;
+
+        deleted += await _context.Database.ExecuteSqlRawAsync(
+            """DELETE FROM "OutboxMessages" WHERE "Type" = @type AND lower("Payload" ->> 'recipientEmail') = ANY (@emails)""",
+            [new NpgsqlParameter("type", OutboxTypes.Mail), new NpgsqlParameter("emails", emails.ToArray())], ct);
 
         return deleted + await _context.Database.ExecuteSqlRawAsync(
             """

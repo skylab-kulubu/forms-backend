@@ -31,4 +31,5 @@ public class OutboxMessage
 public static class OutboxTypes
 {
     public const string ResponseStatusChanged = "response.status-changed";
+    public const string Mail = "mail.send";
 }
