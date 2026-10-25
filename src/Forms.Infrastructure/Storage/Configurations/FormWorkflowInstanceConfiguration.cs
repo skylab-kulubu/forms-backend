@@ -41,8 +41,8 @@ public class FormWorkflowInstanceConfiguration : IEntityTypeConfiguration<FormWo
             .OnDelete(DeleteBehavior.Cascade);
 
         // Postgres'te rowversion yoktur. uint + OnAddOrUpdate + concurrency token
-        // üçlüsü Npgsql'i sistem kolonu xmin'e yönlendirir; eşzamanlı iki adım
-        // açma denemesinden yalnızca biri commit edebilir.
+        // üçlüsü Npgsql'i sistem kolonu xmin'e yönlendirir. Adımlara yazan her işlem
+        // başvuruya Touch ettiği için aynı başvuruya eşzamanlı iki yazmadan yalnız biri commit eder.
         builder.Property<uint>("xmin").IsRowVersion();
     }
 }

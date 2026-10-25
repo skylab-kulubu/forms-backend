@@ -32,6 +32,17 @@ internal static class Api
         return (await response.DataAsync<WorkflowContract>()).Id;
     }
 
+    /// <summary>Taslağı kaydedip yayına alır; tanım geçersizse yayın 400 döner ve test burada durur.</summary>
+    public static async Task<Guid> PublishWorkflowAsync(this HttpClient owner, string name, WorkflowDefinitionRequest definition)
+    {
+        var workflowId = await owner.CreateWorkflowAsync(name);
+
+        (await owner.PutAsJsonAsync($"/api/admin/workflows/{workflowId}/definition", definition)).EnsureSuccessStatusCode();
+        (await owner.PostAsync($"/api/admin/workflows/{workflowId}/publish", null)).EnsureSuccessStatusCode();
+
+        return workflowId;
+    }
+
     public static Task<HttpResponseMessage> SubmitAsync(this HttpClient client, Guid formId, params (string QuestionId, string Answer)[] answers) =>
         client.PostAsJsonAsync("/api/forms/responses", new ResponseSubmitRequest(
             formId,

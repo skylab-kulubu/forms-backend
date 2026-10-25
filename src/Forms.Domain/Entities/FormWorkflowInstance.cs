@@ -33,4 +33,10 @@ public class FormWorkflowInstance : BaseEntity
     public string? VoidNote { get; set; }
 
     public ICollection<FormWorkflowStep> Steps { get; set; } = new List<FormWorkflowStep>();
+
+    /// <summary>
+    /// Adımlara yazan her işlem başvuruyu da değiştirmiş sayar. EF yalnız güncellediği satırın sürümünü denetler;
+    /// başvuru satırı değişmezse aynı adıma eşzamanlı iki gönderim de commit eder.
+    /// </summary>
+    public void Touch(DateTime now) => UpdatedAt = now;
 }

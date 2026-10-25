@@ -351,7 +351,9 @@ These are constraints rather than checks in code, so a race cannot get past them
 | One `Published` and one `Draft` version per workflow | Ambiguity about which definition is live |
 | Unique `(version, source node, trigger, priority)` | Two routes tied at the same priority |
 | One node per form and one start node per version | An answer that belongs to no single step |
-| `xmin` on the application | A lost update when two requests advance the same run |
+| `xmin` on the application, touched by every write to its steps | Two concurrent submissions of one step both saving an answer, and a lost update when two requests advance the same run |
+
+The request that loses such a race gets `409` with the usual envelope instead of a `500`.
 
 > **Order matters when saving.** Closing a step and opening the next one are two saves inside one transaction, because a single save would let the provider write the insert before the update and trip the one-open-step index. The same applies to archiving a published version before promoting a draft.
 

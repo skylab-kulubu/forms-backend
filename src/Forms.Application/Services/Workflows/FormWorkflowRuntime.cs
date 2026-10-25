@@ -373,6 +373,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         if (addResponse) _responses.Add(response);
         step.ResponseId = response.Id;
+        instance.Touch(DateTime.UtcNow);
 
         if (node.RequiresManualReview)
         {
@@ -527,6 +528,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         step.CompletedAt = now;
         step.SelectedTransitionId = null;
+        step.WorkflowInstance.Touch(now);
 
         var nextRound = new FormWorkflowStep
         {
@@ -729,6 +731,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         step.CompletedAt = now;
         step.SelectedTransitionId = decision.Transition?.Id;
+        instance.Touch(now);
 
         if (decision.Outcome == WorkflowRouteOutcome.Unresolved)
         {
