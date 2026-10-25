@@ -1,8 +1,8 @@
 using System.Net.Http.Headers;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
-public class ServiceTokenHandler : DelegatingHandler
+internal class ServiceTokenHandler : DelegatingHandler
 {
     private readonly IServiceTokenProvider _tokenProvider;
 

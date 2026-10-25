@@ -1,6 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
-using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Tests.Infrastructure;
 

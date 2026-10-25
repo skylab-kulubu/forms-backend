@@ -1,7 +1,7 @@
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
 /// <summary>Kimlik sağlayıcıda hangi rolün hangi Forms iznine karşılık geldiği. Boş bırakılan izni kimse almaz.</summary>
-public sealed class ProviderRoleOptions
+internal sealed class ProviderRoleOptions
 {
     public const string SectionName = "Authentication:Roles";
 

@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Skylab.Forms.Application.Abstractions;
-using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Tests.Infrastructure;
 

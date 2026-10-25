@@ -6,9 +6,9 @@ using Skylab.Forms.Application.Contracts.Mail;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.Responses;
 
-namespace Skylab.Forms.Infrastructure.Mail;
+namespace Skylab.Forms.Infrastructure.Integrations.SkyMail;
 
-public class SkyMailClient : IEmailSender, IMailAudienceExport
+internal class SkyMailClient : IEmailSender, IMailAudienceExport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(){ PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 

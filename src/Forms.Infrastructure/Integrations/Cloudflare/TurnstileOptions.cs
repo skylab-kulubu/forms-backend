@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Configuration;
 
-namespace Skylab.Forms.Infrastructure.Turnstile;
+namespace Skylab.Forms.Infrastructure.Integrations.Cloudflare;
 
-public sealed class TurnstileOptions
+internal sealed class TurnstileOptions
 {
     private static readonly HashSet<string> TestSecrets = new(StringComparer.Ordinal)
     {

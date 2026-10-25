@@ -3,9 +3,9 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
-public class KeycloakServiceTokenProvider : IServiceTokenProvider
+internal class KeycloakServiceTokenProvider : IServiceTokenProvider
 {
     private const string HttpClientName = "keycloak";
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(30);

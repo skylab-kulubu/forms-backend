@@ -41,7 +41,7 @@ The repository contains one service and one bounded context: **Forms**. The form
 src/
 ├── Forms.Domain/                          # Entities, enums, domain models and rules
 ├── Forms.Application/                     # Use cases, contracts, validators and ports
-├── Forms.Infrastructure/                  # EF Core, Redis, HTTP clients, mail, Excel, workers
+├── Forms.Infrastructure/                  # EF Core, Redis, mail queue, Excel, workers, Integrations/
 ├── Forms.Api/                             # Minimal API endpoints and composition root
 └── Forms.sln
 ```
@@ -58,8 +58,8 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 - **Domain** - Forms entities, enums, domain models, and domain behavior. It has no project or framework dependency.
 - **Application** - Use-case services, repository/external-service abstractions, request and response contracts, validators, result types, and orchestration. It depends only on Domain.
-- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, identity clients, SkyMail integration, Excel generation, and background workers. It implements Application ports.
-- **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition.
+- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, Excel generation, and background workers. It implements Application ports. Each external provider has its own folder under `Integrations/` (`SkylabCore`, `SkyMail`, `Cloudflare`, `Oidc`) whose adapters are internal; only its `AddXxx` registration is public.
+- **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition: `Program.cs` plugs each provider in with its `AddXxx`.
 
 ### Key Patterns
 

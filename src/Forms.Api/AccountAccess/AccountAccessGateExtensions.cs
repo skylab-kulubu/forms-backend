@@ -1,4 +1,4 @@
-using Skylab.Forms.Infrastructure.AccountAccess;
+using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Api.AccountAccess;
 

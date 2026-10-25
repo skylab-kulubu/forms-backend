@@ -5,10 +5,10 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 /// <summary>Cevap dosyalarını core'un /v1/media uçlarında tutar; core'un amaç, durum ve sahip kavramları burada kalır.</summary>
-public sealed class CoreAnswerFileStore : IAnswerFileStore
+internal sealed class CoreAnswerFileStore : IAnswerFileStore
 {
     private const string FormsService = "forms";
     private const string AnswerRole = "answer";

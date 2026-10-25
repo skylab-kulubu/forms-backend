@@ -1,7 +1,7 @@
-namespace Skylab.Forms.Infrastructure.Auth;
+namespace Skylab.Forms.Infrastructure.Integrations.Oidc;
 
 /// <summary>Adapter'ların servis hesabı token'ı; Application servis hesabını bilmez.</summary>
-public interface IServiceTokenProvider
+internal interface IServiceTokenProvider
 {
     Task<string> GetAccessTokenAsync(CancellationToken ct = default);
 }

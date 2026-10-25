@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Integrations.Oidc;
 
 namespace Skylab.Forms.Tests.Infrastructure;
 

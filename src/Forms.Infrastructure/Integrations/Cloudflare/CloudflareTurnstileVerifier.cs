@@ -5,9 +5,9 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 
-namespace Skylab.Forms.Infrastructure.Turnstile;
+namespace Skylab.Forms.Infrastructure.Integrations.Cloudflare;
 
-public sealed class CloudflareTurnstileVerifier : IHumanVerifier
+internal sealed class CloudflareTurnstileVerifier : IHumanVerifier
 {
     private const string VerifyPath = "/turnstile/v0/siteverify";
     private const int MaxTokenLength = 2048;

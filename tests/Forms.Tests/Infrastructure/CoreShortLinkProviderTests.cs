@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text;
-using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Tests.Infrastructure;
 

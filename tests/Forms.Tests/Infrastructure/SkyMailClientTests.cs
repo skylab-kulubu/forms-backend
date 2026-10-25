@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.Mail;
 using Skylab.Forms.Application.Contracts.Responses;
-using Skylab.Forms.Infrastructure.Mail;
+using Skylab.Forms.Infrastructure.Integrations.SkyMail;
 
 namespace Skylab.Forms.Tests.Infrastructure;
 
