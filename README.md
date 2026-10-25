@@ -73,7 +73,7 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 ## Account access gate
 
-Forms reads the permanent denylist of blocked accounts that core writes (core's `docs/account-access-gate.md`). In `enforce` mode every request carrying a validated token is checked before the endpoint runs; anonymous requests are never checked. The gate opens its own connection to the dedicated access Redis, never to the form cache.
+Forms reads the permanent denylist of blocked accounts that core writes (core's `docs/account-access-gate.md`). The pipeline and the erasure endpoint ask it through the `IAccountAccessPolicy` port; only the SKY LAB adapter knows core's Redis contract, and with the gate `off` no policy is registered. In `enforce` mode every request carrying a validated token is checked before the endpoint runs; anonymous requests are never checked. The gate opens its own connection to the dedicated access Redis, never to the form cache.
 
 `AccountAccessGate:Mode` (Compose: `ACCOUNT_ACCESS_GATE_MODE`) is `off` or `enforce` and has no default, so a deployment turns the gate off on purpose; Compose sets `off` when the variable is missing. `enforce` requires:
 

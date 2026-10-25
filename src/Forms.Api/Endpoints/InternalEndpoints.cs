@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
+using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Infrastructure.Auth;
-using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -77,7 +77,7 @@ public static class InternalEndpoints
 
             // Ele geçirilmiş bir çağıran, silme istememiş birinin verisini sildiremesin: core kişiyi önce engeller,
             // Forms engeli kendisi okur. Kapı yalnız enforce modunda kayıtlıdır; engel okunamıyorsa iş yapılmaz.
-            var gate = context.RequestServices.GetService<AccountAccessGate>();
+            var gate = context.RequestServices.GetService<IAccountAccessPolicy>();
             if (gate is null)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel kapısı kapalı", command.RequestId);
@@ -86,7 +86,7 @@ public static class InternalEndpoints
             }
 
             var decision = context.User.FindFirst("iss")?.Value is { Length: > 0 } issuer
-                ? await gate.CheckSubjectAsync(issuer, command.SubjectId.ToString(), ct)
+                ? await gate.CheckAsync(issuer, command.SubjectId.ToString(), ct)
                 : AccountAccessDecision.Unavailable;
             if (decision == AccountAccessDecision.Unavailable)
             {

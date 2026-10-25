@@ -9,7 +9,7 @@ namespace Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 /// <summary>
 /// enforce modunda eksik ya da hatalı her ayar açılışı durdurur; kapı sessizce açık kalmamalı.
 /// </summary>
-public sealed class AccountAccessGateOptions
+internal sealed class AccountAccessGateOptions
 {
     public const string SectionName = "AccountAccessGate";
 
