@@ -5,7 +5,16 @@ namespace Skylab.Forms.Application.Abstractions;
 
 public interface IEmailSender
 {
-    Task<bool> SendAsync(EmailMessage message, CancellationToken ct = default);
+    Task<MailDelivery> SendAsync(EmailMessage message, CancellationToken ct = default);
+}
+
+public enum MailDelivery
+{
+    Sent,
+
+    RetryLater,
+
+    Refused
 }
 
 public interface IMailAudienceExport

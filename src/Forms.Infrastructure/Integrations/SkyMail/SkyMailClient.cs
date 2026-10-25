@@ -77,26 +77,26 @@ internal class SkyMailClient : IEmailSender, IMailAudienceExport
 
     private sealed record SingleMailTask(string TemplateKey, string RecipientEmail, string RecipientFullName, Dictionary<string, object> BodyVariables);
 
-    public async Task<bool> SendAsync(EmailMessage request, CancellationToken ct = default)
+    public async Task<MailDelivery> SendAsync(EmailMessage request, CancellationToken ct = default)
     {
         try
         {
             var task = new SingleMailTask(request.TemplateKey, request.RecipientEmail, request.RecipientFullName, request.BodyVariables);
             using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", task, JsonOptions, ct);
 
-            if (!response.IsSuccessStatusCode)
-            {
-                // Hata gövdesi alıcı adresini alıntılayabilir; yalnız durum yazılır.
-                _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateKey})", (int)response.StatusCode, request.TemplateKey);
-                return false;
-            }
+            if (response.IsSuccessStatusCode) return MailDelivery.Sent;
 
-            return true;
+            // Hata gövdesi alıcı adresini alıntılayabilir; yalnız durum yazılır.
+            var code = (int)response.StatusCode;
+            var refused = code is >= 400 and < 500 && response.StatusCode is not (HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests);
+            _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateKey}){Outcome}", code, request.TemplateKey, refused ? "; mail bırakıldı" : "; yeniden denenecek");
+
+            return refused ? MailDelivery.Refused : MailDelivery.RetryLater;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            _logger.LogError(ex, "skymail /mail_tasks/single isteğinde hata (template {TemplateKey})", request.TemplateKey);
-            return false;
+            _logger.LogError("skymail /mail_tasks/single isteğinde hata ({Error}, template {TemplateKey}); yeniden denenecek", ex.GetType().Name, request.TemplateKey);
+            return MailDelivery.RetryLater;
         }
     }
 }

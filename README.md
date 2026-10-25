@@ -41,7 +41,7 @@ The repository contains one service and one bounded context: **Forms**. The form
 src/
 ├── Forms.Domain/                          # Entities, enums, domain models and rules
 ├── Forms.Application/                     # Use cases, contracts, validators and ports
-├── Forms.Infrastructure/                  # EF Core, Redis, mail queue, Excel, workers, Integrations/
+├── Forms.Infrastructure/                  # EF Core, Redis, outbox, Excel, workers, Integrations/
 ├── Forms.Api/                             # Minimal API endpoints and composition root
 └── Forms.sln
 ```
@@ -131,7 +131,7 @@ Dynamic form creation and response management service.
 - Redis-backed form and response drafts
 - Response and component-group sharing tokens
 - XLSX response export
-- Mail notifications and pending-response reminders
+- Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day; one it refuses for good (a `4xx` such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
 - Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days, and with core off no adapter takes it and the dispatcher drops it
 
 **Database Models:**
@@ -148,7 +148,7 @@ Dynamic form creation and response management service.
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
-| `OutboxMessages` | Messages written in the same transaction as the change that caused them and delivered after it by one dispatcher, such as response events for core; a row is deleted once delivered |
+| `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core, written in the change's own transaction, and mails; a row is deleted once delivered |
 
 ## Form Workflows
 

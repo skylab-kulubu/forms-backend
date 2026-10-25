@@ -3,6 +3,7 @@ using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
+using Skylab.Forms.Application.Services.Mail;
 using Skylab.Forms.Application.Services.Ownership;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Application.Services.Workflows;
@@ -23,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<IFormWorkflowService, FormWorkflowService>();
         services.AddScoped<IFormWorkflowRunService, FormWorkflowRunService>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();
+        services.AddScoped<IPendingResponseReminder, PendingResponseReminder>();
         services.AddScoped<IFormShortLinkService, FormShortLinkService>();
         services.AddScoped<IFormAttemptService, FormAttemptService>();
         services.AddScoped<IGuestUploadService, GuestUploadService>();

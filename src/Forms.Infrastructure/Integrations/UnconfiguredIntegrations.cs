@@ -52,7 +52,7 @@ internal sealed class UnconfiguredShortLinks : IShortLinkProvider
 
 internal sealed class UnconfiguredMail : IEmailSender, IMailAudienceExport
 {
-    public Task<bool> SendAsync(EmailMessage message, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<MailDelivery> SendAsync(EmailMessage message, CancellationToken ct = default) => Task.FromResult(MailDelivery.Refused);
 
     public Task<MailAudienceExport> ExportAsync(FormMailRecipientsContract audience, CancellationToken ct = default) =>
         Task.FromResult(new MailAudienceExport(MailAudienceOutcome.Unavailable));

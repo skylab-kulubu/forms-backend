@@ -82,9 +82,8 @@ public static class DependencyInjection
         services.AddHostedService<AnswerFileLinkWorker>();
         services.AddHostedService<OutboxDispatcher>();
 
-        services.AddSingleton<ChannelMailDispatcher>();
-        services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());
-        services.AddHostedService<MailWorker>();
+        services.AddSingleton<IMailDispatcher, OutboxMailDispatcher>();
+        services.AddTransient<IOutboxHandler, MailOutboxHandler>();
 
         services.AddOptions<FormMailOptions>()
             .BindConfiguration(FormMailOptions.SectionName)

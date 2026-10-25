@@ -93,6 +93,10 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
 
         if (emails.Count == 0) return deleted;
 
+        deleted += await _context.Database.ExecuteSqlRawAsync(
+            """DELETE FROM "OutboxMessages" WHERE "Type" = @type AND lower("Payload" ->> 'recipientEmail') = ANY (@emails)""",
+            [new NpgsqlParameter("type", OutboxTypes.Mail), new NpgsqlParameter("emails", emails.ToArray())], ct);
+
         return deleted + await _context.Database.ExecuteSqlRawAsync(
             """
             UPDATE "OutboxMessages" SET "Payload" = jsonb_set("Payload", ARRAY['guest', 'email'], 'null')

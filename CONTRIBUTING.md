@@ -77,8 +77,10 @@ src/
 │   │   ├── SkyMail/                       # Mail and mail audiences
 │   │   ├── Cloudflare/                    # Turnstile bot check
 │   │   └── Oidc/                          # Provider roles, service account token
-│   ├── Mail/                              # Mail queue and background workers
+│   ├── Mail/                              # Mail outbox dispatch and the reminder worker
 │   ├── Migrations/                        # EF Core migrations
+│   ├── Outbox/                            # Messages delivered after the change that caused them, one dispatcher
+│   ├── Scheduling/                        # Base for periodic workers and the retry backoff
 │   ├── Storage/                           # DbContext, configurations, repositories
 │   └── DependencyInjection.cs             # Registration of Forms' own infrastructure
 └── Forms.sln
