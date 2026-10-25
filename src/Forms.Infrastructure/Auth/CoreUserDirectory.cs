@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -31,9 +32,14 @@ public class CoreUserDirectory : IUserDirectory
             var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", JsonOptions, cancellationToken);
             return user is null || user.Id == Guid.Empty ? null : MapToContract(user);
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // Core'da olmayan kişi listede "??" görünür; bu core'un bir arızası değil, uyarı yazılmaz.
+            return null;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            // Bulunamayan kullanıcı listede "??" görünür; çağrıyı düşürmek kayıtlı bir değişikliğe 500 döndürürdü.
+            // Okunamayan kullanıcı da "??" görünür; çağrıyı düşürmek kayıtlı bir değişikliğe 500 döndürürdü.
             // Yine de iz kalır: core'un çökmesi aksi hâlde yalnız "??" olarak görünürdü.
             _logger.LogWarning("Core kullanıcısı okunamadı: {Error}", ex is HttpRequestException { StatusCode: { } status } ? (int)status : ex.GetType().Name);
             return null;

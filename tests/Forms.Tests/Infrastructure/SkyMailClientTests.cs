@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Skylab.Forms.Application.Abstractions;
@@ -10,22 +11,50 @@ namespace Skylab.Forms.Tests.Infrastructure;
 
 public class SkyMailClientTests
 {
-    private sealed class StubHandler(HttpStatusCode status) : HttpMessageHandler
+    /// <param name="reply">İsteğin gövdesinden cevabın gövdesini üretir.</param>
+    private sealed class StubHandler(HttpStatusCode status, Func<string, string>? reply) : HttpMessageHandler
     {
         public string? Body { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(status);
+            var response = new HttpResponseMessage(status);
+            if (reply is not null) response.Content = new StringContent(reply(Body ?? ""), Encoding.UTF8, "application/json");
+
+            return response;
         }
     }
 
-    private static (SkyMailClient Client, StubHandler Handler) Client(HttpStatusCode status)
+    private static (SkyMailClient Client, StubHandler Handler) Client(HttpStatusCode status, Func<string, string>? reply = null)
     {
-        var handler = new StubHandler(status);
+        var handler = new StubHandler(status, reply);
 
         return (new SkyMailClient(new HttpClient(handler) { BaseAddress = new Uri("http://skymail.test/v1/") }, NullLogger<SkyMailClient>.Instance), handler);
+    }
+
+    private static FormMailRecipientsContract Audience() =>
+        new(Guid.NewGuid(), Guid.NewGuid(), "Başvuru", [new FormMailRecipientContract("Ayşe", "ayse@example.com")], 1, 0, 0);
+
+    /// <summary>SkyMail'in kaydettiği listeyi geri yazması; <paramref name="recipientCount"/> verilirse sayı bozulur.</summary>
+    private static string Echo(string request, int? recipientCount = null)
+    {
+        using var sent = JsonDocument.Parse(request);
+        var root = sent.RootElement;
+
+        return JsonSerializer.Serialize(new
+        {
+            id = Guid.NewGuid(),
+            form_id = root.GetProperty("form_id").GetGuid(),
+            owner_sub = root.GetProperty("owner_sub").GetGuid(),
+            form_title = root.GetProperty("form_title").GetString(),
+            recipient_count = recipientCount ?? root.GetProperty("recipients").GetArrayLength(),
+            response_count = root.GetProperty("response_count").GetInt32(),
+            skipped_count = root.GetProperty("skipped_count").GetInt32(),
+            duplicate_count = root.GetProperty("duplicate_count").GetInt32(),
+            prepared_at = DateTimeOffset.UtcNow,
+            expires_at = DateTimeOffset.UtcNow.AddDays(7)
+        });
     }
 
     [Fact]
@@ -50,8 +79,27 @@ public class SkyMailClientTests
     public async Task An_audience_export_reports_what_happened_without_wording_it(HttpStatusCode status, MailAudienceOutcome expected)
     {
         var (client, _) = Client(status);
-        var audience = new FormMailRecipientsContract(Guid.NewGuid(), Guid.NewGuid(), "Başvuru", [new FormMailRecipientContract("Ayşe", "ayse@example.com")], 1, 0, 0);
 
-        Assert.Equal(expected, (await client.ExportAsync(audience)).Outcome);
+        Assert.Equal(expected, (await client.ExportAsync(Audience())).Outcome);
+    }
+
+    [Fact]
+    public async Task An_audience_skymail_echoes_back_is_exported()
+    {
+        var audience = Audience();
+        var (client, _) = Client(HttpStatusCode.Created, request => Echo(request));
+
+        var export = await client.ExportAsync(audience);
+
+        Assert.Equal(MailAudienceOutcome.Exported, export.Outcome);
+        Assert.Equal((audience.FormId, audience.PreparedByUserId, 1), (export.Source?.FormId, export.Source?.PreparedByUserId, export.Source?.RecipientCount));
+    }
+
+    [Fact]
+    public async Task An_echo_that_disagrees_with_the_request_is_not_trusted()
+    {
+        var (client, _) = Client(HttpStatusCode.Created, request => Echo(request, recipientCount: 2));
+
+        Assert.Equal(MailAudienceOutcome.Unavailable, (await client.ExportAsync(Audience())).Outcome);
     }
 }
