@@ -30,6 +30,12 @@ public class Form : BaseEntity
 
     public bool HasClosedAt(DateTime now) => ClosesAt is { } closesAt && now >= closesAt;
 
+    public CollaboratorRole RoleOf(Guid userId) =>
+        Collaborators.FirstOrDefault(collaborator => collaborator.UserId == userId)?.Role ?? CollaboratorRole.None;
+
+    public bool Allows(Guid userId, bool isPlatformAdmin, FormAction action) =>
+        FormAccess.Allows(RoleOf(userId), isPlatformAdmin, action);
+
     // Navigation
     public ICollection<FormCollaborator> Collaborators { get; set; } = new List<FormCollaborator>();
     public ICollection<FormResponse> Responses { get; set; } = new List<FormResponse>();

@@ -4,6 +4,7 @@ using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts.Metrics;
+using Skylab.Forms.Domain.Entities;
 
 namespace Skylab.Forms.Application.Services;
 
@@ -38,8 +39,7 @@ public class FormMetricService : IFormMetricService
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!_currentUser.IsPlatformAdmin
-            && !await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken))
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
         var cacheKey = FormCacheKeys.Analytics(formId);
@@ -64,8 +64,7 @@ public class FormMetricService : IFormMetricService
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !_currentUser.IsPlatformAdmin)
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun metriklerini görüntüleme yetkiniz yok.");
 
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);

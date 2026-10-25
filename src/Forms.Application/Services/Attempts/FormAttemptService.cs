@@ -486,8 +486,7 @@ public class FormAttemptService : IFormAttemptService
         if (attempt is null)
             return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotFound, Message: "Kayıt bulunamadı.");
 
-        var isCollaborator = attempt.Form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-        if (!isCollaborator && !_currentUser.IsPlatformAdmin)
+        if (!attempt.Form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotAuthorized, Message: "Bu kaydı görüntüleme yetkiniz yok.");
 
         var user = await _users.GetUserAsync(attempt.UserId, ct) ?? new UserContract(attempt.UserId, null, "??", null);
@@ -515,7 +514,7 @@ public class FormAttemptService : IFormAttemptService
         if (form is null)
             return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!_currentUser.IsPlatformAdmin && !await _forms.IsUserCollaboratorAsync(formId, userId, ct))
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, ct), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
         if (!form.HasTimeLimit)
@@ -826,8 +825,8 @@ public class FormAttemptService : IFormAttemptService
     private bool CanRemind(FormAttempt attempt, Form form, DateTime now) =>
         attempt.Status == FormAttemptStatus.Opened && !form.HasClosedAt(now) && _mail.CanNotifyAttempts;
 
-    private static bool CanManage(Form form, Guid userId) =>
-        form.Collaborators.Any(c => c.UserId == userId && c.Role != CollaboratorRole.None);
+    private bool CanManage(Form form, Guid userId) =>
+        form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.HandleResponses);
 
     private static string? NormalizeNote(string? note) =>
         string.IsNullOrWhiteSpace(note) ? null : note.Trim();

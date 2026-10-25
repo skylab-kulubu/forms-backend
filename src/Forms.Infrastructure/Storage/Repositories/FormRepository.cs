@@ -29,9 +29,11 @@ public sealed class FormRepository : IFormRepository
             .Include(f => f.Collaborators)
             .FirstOrDefaultAsync(f => f.Id == id, ct);
 
-    public Task<bool> IsUserCollaboratorAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
-        _context.Collaborators.AsNoTracking()
-            .AnyAsync(c => c.FormId == formId && c.UserId == userId && c.Role != CollaboratorRole.None, ct);
+    public async Task<CollaboratorRole> GetRoleAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
+        await _context.Collaborators.AsNoTracking()
+            .Where(c => c.FormId == formId && c.UserId == userId)
+            .Select(c => (CollaboratorRole?)c.Role)
+            .FirstOrDefaultAsync(ct) ?? CollaboratorRole.None;
 
     public Task<bool> ExistsAsync(Guid formId, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking().AnyAsync(f => f.Id == formId, ct);
@@ -48,12 +50,6 @@ public sealed class FormRepository : IFormRepository
         _context.Forms
             .Include(f => f.Collaborators)
             .FirstOrDefaultAsync(f => f.Id == id, ct);
-
-    public Task<Form?> GetForEditOwnedByAsync(Guid id, Guid ownerId, CancellationToken ct = default) =>
-        _context.Forms
-            .Where(f => f.Id == id)
-            .Where(f => f.Collaborators.Any(c => c.UserId == ownerId && c.Role == CollaboratorRole.Owner))
-            .FirstOrDefaultAsync(ct);
 
     public Task<List<Form>> GetForEditOwnedWithCollaboratorsAsync(IReadOnlyCollection<Guid> ids, Guid ownerId, CancellationToken ct = default) =>
         _context.Forms

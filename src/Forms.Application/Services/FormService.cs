@@ -123,8 +123,8 @@ public class FormService : IFormService
         if (existingForm == null)
             return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var currentUserCollaborator = existingForm.Collaborators.FirstOrDefault(c => c.UserId == userId);
-        if (currentUserCollaborator == null || (currentUserCollaborator.Role != CollaboratorRole.Owner && currentUserCollaborator.Role != CollaboratorRole.Editor))
+        var role = existingForm.RoleOf(userId);
+        if (!FormAccess.Allows(role, _currentUser.IsPlatformAdmin, FormAction.EditForm))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
 
         var schema = contract.Schema ?? new();
@@ -177,7 +177,7 @@ public class FormService : IFormService
         if (contract.Collaborators != null)
         {
             var incomingCollaborators = contract.Collaborators.Select(c => (c.UserId, c.Role));
-            var currentUser = (userId, currentUserCollaborator.Role);
+            var currentUser = (userId, role);
 
             existingForm.UpdateCollaborators(incomingCollaborators, currentUser);
         }
@@ -197,7 +197,7 @@ public class FormService : IFormService
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: MapToContract(existingForm, users, currentUserCollaborator.Role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken))));
+            Data: MapToContract(existingForm, users, role, ToWorkflowRef(await FindMembershipAsync(formId, cancellationToken))));
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -206,11 +206,10 @@ public class FormService : IFormService
 
         if (form == null) return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && (c.Role == CollaboratorRole.Owner || c.Role == CollaboratorRole.Editor));
-        if (collaborator == null && !_currentUser.IsPlatformAdmin)
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.OpenEditor))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
-        var userRole = collaborator?.Role ?? CollaboratorRole.None;
+        var userRole = form.RoleOf(userId);
 
         var collaboratorIds = form.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
         var users = await _userService.GetUsersAsync(collaboratorIds, cancellationToken);
@@ -358,9 +357,7 @@ public class FormService : IFormService
 
         if (form == null) return new ServiceResult<FormInfoContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var collaborator = form.Collaborators.FirstOrDefault(c => c.UserId == userId && c.Role != CollaboratorRole.None);
-
-        if (collaborator == null && !_currentUser.IsPlatformAdmin)
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewForm))
             return new ServiceResult<FormInfoContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var counts = await _responses.GetCountsAsync(id, cancellationToken);
@@ -374,7 +371,7 @@ public class FormService : IFormService
             counts.Waiting,
             AverageTimeSeconds: counts.AverageTimeSpentSeconds,
             LastSeenUsers: Array.Empty<FormLastSeenUserContract>(),
-            UserRole: collaborator?.Role ?? CollaboratorRole.None,
+            UserRole: form.RoleOf(userId),
             TimeLimitMinutes: form.HasTimeLimit ? form.TimeLimitMinutes : null
         );
 
@@ -439,9 +436,12 @@ public class FormService : IFormService
 
     public async Task<ServiceResult<bool>> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var form = await _forms.GetForEditOwnedByAsync(id, userId, cancellationToken);
+        var form = await _forms.GetForEditWithDetailsAsync(id, cancellationToken);
 
-        if (form == null) return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı veya yetkiniz yok.");
+        if (form == null) return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
+
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.DeleteForm))
+            return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Formu yalnız sahibi silebilir.");
 
         if (await FindMembershipAsync(id, cancellationToken) is { IsPublished: true } membership)
         {

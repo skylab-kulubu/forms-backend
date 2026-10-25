@@ -739,7 +739,11 @@ public class FormWorkflowService : IFormWorkflowService
         if (note?.Length > FormWorkflowInstance.VoidNoteMaxLength)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Not en fazla {FormWorkflowInstance.VoidNoteMaxLength} karakter olabilir.");
 
-        if (!await _instances.CanManageRunAsync(instanceId, userId, cancellationToken))
+        var access = await _instances.GetRunAccessAsync(instanceId, userId, cancellationToken);
+        var allowed = access is { IsWorkflowOwner: true }
+            || access?.StepFormRoles.Any(role => FormAccess.Allows(role, _currentUser.IsPlatformAdmin, FormAction.VoidApplication)) == true;
+
+        if (!allowed)
             return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu başvuruyu yeniden açma yetkiniz yok.");
 
         var voided = await _runtime.VoidAsync(instanceId, userId, note, cancellationToken);
