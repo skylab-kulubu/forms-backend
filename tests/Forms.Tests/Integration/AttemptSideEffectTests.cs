@@ -31,7 +31,6 @@ public class AttemptSideEffectTests(FormsApiFactory api)
 
         public Task<T?> GetAsync<T>(string key, TimeSpan? slidingExpiration = null, CancellationToken ct = default) => inner.GetAsync<T>(key, slidingExpiration, ct);
         public Task RemoveByPrefixAsync(string prefix, CancellationToken ct = default) => inner.RemoveByPrefixAsync(prefix, ct);
-        public Task<bool> ExistsAsync(string key, CancellationToken ct = default) => inner.ExistsAsync(key, ct);
         public IAsyncEnumerable<string> ScanKeysAsync(string pattern, CancellationToken ct = default) => inner.ScanKeysAsync(pattern, ct);
         public Task<long> IncrementAsync(string key, TimeSpan window, CancellationToken ct = default) => inner.IncrementAsync(key, window, ct);
     }

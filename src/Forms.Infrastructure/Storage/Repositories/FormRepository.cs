@@ -30,11 +30,6 @@ public sealed class FormRepository : IFormRepository
             .Include(f => f.Collaborators)
             .FirstOrDefaultAsync(f => f.Id == id, ct);
 
-    public Task<Form?> GetWithDetailsAsync(Guid id, CancellationToken ct = default) =>
-        _context.Forms.AsNoTracking()
-            .Include(f => f.Collaborators)
-            .FirstOrDefaultAsync(f => f.Id == id, ct);
-
     public async Task<CollaboratorRole> GetRoleAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
         await _context.Collaborators.AsNoTracking()
             .Where(c => c.FormId == formId && c.UserId == userId)
@@ -44,15 +39,7 @@ public sealed class FormRepository : IFormRepository
     public Task<bool> ExistsAsync(Guid formId, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking().AnyAsync(f => f.Id == formId, ct);
 
-    public Task<bool> IsFormOpenAsync(Guid formId, CancellationToken ct = default) =>
-        _context.Forms.AsNoTracking().AnyAsync(f => f.Id == formId && f.Status == FormStatus.Open, ct);
-
     public Task<Form?> GetForEditWithCollaboratorsAsync(Guid id, CancellationToken ct = default) =>
-        _context.Forms
-            .Include(f => f.Collaborators)
-            .FirstOrDefaultAsync(f => f.Id == id, ct);
-
-    public Task<Form?> GetForEditWithDetailsAsync(Guid id, CancellationToken ct = default) =>
         _context.Forms
             .Include(f => f.Collaborators)
             .FirstOrDefaultAsync(f => f.Id == id, ct);

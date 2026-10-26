@@ -41,8 +41,6 @@ public class RedisCacheService : ICacheService
             var keys = server.Keys(pattern: $"{prefix}*").ToArray();
             return keys.Length > 0 ? await _db.KeyDeleteAsync(keys) : 0;
         });
-    public Task<bool> ExistsAsync(string key, CancellationToken ct) =>
-        LoggedAsync("varlık", () => _db.KeyExistsAsync(key));
     public async IAsyncEnumerable<string> ScanKeysAsync(string pattern, [EnumeratorCancellation] CancellationToken ct)
     {
         var server = _redis.GetServer(_redis.GetEndPoints().First());

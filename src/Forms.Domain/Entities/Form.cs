@@ -17,9 +17,8 @@ public class Form : BaseEntity
     public bool AllowMultipleResponses { get; set; } = false;
     public bool RequiresManualReview { get; set; } = false;
     /// <summary>
-    /// Eski bagli form akisindan kalan alan. Artik hicbir yerde okunmuyor; akislara
-    /// donusum sonrasi bir surumluk geri donus penceresi icin kolonla birlikte
-    /// duruyor ve bir sonraki surumde kaldirilacak.
+    /// Eski bağlı form akışından kalan alan. Yalnız akış doğrulaması okur: bağlı kalmış bir form akışa konamaz
+    /// (formIsLegacyLinked). Production'da dolu satır kalmadığında kolon, eski iki adımlı akış uyumluluğuyla birlikte silinir.
     /// </summary>
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
