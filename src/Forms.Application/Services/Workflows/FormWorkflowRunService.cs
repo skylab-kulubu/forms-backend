@@ -12,17 +12,20 @@ public class FormWorkflowRunService : IFormWorkflowRunService
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IUserDirectory _userService;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _time;
 
     public FormWorkflowRunService(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
         IUserDirectory userService,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        TimeProvider time)
     {
         _workflows = workflows;
         _instances = instances;
         _userService = userService;
         _currentUser = currentUser;
+        _time = time;
     }
 
     public async Task<ServiceResult<WorkflowRunOverviewContract>> GetOverviewAsync(
@@ -47,7 +50,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         if (await FindAccessProblemAsync(workflowId, userId, cancellationToken) is { } problem)
             return new ServiceResult<PagedResult<WorkflowRunContract>>(problem.Status, Message: problem.Message);
 
-        var page = await _instances.GetRunsAsync(workflowId, request, DateTime.UtcNow, cancellationToken);
+        var page = await _instances.GetRunsAsync(workflowId, request, _time.GetUtcNow().UtcDateTime, cancellationToken);
 
         var users = await _userService.GetUsersAsync(page.Items.Select(run => run.UserId), cancellationToken);
         var usersById = users.DistinctBy(user => user.Id).ToDictionary(user => user.Id);
@@ -88,7 +91,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         if (workflowIds.Count == 0) return new Dictionary<Guid, WorkflowRunOverviewContract>();
 
         var definitions = await _workflows.GetCurrentDefinitionsAsync(workflowIds, cancellationToken);
-        var openSteps = await _instances.GetOpenStepsAsync(workflowIds, DateTime.UtcNow, cancellationToken);
+        var openSteps = await _instances.GetOpenStepsAsync(workflowIds, _time.GetUtcNow().UtcDateTime, cancellationToken);
         var tallies = await _instances.CountRunsAsync(workflowIds, cancellationToken);
 
         var formIds = definitions.Values

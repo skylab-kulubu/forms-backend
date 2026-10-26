@@ -26,19 +26,22 @@ public class GuestUploadService : IGuestUploadService
     private readonly IGuestUploadStore _store;
     private readonly IAnswerFileStore _files;
     private readonly GuestUploadOptions _options;
+    private readonly TimeProvider _time;
 
     public GuestUploadService(
         IFormRepository forms,
         IHumanVerifier turnstile,
         IGuestUploadStore store,
         IAnswerFileStore files,
-        GuestUploadOptions options)
+        GuestUploadOptions options,
+        TimeProvider time)
     {
         _forms = forms;
         _turnstile = turnstile;
         _store = store;
         _files = files;
         _options = options;
+        _time = time;
     }
 
     private bool IsActive => _options.Enabled && _turnstile.IsEnabled && _files.IsConfigured;
@@ -59,7 +62,7 @@ public class GuestUploadService : IGuestUploadService
 
         try
         {
-            var (bucket, retryAfter) = MinuteBucket(DateTime.UtcNow);
+            var (bucket, retryAfter) = MinuteBucket(_time.GetUtcNow().UtcDateTime);
 
             var sessions = await _store.CountAsync(GuestUploadKeys.IpSessions(GuestUploadKeys.ClientSubject(client), bucket), MinuteWindow, ct);
             if (sessions > GuestRateLimits.IpSessionsPerMinute) return ToSessionResult(Refuse(GuestUploadReason.TooManySessions, retryAfter));
@@ -74,7 +77,7 @@ public class GuestUploadService : IGuestUploadService
 
         try
         {
-            var now = DateTime.UtcNow;
+            var now = _time.GetUtcNow().UtcDateTime;
             var session = new GuestUploadSession(GuestUploadKeys.NewSessionId(), formId, now, now + GuestRateLimits.SessionLifetime);
             await _store.SaveSessionAsync(session, ct);
 
@@ -98,7 +101,7 @@ public class GuestUploadService : IGuestUploadService
 
         try
         {
-            var now = DateTime.UtcNow;
+            var now = _time.GetUtcNow().UtcDateTime;
             var session = await FindSessionAsync(sessionId, formId, now, ct);
             if (session is null) return ToUploadResult(Refuse(GuestUploadReason.SessionExpired));
 
@@ -144,7 +147,7 @@ public class GuestUploadService : IGuestUploadService
         GuestUploadedFile? file;
         try
         {
-            var session = await FindSessionAsync(sessionId, formId, DateTime.UtcNow, ct);
+            var session = await FindSessionAsync(sessionId, formId, _time.GetUtcNow().UtcDateTime, ct);
             if (session is null) return ToUploadResult(Refuse(GuestUploadReason.SessionExpired));
 
             file = await _store.FindFileAsync(session.Id, mediaId, ct);
@@ -190,7 +193,7 @@ public class GuestUploadService : IGuestUploadService
 
         try
         {
-            var session = await FindSessionAsync(request.GuestUploadSession, form.Id, DateTime.UtcNow, ct);
+            var session = await FindSessionAsync(request.GuestUploadSession, form.Id, _time.GetUtcNow().UtcDateTime, ct);
             if (session is null) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: firstQuestionId));
 
             var files = new List<(FormSchemaItem Question, GuestUploadedFile File)>(answers.Count);
@@ -298,7 +301,7 @@ public class GuestUploadService : IGuestUploadService
         if (!TakesSignedOutAnswers(form) || !form.Schema.Any(GuestUploadRules.IsFileQuestion))
             return Refuse(GuestUploadReason.GuestUploadsDisabled);
 
-        return form.AvailabilityAt(DateTime.UtcNow) switch
+        return form.AvailabilityAt(_time.GetUtcNow().UtcDateTime) switch
         {
             FormAvailability.Closed => new Refusal(ServiceStatus.NotAvailable, "Bu form şu anda yanıt kabul etmiyor.", FormClosedReason.Closed),
             FormAvailability.ClosesAtPassed => new Refusal(ServiceStatus.NotAvailable, "Bu form kapanış saatinde kendiliğinden kapandı.", FormClosedReason.Closed),
@@ -341,7 +344,7 @@ public class GuestUploadService : IGuestUploadService
 
     private async Task<Refusal?> CountSubmitAsync(string subject, Guid formId, CancellationToken ct)
     {
-        var (bucket, retryAfter) = MinuteBucket(DateTime.UtcNow);
+        var (bucket, retryAfter) = MinuteBucket(_time.GetUtcNow().UtcDateTime);
 
         try
         {
@@ -358,7 +361,7 @@ public class GuestUploadService : IGuestUploadService
 
     private async Task<Refusal?> CountUnverifiedSubmitAsync(string subject, Guid formId, CancellationToken ct)
     {
-        var (bucket, retryAfter) = MinuteBucket(DateTime.UtcNow);
+        var (bucket, retryAfter) = MinuteBucket(_time.GetUtcNow().UtcDateTime);
 
         try
         {

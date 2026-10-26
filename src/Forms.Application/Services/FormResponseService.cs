@@ -48,6 +48,7 @@ public class FormResponseService : IFormResponseService
     private readonly IAnswerFileStore _files;
     private readonly IMailAudienceExport _mailAudience;
     private readonly ILogger<FormResponseService> _logger;
+    private readonly TimeProvider _time;
 
     public FormResponseService(
         IFormRepository forms,
@@ -66,7 +67,8 @@ public class FormResponseService : IFormResponseService
         IGuestUploadService guestUploads,
         IAnswerFileStore files,
         IMailAudienceExport mailAudience,
-        ILogger<FormResponseService> logger)
+        ILogger<FormResponseService> logger,
+        TimeProvider time)
     {
         _mailAudience = mailAudience;
         _logger = logger;
@@ -85,15 +87,17 @@ public class FormResponseService : IFormResponseService
         _currentUser = currentUser;
         _workflowRuntime = workflowRuntime;
         _instances = instances;
+        _time = time;
     }
 
     private record ShareCacheEntry(Guid ResponseId, List<Guid> InstanceResponseIds, Guid SharedByUserId);
 
     public async Task<ServiceResult<ResponseSubmitResult>> SubmitResponseAsync(ResponseSubmitRequest contract, Guid? userId, IPAddress? clientAddress, CancellationToken cancellationToken = default)
     {
+        var now = _time.GetUtcNow().UtcDateTime;
         var form = await _forms.GetByIdAsync(contract.FormId, cancellationToken);
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
-        switch (form.AvailabilityAt(DateTime.UtcNow))
+        switch (form.AvailabilityAt(now))
         {
             case FormAvailability.Closed:
                 return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
@@ -133,7 +137,7 @@ public class FormResponseService : IFormResponseService
             attempt = gate.Attempt;
         }
 
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest, now);
 
         if (attempt is not null) _attempts.MarkSubmitted(attempt, response.Id);
 
@@ -258,7 +262,7 @@ public class FormResponseService : IFormResponseService
 
         var form = await _forms.GetByIdAsync(formId, cancellationToken);
         var hasTimeLimit = form?.HasTimeLimit == true;
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         var paged = await _responses.GetPagedAsync(formId, request, hasTimeLimit, now, cancellationToken);
 
@@ -521,7 +525,7 @@ public class FormResponseService : IFormResponseService
 
         var declinesFlagged = response.Status == FormResponseStatus.Flagged && contract.NewStatus == FormResponseStatus.Declined;
 
-        response.ApplyReview(contract.NewStatus, reviewerId, contract.Note, DateTime.UtcNow);
+        response.ApplyReview(contract.NewStatus, reviewerId, contract.Note, _time.GetUtcNow().UtcDateTime);
 
         await _uow.SaveChangesAsync(cancellationToken);
 
@@ -552,7 +556,7 @@ public class FormResponseService : IFormResponseService
         if (response.Status == FormResponseStatus.Returned)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Düzeltme istenen cevap başvurunun geçmişinde kalır; arşivlenemez.");
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         if (response.Status is FormResponseStatus.Pending or FormResponseStatus.Flagged)
         {
@@ -737,7 +741,7 @@ public class FormResponseService : IFormResponseService
         _ => status.ToString()
     };
 
-    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, ResponseGuest? guest = null)
+    private static FormResponse MapToEntity(Form form, List<FormResponseSchemaItem> userResponses, int? timeSpent, Guid? userId, ResponseAttributionRequest? attribution, ResponseGuest? guest, DateTime submittedAt)
     {
         var responseData = new List<FormResponseSchemaItem>();
 
@@ -764,7 +768,7 @@ public class FormResponseService : IFormResponseService
             Data = responseData,
             TimeSpent = timeSpent,
             Status = form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict,
-            SubmittedAt = DateTime.UtcNow,
+            SubmittedAt = submittedAt,
             Attribution = AttributionNormalizer.Normalize(attribution),
             Guest = guest
         };
@@ -815,7 +819,7 @@ public class FormResponseService : IFormResponseService
         var token = existingToken ?? GenerateToken();
 
         var entry = new ShareCacheEntry(responseId, relatedResponseIds, userId);
-        var expiresAt = DateTime.UtcNow.Add(ShareTokenLifetime);
+        var expiresAt = _time.GetUtcNow().UtcDateTime.Add(ShareTokenLifetime);
 
         await _cache.SetAsync(TokenKeyPrefix + token, entry, ShareTokenLifetime, cancellationToken);
         await _cache.SetAsync(ResponseKeyPrefix + responseId, token, ShareTokenLifetime, cancellationToken);
@@ -895,7 +899,7 @@ public class FormResponseService : IFormResponseService
             .ToList();
 
         var preview = await _workflowRuntime.PreviewReviewAsync(response, cancellationToken);
-        var canReturn = preview is not null && !response.Form.HasTimeLimit && !response.Form.HasClosedAt(DateTime.UtcNow);
+        var canReturn = preview is not null && !response.Form.HasTimeLimit && !response.Form.HasClosedAt(_time.GetUtcNow().UtcDateTime);
 
         return new ResponseWorkflowContract(
             context.InstanceId,
@@ -921,7 +925,7 @@ public class FormResponseService : IFormResponseService
             run.Status,
             run.Outcome,
             run.AllowMultipleRuns,
-            FormWorkflow.EffectiveIntake(run.Intake, run.IntakeClosesAt, DateTime.UtcNow),
+            FormWorkflow.EffectiveIntake(run.Intake, run.IntakeClosesAt, _time.GetUtcNow().UtcDateTime),
             canManage && block is null,
             block,
             run.CompletedAt,

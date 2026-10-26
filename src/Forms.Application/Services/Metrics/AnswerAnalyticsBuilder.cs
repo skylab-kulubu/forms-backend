@@ -26,7 +26,7 @@ public static class AnswerAnalyticsBuilder
         ["repeater"] = AnalyticsKind.Repeater,
     };
 
-    public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyList<List<FormResponseSchemaItem>> responses)
+    public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyList<List<FormResponseSchemaItem>> responses, DateTime generatedAt)
     {
         var total = responses.Count;
 
@@ -52,7 +52,7 @@ public static class AnswerAnalyticsBuilder
 
         var questions = form.Schema.Select(schemaItem => BuildQuestion(schemaItem, answersById, embeddedTextById, total)).ToList();
 
-        return new FormAnswerAnalyticsContract(form.Id, total, DateTime.UtcNow, questions);
+        return new FormAnswerAnalyticsContract(form.Id, total, generatedAt, questions);
     }
 
     private static QuestionAnalyticsContract BuildQuestion(

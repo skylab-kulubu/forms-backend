@@ -16,14 +16,16 @@ public class FormShortLinkService : IFormShortLinkService
     private readonly IUserDirectory _users;
     private readonly ICurrentUser _currentUser;
     private readonly ShortLinkOptions _options;
+    private readonly TimeProvider _time;
 
-    public FormShortLinkService(IFormRepository forms, IShortLinkProvider links, IUserDirectory users, ICurrentUser currentUser, ShortLinkOptions options)
+    public FormShortLinkService(IFormRepository forms, IShortLinkProvider links, IUserDirectory users, ICurrentUser currentUser, ShortLinkOptions options, TimeProvider time)
     {
         _forms = forms;
         _links = links;
         _users = users;
         _currentUser = currentUser;
         _options = options;
+        _time = time;
     }
 
     public async Task<ServiceResult<FormShortLinkContract>> GetAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
@@ -56,7 +58,7 @@ public class FormShortLinkService : IFormShortLinkService
         return await ToResultAsync(result, cancellationToken);
     }
 
-    private static string DefaultAlias(string? title) => ShortLinkAlias.FromTitle(title, DateTime.UtcNow.Year);
+    private string DefaultAlias(string? title) => ShortLinkAlias.FromTitle(title, _time.GetUtcNow().UtcDateTime.Year);
 
     public async Task<ServiceResult<AliasAvailabilityContract>> CheckAliasAsync(Guid formId, Guid userId, string alias, CancellationToken cancellationToken = default)
     {

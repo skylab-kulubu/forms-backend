@@ -20,13 +20,15 @@ public class ComponentGroupService : IComponentGroupService
     private readonly IFormsUnitOfWork _uow;
     private readonly ICacheService _cache;
     private readonly IUserDirectory _userService;
+    private readonly TimeProvider _time;
 
-    public ComponentGroupService(IComponentGroupRepository groups, IFormsUnitOfWork uow, ICacheService cache, IUserDirectory userService)
+    public ComponentGroupService(IComponentGroupRepository groups, IFormsUnitOfWork uow, ICacheService cache, IUserDirectory userService, TimeProvider time)
     {
         _groups = groups;
         _uow = uow;
         _cache = cache;
         _userService = userService;
+        _time = time;
     }
 
     public async Task<ServiceResult<ComponentGroupContract>> CreateGroupAsync(ComponentGroupUpsertRequest request, Guid userId, CancellationToken cancellationToken = default)
@@ -106,7 +108,7 @@ public class ComponentGroupService : IComponentGroupService
 
         await RevokeShareTokenAsync(id, cancellationToken);
 
-        group.ArchivedAt = DateTime.UtcNow;
+        group.ArchivedAt = _time.GetUtcNow().UtcDateTime;
         group.ArchivedBy = userId;
         await _uow.SaveChangesAsync(cancellationToken);
 
@@ -126,7 +128,7 @@ public class ComponentGroupService : IComponentGroupService
         var existingToken = await _cache.GetAsync<string>(GroupKeyPrefix + groupId, ct: cancellationToken);
         var token = existingToken ?? GenerateToken();
 
-        var expiresAt = DateTime.UtcNow.Add(ShareTokenLifetime);
+        var expiresAt = _time.GetUtcNow().UtcDateTime.Add(ShareTokenLifetime);
 
         await _cache.SetAsync(TokenKeyPrefix + token, groupId, ShareTokenLifetime, cancellationToken);
         await _cache.SetAsync(GroupKeyPrefix + groupId, token, ShareTokenLifetime, cancellationToken);

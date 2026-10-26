@@ -24,14 +24,16 @@ public class FormMetricService : IFormMetricService
     private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
     private readonly IShortLinkProvider _links;
+    private readonly TimeProvider _time;
 
-    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUser currentUser, ICacheService cache, IShortLinkProvider links)
+    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUser currentUser, ICacheService cache, IShortLinkProvider links, TimeProvider time)
     {
         _forms = forms;
         _metrics = metrics;
         _currentUser = currentUser;
         _cache = cache;
         _links = links;
+        _time = time;
     }
 
     public async Task<ServiceResult<FormAnswerAnalyticsContract>> GetAnswerAnalyticsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
@@ -52,7 +54,7 @@ public class FormMetricService : IFormMetricService
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var responses = await _metrics.GetNonArchivedResponseDataAsync(formId, cancellationToken);
-        var analytics = AnswerAnalyticsBuilder.Build(form, responses);
+        var analytics = AnswerAnalyticsBuilder.Build(form, responses, _time.GetUtcNow().UtcDateTime);
 
         await _cache.TrySetAsync(cacheKey, analytics, AnalyticsCacheTtl, cancellationToken);
 
@@ -67,10 +69,11 @@ public class FormMetricService : IFormMetricService
         if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun metriklerini görüntüleme yetkiniz yok.");
 
+        var utcNow = _time.GetUtcNow().UtcDateTime;
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);
-        var channels = await BuildChannelsAsync(formId, cancellationToken);
+        var channels = await BuildChannelsAsync(formId, utcNow, cancellationToken);
 
-        var now = ClubTime.ToLocal(DateTime.UtcNow);
+        var now = ClubTime.ToLocal(utcNow);
         var firstDay = now.Date.AddDays(-6);
         var firstHour = now.Date.AddHours(now.Hour - 23);
 
@@ -137,9 +140,9 @@ public class FormMetricService : IFormMetricService
     /// Kanal başına yanıt (forms) ve tıklama (core) sayısı. Etiketsiz satırın kaynağı null ve
     /// sonda durur; core'a ulaşılamazsa tıklamalar null döner, yanıtlar yine gelir.
     /// </summary>
-    private async Task<List<ChannelMetricContract>> BuildChannelsAsync(Guid formId, CancellationToken cancellationToken)
+    private async Task<List<ChannelMetricContract>> BuildChannelsAsync(Guid formId, DateTime now, CancellationToken cancellationToken)
     {
-        var since = DateTime.UtcNow.AddDays(-ChannelWindowDays);
+        var since = now.AddDays(-ChannelWindowDays);
         var responses = await _metrics.GetResponseSourceCountsAsync(formId, since, cancellationToken);
         var stats = await GetLinkStatsAsync(formId, cancellationToken);
 
@@ -187,7 +190,7 @@ public class FormMetricService : IFormMetricService
         var totalResponses = await _metrics.GetTotalResponsesCountAsync(cancellationToken);
         var pendingResponses = await _metrics.GetPendingNonArchivedResponsesCountAsync(cancellationToken);
 
-        var today = ClubTime.ToLocal(DateTime.UtcNow).Date;
+        var today = ClubTime.ToLocal(_time.GetUtcNow().UtcDateTime).Date;
         var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
         var currentWeekStart = today.AddDays(-1 * diff).Date;
 
