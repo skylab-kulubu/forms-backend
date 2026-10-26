@@ -66,5 +66,6 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.HasQueryFilter(fr => fr.Form.Status != FormStatus.Deleted);
 
+        builder.Property<uint>("xmin").IsRowVersion();
     }
 }
