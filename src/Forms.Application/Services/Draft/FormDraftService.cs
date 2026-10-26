@@ -34,7 +34,7 @@ public class FormDraftService : IFormDraftService
     public async Task<ServiceResult<bool>> SaveResponseDraftAsync(Guid formId, Guid userId, ResponseDraftRequest draft, CancellationToken ct)
     {
         var form = await _forms.GetByIdAsync(formId, ct);
-        if (form is null || form.Status != FormStatus.Open)
+        if (form is null || form.AvailabilityAt(DateTime.UtcNow) != FormAvailability.Open)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         if (form.HasTimeLimit)

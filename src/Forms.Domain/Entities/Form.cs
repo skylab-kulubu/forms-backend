@@ -30,6 +30,11 @@ public class Form : BaseEntity
 
     public bool HasClosedAt(DateTime now) => ClosesAt is { } closesAt && now >= closesAt;
 
+    public FormAvailability AvailabilityAt(DateTime now) =>
+        Status != FormStatus.Open ? FormAvailability.Closed
+        : !HasTimeLimit && HasClosedAt(now) ? FormAvailability.ClosesAtPassed
+        : FormAvailability.Open;
+
     public CollaboratorRole RoleOf(Guid userId) =>
         Collaborators.FirstOrDefault(collaborator => collaborator.UserId == userId)?.Role ?? CollaboratorRole.None;
 
