@@ -93,6 +93,8 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         var definitions = await _workflows.GetCurrentDefinitionsAsync(workflowIds, cancellationToken);
         var openSteps = await _instances.GetOpenStepsAsync(workflowIds, _time.GetUtcNow().UtcDateTime, cancellationToken);
         var tallies = await _instances.CountRunsAsync(workflowIds, cancellationToken);
+        var routes = await _instances.CountRoutesAsync(workflowIds, cancellationToken);
+        var ends = await _instances.CountEndsAsync(workflowIds, cancellationToken);
 
         var formIds = definitions.Values
             .SelectMany(definition => definition.Nodes.Select(node => node.FormId))
@@ -112,6 +114,8 @@ public class FormWorkflowRunService : IFormWorkflowRunService
                     definitions.GetValueOrDefault(workflowId),
                     [.. openSteps.Where(step => step.WorkflowId == workflowId)],
                     [.. tallies.Where(tally => tally.WorkflowId == workflowId)],
+                    [.. routes.Where(route => route.WorkflowId == workflowId)],
+                    [.. ends.Where(end => end.WorkflowId == workflowId)],
                     forms));
     }
 

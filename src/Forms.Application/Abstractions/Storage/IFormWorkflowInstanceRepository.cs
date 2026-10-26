@@ -47,6 +47,10 @@ public interface IFormWorkflowInstanceRepository
 
     Task<IReadOnlyList<WorkflowRunTally>> CountRunsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
 
+    Task<IReadOnlyList<WorkflowRouteTally>> CountRoutesAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
+
+    Task<IReadOnlyList<WorkflowEndTally>> CountEndsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
+
     Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
         Guid workflowId,
         GetWorkflowRunsRequest request,
@@ -112,6 +116,20 @@ public sealed record WorkflowOpenStepFact(
 
 public sealed record WorkflowRunTally(
     Guid WorkflowId,
+    WorkflowInstanceStatus Status,
+    WorkflowInstanceOutcome Outcome,
+    int Count);
+
+public sealed record WorkflowRouteTally(
+    Guid WorkflowId,
+    string SourceNodeKey,
+    WorkflowTransitionTrigger Trigger,
+    string? TargetNodeKey,
+    int Count);
+
+public sealed record WorkflowEndTally(
+    Guid WorkflowId,
+    string NodeKey,
     WorkflowInstanceStatus Status,
     WorkflowInstanceOutcome Outcome,
     int Count);

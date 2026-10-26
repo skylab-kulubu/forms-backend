@@ -50,6 +50,38 @@ public class WorkflowRunTrackingTests(FormsApiFactory api)
         Assert.Empty(await ApplicantsAsync(owner, workflowId, WorkflowRunFilter.Active, WorkflowRunState.AwaitingApplicant));
     }
 
+    [Fact]
+    public async Task The_overview_counts_the_routes_taken_and_where_applications_ended()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var (workflowId, apply, interview) = await ReviewThenInterviewAsync(owner);
+
+        await ApplyAsync(apply.Id, "Mehmet Kaya");
+        var moving = await ApplyAsync(apply.Id, "Zeynep Ak");
+        await DecideAsync(owner, moving.ResponseId, FormResponseStatus.Approved);
+        var revising = await ApplyAsync(apply.Id, "Can Demir");
+        await DecideAsync(owner, revising.ResponseId, FormResponseStatus.Returned, "Adını düzelt");
+        var declined = await ApplyAsync(apply.Id, "Elif Şahin");
+        await DecideAsync(owner, declined.ResponseId, FormResponseStatus.Declined);
+        var done = await ApplyAsync(apply.Id, "Deniz Arslan");
+        await DecideAsync(owner, done.ResponseId, FormResponseStatus.Approved);
+        (await api.ClientFor(done.UserId).SubmitAsync(interview.Id, ("name", "Deniz"))).EnsureSuccessStatusCode();
+
+        var overview = await (await owner.GetAsync($"/api/admin/workflows/{workflowId}/runs/overview")).DataAsync<WorkflowRunOverviewContract>();
+        var endedOnApply = await (await owner.GetAsync($"/api/admin/workflows/{workflowId}/runs?Filter=2&NodeKey=apply")).DataAsync<PagedResult<WorkflowRunContract>>();
+
+        Assert.Equal(
+            [
+                new WorkflowRunRouteContract("apply", WorkflowTransitionTrigger.ResponseApproved, "interview", 2),
+                new WorkflowRunRouteContract("apply", WorkflowTransitionTrigger.ResponseDeclined, null, 1),
+                new WorkflowRunRouteContract("interview", WorkflowTransitionTrigger.ResponseSubmitted, null, 1)
+            ],
+            overview.Routes);
+        Assert.Equal(new WorkflowRunFinishedContract(0, 1, 0, 0, 0), overview.Steps.Single(step => step.NodeKey == "apply").Finished);
+        Assert.Equal(new WorkflowRunFinishedContract(1, 0, 0, 0, 0), overview.Steps.Single(step => step.NodeKey == "interview").Finished);
+        Assert.Equal(1, endedOnApply.TotalCount);
+    }
+
     private static async Task<List<Guid>> ApplicantsAsync(HttpClient owner, Guid workflowId, WorkflowRunFilter filter, WorkflowRunState state)
     {
         var page = await (await owner.GetAsync($"/api/admin/workflows/{workflowId}/runs?Filter={(int)filter}&State={(int)state}"))

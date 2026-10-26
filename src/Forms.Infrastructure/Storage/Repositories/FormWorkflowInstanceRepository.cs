@@ -116,6 +116,30 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
                 .Select(group => new WorkflowRunTally(group.Key.WorkflowId, group.Key.Status, group.Key.Outcome, group.Count()))
                 .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<WorkflowRouteTally>> CountRoutesAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default) =>
+        workflowIds.Count == 0
+            ? []
+            : await _context.WorkflowSteps.AsNoTracking()
+                .Where(step => step.SelectedTransition != null && workflowIds.Contains(step.WorkflowInstance.WorkflowId))
+                .GroupBy(step => new
+                {
+                    step.WorkflowInstance.WorkflowId,
+                    Source = step.SelectedTransition!.SourceNode.NodeKey,
+                    step.SelectedTransition.Trigger,
+                    Target = step.SelectedTransition.TargetNode == null ? null : step.SelectedTransition.TargetNode.NodeKey
+                })
+                .Select(group => new WorkflowRouteTally(group.Key.WorkflowId, group.Key.Source, group.Key.Trigger, group.Key.Target, group.Count()))
+                .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<WorkflowEndTally>> CountEndsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default) =>
+        workflowIds.Count == 0
+            ? []
+            : await LastStepOfEachRun(_context.WorkflowSteps.AsNoTracking()
+                    .Where(step => workflowIds.Contains(step.WorkflowInstance.WorkflowId) && step.WorkflowInstance.Status != WorkflowInstanceStatus.Active))
+                .GroupBy(step => new { step.WorkflowInstance.WorkflowId, step.Node.NodeKey, step.WorkflowInstance.Status, step.WorkflowInstance.Outcome })
+                .Select(group => new WorkflowEndTally(group.Key.WorkflowId, group.Key.NodeKey, group.Key.Status, group.Key.Outcome, group.Count()))
+                .ToListAsync(ct);
+
     public async Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
         Guid workflowId,
         GetWorkflowRunsRequest request,
@@ -130,15 +154,7 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .Where(step => step.WorkflowInstance.WorkflowId == workflowId);
 
         steps = finished
-            ? steps
-                .Where(step => step.WorkflowInstance.Status != WorkflowInstanceStatus.Active)
-                .Where(step => step.Id == _context.WorkflowSteps
-                    .Where(last => last.WorkflowInstanceId == step.WorkflowInstanceId)
-                    .OrderByDescending(last => last.Sequence)
-                    .ThenByDescending(last => last.Round)
-                    .ThenByDescending(last => last.CreatedAt)
-                    .Select(last => last.Id)
-                    .FirstOrDefault())
+            ? LastStepOfEachRun(steps.Where(step => step.WorkflowInstance.Status != WorkflowInstanceStatus.Active))
             : steps.Where(step => step.CompletedAt == null && step.WorkflowInstance.Status == WorkflowInstanceStatus.Active);
 
         if (request.Filter == WorkflowRunFilter.AwaitingReview)
@@ -191,6 +207,15 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
 
         return new PagedResult<WorkflowRunRow>(items, totalCount, page, pageSize);
     }
+
+    private IQueryable<FormWorkflowStep> LastStepOfEachRun(IQueryable<FormWorkflowStep> steps) =>
+        steps.Where(step => step.Id == _context.WorkflowSteps
+            .Where(last => last.WorkflowInstanceId == step.WorkflowInstanceId)
+            .OrderByDescending(last => last.Sequence)
+            .ThenByDescending(last => last.Round)
+            .ThenByDescending(last => last.CreatedAt)
+            .Select(last => last.Id)
+            .FirstOrDefault());
 
     private IQueryable<FormWorkflowStep> InState(IQueryable<FormWorkflowStep> steps, WorkflowRunState state, DateTime now)
     {
