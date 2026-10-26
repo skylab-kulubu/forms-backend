@@ -218,6 +218,8 @@ public class FormAttemptService : IFormAttemptService
         var timeSpent = 0;
         List<FormResponseSchemaItem>? submission = null;
 
+        if (!attempt.CanBeExtended(closedByTeam)) return Rejected("Bu adaya şu anda süre verilemez.");
+
         switch (attempt.Status)
         {
             case FormAttemptStatus.Started:
@@ -242,13 +244,10 @@ public class FormAttemptService : IFormAttemptService
                 Reopen(attempt, now, request.Minutes);
                 break;
 
-            case FormAttemptStatus.NoSubmission when attempt.WorkflowStepId is null && !closedByTeam:
+            default:
                 snapshot = null;
                 Reopen(attempt, now, request.Minutes);
                 break;
-
-            default:
-                return Rejected("Bu adaya şu anda süre verilemez.");
         }
 
         _attempts.Add(new FormAttemptEvent
@@ -738,7 +737,7 @@ public class FormAttemptService : IFormAttemptService
             form.TimeLimitMinutes ?? 0,
             events.Where(item => item.Type == FormAttemptEventType.Extended).Sum(item => item.Minutes ?? 0),
             closedByTeam,
-            CanExtend(attempt, closedByTeam),
+            attempt.CanBeExtended(closedByTeam),
             attempt.Status == FormAttemptStatus.Provisional,
             CanRemind(attempt, form, now),
             attempt.ReminderSentAt,
@@ -816,13 +815,6 @@ public class FormAttemptService : IFormAttemptService
         attempt.DraftSnapshot = null;
         attempt.DeadlineAt = now.AddMinutes(minutes);
     }
-
-    private static bool CanExtend(FormAttempt attempt, bool closedByTeam) => attempt.Status switch
-    {
-        FormAttemptStatus.Started or FormAttemptStatus.Provisional => true,
-        FormAttemptStatus.NoSubmission => attempt.WorkflowStepId is null && !closedByTeam,
-        _ => false
-    };
 
     private bool CanRemind(FormAttempt attempt, Form form, DateTime now) =>
         attempt.Status == FormAttemptStatus.Opened && !form.HasClosedAt(now) && _mail.CanNotifyAttempts;

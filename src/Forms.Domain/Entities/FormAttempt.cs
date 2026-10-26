@@ -27,4 +27,18 @@ public class FormAttempt : BaseEntity
 
     public bool HasExpiredAt(DateTime now) =>
         Status == FormAttemptStatus.Started && DeadlineAt is { } deadline && now > deadline + AttemptLimits.SubmitGrace;
+
+    public bool CanBeExtended(bool closedByTeam) => CanBeExtended(Status, WorkflowStepId, closedByTeam);
+
+    /// <summary>
+    /// Ekip süre verebilir mi: işleyen ya da geçici cevapla kapanmış denemeye her zaman verir. Cevapsız kapanmış denemeye
+    /// yalnız akış adımı değilse ve ekip kapatmadıysa verir: o adım süre dolumuyla yönlendirilmiştir, ekibin kapattığı
+    /// deneme de bir karardır.
+    /// </summary>
+    public static bool CanBeExtended(FormAttemptStatus status, Guid? workflowStepId, bool closedByTeam) => status switch
+    {
+        FormAttemptStatus.Started or FormAttemptStatus.Provisional => true,
+        FormAttemptStatus.NoSubmission => workflowStepId is null && !closedByTeam,
+        _ => false
+    };
 }
