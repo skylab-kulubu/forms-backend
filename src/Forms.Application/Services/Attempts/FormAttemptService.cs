@@ -283,6 +283,11 @@ public class FormAttemptService : IFormAttemptService
             CreatedAt = now
         });
 
+        // Geçici cevabın yanıtlarının tek kopyası artık bellekte: önce taslağa yazılır, commit en son gelir. Taslak
+        // yazılamazsa uzatma kaydedilmez ve geçici cevap yerinde kalır.
+        if (snapshot is { Count: > 0 })
+            await _drafts.RestoreResponseDraftAsync(attempt.FormId, attempt.UserId, snapshot, timeSpent, submission, ct);
+
         try
         {
             await _uow.SaveChangesAsync(ct);
@@ -291,9 +296,6 @@ public class FormAttemptService : IFormAttemptService
         {
             return Conflicted();
         }
-
-        if (snapshot is { Count: > 0 })
-            await _drafts.RestoreResponseDraftAsync(attempt.FormId, attempt.UserId, snapshot, timeSpent, submission, ct);
 
         await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Extended, attempt.DeadlineAt, request.Minutes, ct: ct);
 
