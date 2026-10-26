@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Application.Services.Attempts;
@@ -14,6 +15,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
+        services.TryAddSingleton(TimeProvider.System);
+
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFormResponseService, FormResponseService>();
         services.AddScoped<IFormMetricService, FormMetricService>();

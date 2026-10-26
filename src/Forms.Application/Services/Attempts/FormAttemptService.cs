@@ -27,6 +27,7 @@ public class FormAttemptService : IFormAttemptService
     private readonly IUserDirectory _users;
     private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
+    private readonly TimeProvider _time;
 
     public FormAttemptService(
         IFormAttemptRepository attempts,
@@ -39,7 +40,8 @@ public class FormAttemptService : IFormAttemptService
         IFormMailNotifier mail,
         IUserDirectory users,
         ICurrentUser currentUser,
-        ICacheService cache)
+        ICacheService cache,
+        TimeProvider time)
     {
         _attempts = attempts;
         _forms = forms;
@@ -52,11 +54,12 @@ public class FormAttemptService : IFormAttemptService
         _users = users;
         _currentUser = currentUser;
         _cache = cache;
+        _time = time;
     }
 
     public async Task<AttemptDisplay> PrepareDisplayAsync(Form form, Guid userId, Guid? stepId, CancellationToken ct = default)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var attempt = await _attempts.GetLatestForEditAsync(form.Id, userId, ct);
 
         if (attempt is null)
@@ -78,7 +81,7 @@ public class FormAttemptService : IFormAttemptService
 
         if (attempt is not { Status: FormAttemptStatus.Provisional or FormAttemptStatus.NoSubmission }) return null;
 
-        return new AttemptDisplay(await DisplayOfAsync(form, attempt, DateTime.UtcNow, ct), attempt.WorkflowStepId);
+        return new AttemptDisplay(await DisplayOfAsync(form, attempt, _time.GetUtcNow().UtcDateTime, ct), attempt.WorkflowStepId);
     }
 
     public async Task<ServiceResult<FormAttemptStartResult>> StartAsync(Guid formId, Guid userId, CancellationToken ct = default)
@@ -105,7 +108,7 @@ public class FormAttemptService : IFormAttemptService
         if (!form.HasTimeLimit)
             return new ServiceResult<FormAttemptStartResult>(ServiceStatus.NotAcceptable, Message: "Bu formda kişisel süre yok.");
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var resolution = await _workflowRuntime.ResolveDisplayAsync(formId, userId, ct);
         var inWorkflow = resolution.Data is not { State: WorkflowActionState.NotInWorkflow };
         Guid? stepId = null;
@@ -173,7 +176,7 @@ public class FormAttemptService : IFormAttemptService
 
     public async Task<AttemptGate> CheckSubmitAsync(Form form, Guid userId, CancellationToken ct = default)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var attempt = await _attempts.GetLatestForEditAsync(form.Id, userId, ct);
 
         if (attempt is null || attempt.Status == FormAttemptStatus.Opened)
@@ -211,7 +214,7 @@ public class FormAttemptService : IFormAttemptService
         if (attempt is null) return NotFound();
         if (!CanManage(attempt.Form, actorId)) return NotAuthorized();
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var events = await _attempts.GetEventsAsync(attempt.Id, ct);
         var closedByTeam = events.Any(item => item.Type == FormAttemptEventType.Closed);
         var snapshot = attempt.DraftSnapshot;
@@ -300,7 +303,7 @@ public class FormAttemptService : IFormAttemptService
         if (response is not { Status: FormResponseStatus.Provisional })
             return Rejected("Geçici cevap bulunamadı.");
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         attempt.Status = FormAttemptStatus.Submitted;
 
@@ -366,7 +369,7 @@ public class FormAttemptService : IFormAttemptService
         if (attempt.Status != FormAttemptStatus.Provisional)
             return Rejected("Yalnızca geçici cevaplar teslim yok olarak kapatılabilir.");
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         if (attempt.ResponseId is { } responseId)
         {
@@ -420,7 +423,7 @@ public class FormAttemptService : IFormAttemptService
         if (!_mail.CanNotifyAttempts)
             return Rejected("Hatırlatma e-postası için şablon tanımlı değil.");
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         if (attempt.Form.HasClosedAt(now))
             return Rejected("Son başlama saati geçti; hatırlatma gönderilemez.");
@@ -544,7 +547,7 @@ public class FormAttemptService : IFormAttemptService
     {
         var attempt = await _attempts.GetForEditAsync(attemptId, ct);
 
-        if (attempt is null || !attempt.HasExpiredAt(DateTime.UtcNow) || !attempt.Form.HasTimeLimit) return;
+        if (attempt is null || !attempt.HasExpiredAt(_time.GetUtcNow().UtcDateTime) || !attempt.Form.HasTimeLimit) return;
 
         await ExpireAsync(attempt, attempt.Form, ct);
     }
@@ -688,7 +691,7 @@ public class FormAttemptService : IFormAttemptService
 
     private async Task<FormAttemptDetailContract> DetailOfAsync(FormAttempt attempt, Form form, FormResponse? response, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var events = await _attempts.GetEventsAsync(attempt.Id, ct);
 
         var actorIds = events

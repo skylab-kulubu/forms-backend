@@ -11,14 +11,15 @@ public interface IPendingResponseReminder
     Task RemindAsync(CancellationToken ct = default);
 }
 
-public sealed class PendingResponseReminder(IFormResponseRepository responses, IUserDirectory users, IMailDispatcher mail, FormMailOptions options)
+public sealed class PendingResponseReminder(IFormResponseRepository responses, IUserDirectory users, IMailDispatcher mail, FormMailOptions options, TimeProvider time)
     : IPendingResponseReminder
 {
     public async Task RemindAsync(CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(options.PendingReminderTemplateKey)) return;
 
-        var cutoff = DateTime.UtcNow.AddHours(-options.ReminderThresholdHours);
+        var now = time.GetUtcNow().UtcDateTime;
+        var cutoff = now.AddHours(-options.ReminderThresholdHours);
         var overdueForms = await responses.GetOverduePendingByFormAsync(cutoff, ct);
         if (overdueForms.Count == 0) return;
 
@@ -61,6 +62,6 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
         // Hatırlatma bir kez gider; bir mail kuyruğa yazılamadıysa cevaplar damgalanmaz ki sonraki tur yeniden denesin.
         // Yazılabilmiş olanlar o turda bir kez daha gidebilir: kaybolan hatırlatmadan iyidir. İnceleyeni bulunamayan
         // formun (kişi dizini kapalı, kişi silinmiş) cevapları da damgalanmaz: o form hatırlatılmadı.
-        if (queued && reminded.Count > 0) await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, reminded, ct);
+        if (queued && reminded.Count > 0) await responses.MarkOverduePendingRemindedAsync(cutoff, now, reminded, ct);
     }
 }

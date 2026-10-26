@@ -31,6 +31,7 @@ public class FormService : IFormService
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormAttemptService _attempts;
     private readonly IGuestUploadService _guestUploads;
+    private readonly TimeProvider _time;
 
     public FormService(
         IFormRepository forms,
@@ -43,7 +44,8 @@ public class FormService : IFormService
         IFormWorkflowRepository workflows,
         IFormWorkflowRuntime workflowRuntime,
         IFormAttemptService attempts,
-        IGuestUploadService guestUploads)
+        IGuestUploadService guestUploads,
+        TimeProvider time)
     {
         _forms = forms;
         _responses = responses;
@@ -56,6 +58,7 @@ public class FormService : IFormService
         _workflowRuntime = workflowRuntime;
         _attempts = attempts;
         _guestUploads = guestUploads;
+        _time = time;
     }
 
     public async Task<ServiceResult<FormContract>> CreateFormAsync(FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
@@ -228,7 +231,7 @@ public class FormService : IFormService
         if (form == null || form.Status == FormStatus.Deleted)
             return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         // Kapalı form "yok" değildir: istemci bunu ayrı bir ekranla karşılayabilsin.
         switch (form.AvailabilityAt(now))
@@ -336,7 +339,7 @@ public class FormService : IFormService
 
     private ServiceResult<FormDisplayPayload> ClosesAtPassed(Form form, string reason, string message) =>
         new(ServiceStatus.NotAvailable,
-            new FormDisplayPayload(null, 0, FormTitle: form.Title, Reason: reason, ClosesAt: form.ClosesAt, ServerNow: DateTime.UtcNow),
+            new FormDisplayPayload(null, 0, FormTitle: form.Title, Reason: reason, ClosesAt: form.ClosesAt, ServerNow: _time.GetUtcNow().UtcDateTime),
             message);
 
     public async Task<ServiceResult<FormMetaContract>> GetFormMetaByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -346,7 +349,7 @@ public class FormService : IFormService
         if (form == null || form.Status == FormStatus.Deleted)
             return new ServiceResult<FormMetaContract>(ServiceStatus.NotFound);
 
-        if (form.AvailabilityAt(DateTime.UtcNow) != FormAvailability.Open)
+        if (form.AvailabilityAt(_time.GetUtcNow().UtcDateTime) != FormAvailability.Open)
             return new ServiceResult<FormMetaContract>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         return new ServiceResult<FormMetaContract>(

@@ -21,6 +21,7 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly IFormWorkflowRuntime _runtime;
     private readonly IFormMailNotifier _mailNotifier;
     private readonly IFormWorkflowRunService _runs;
+    private readonly TimeProvider _time;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
@@ -30,7 +31,8 @@ public class FormWorkflowService : IFormWorkflowService
         ICurrentUser currentUser,
         IFormWorkflowRuntime runtime,
         IFormMailNotifier mailNotifier,
-        IFormWorkflowRunService runs)
+        IFormWorkflowRunService runs,
+        TimeProvider time)
     {
         _workflows = workflows;
         _instances = instances;
@@ -40,6 +42,7 @@ public class FormWorkflowService : IFormWorkflowService
         _runtime = runtime;
         _mailNotifier = mailNotifier;
         _runs = runs;
+        _time = time;
     }
 
     public async Task<ServiceResult<WorkflowContract>> CreateAsync(
@@ -443,7 +446,7 @@ public class FormWorkflowService : IFormWorkflowService
             }
 
             draft.Status = WorkflowStatus.Published;
-            draft.PublishedAt = DateTime.UtcNow;
+            draft.PublishedAt = _time.GetUtcNow().UtcDateTime;
             workflow.Status = WorkflowStatus.Published;
 
             await _uow.SaveChangesAsync(token);
@@ -469,7 +472,7 @@ public class FormWorkflowService : IFormWorkflowService
         var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && _currentUser.IsPlatformAdmin;
         if (workflow.OwnerUserId != userId && !adminMayArchive) return NotOwner<bool>();
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         // Her adım tekrarlanabilir bir toplu güncellemedir; işlem yeniden denenirse aynı sonuca varır.
         await _uow.ExecuteInTransactionAsync(async token =>
