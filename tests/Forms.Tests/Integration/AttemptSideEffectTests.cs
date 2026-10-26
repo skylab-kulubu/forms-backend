@@ -33,8 +33,6 @@ public class AttemptSideEffectTests(FormsApiFactory api)
         public Task RemoveByPrefixAsync(string prefix, CancellationToken ct = default) => inner.RemoveByPrefixAsync(prefix, ct);
         public Task<bool> ExistsAsync(string key, CancellationToken ct = default) => inner.ExistsAsync(key, ct);
         public IAsyncEnumerable<string> ScanKeysAsync(string pattern, CancellationToken ct = default) => inner.ScanKeysAsync(pattern, ct);
-        public Task<bool> AcquireLockAsync(string key, TimeSpan ttl, CancellationToken ct = default) => inner.AcquireLockAsync(key, ttl, ct);
-        public Task ReleaseLockAsync(string key, CancellationToken ct = default) => inner.ReleaseLockAsync(key, ct);
         public Task<long> IncrementAsync(string key, TimeSpan window, CancellationToken ct = default) => inner.IncrementAsync(key, window, ct);
     }
 

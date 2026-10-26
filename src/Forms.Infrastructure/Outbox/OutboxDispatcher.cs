@@ -12,8 +12,8 @@ namespace Skylab.Forms.Infrastructure.Outbox;
 /// Outbox'taki mesajları türlerinin işleyicisine verir. Teslim edilemeyen mesaj artan aralıklarla yeniden denenir ve
 /// işleyicisinin vazgeçme süresi dolunca bırakılır.
 /// </summary>
-public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, ICacheService cache, ILogger<OutboxDispatcher> logger)
-    : ScheduledWorker(cache, logger)
+public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<OutboxDispatcher> logger)
+    : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 50;
 

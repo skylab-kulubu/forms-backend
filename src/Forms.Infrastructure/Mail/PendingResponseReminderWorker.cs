@@ -10,9 +10,9 @@ namespace Skylab.Forms.Infrastructure.Mail;
 
 public class PendingResponseReminderWorker(
     IServiceScopeFactory scopeFactory,
-    ICacheService cache,
+    IDistributedLock locks,
     IOptions<FormMailOptions> options,
-    ILogger<PendingResponseReminderWorker> logger) : ScheduledWorker(cache, logger)
+    ILogger<PendingResponseReminderWorker> logger) : ScheduledWorker(locks, logger)
 {
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly FormMailOptions _options = options.Value;

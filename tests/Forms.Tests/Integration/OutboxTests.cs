@@ -68,7 +68,7 @@ public class OutboxTests(FormsApiFactory api)
             await db.SaveChangesAsync();
         }
 
-        var dispatcher = new OutboxDispatcher(host.Services.GetRequiredService<IServiceScopeFactory>(), host.Services.GetRequiredService<ICacheService>(), NullLogger<OutboxDispatcher>.Instance);
+        var dispatcher = new OutboxDispatcher(host.Services.GetRequiredService<IServiceScopeFactory>(), host.Services.GetRequiredService<IDistributedLock>(), NullLogger<OutboxDispatcher>.Instance);
         await dispatcher.DispatchDueAsync(CancellationToken.None);
 
         using var check = host.Services.CreateScope();
