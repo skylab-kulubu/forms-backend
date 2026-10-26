@@ -13,6 +13,7 @@ using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Ownership;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.Ownership;
+using Skylab.Forms.Application.Services.Forms;
 using Skylab.Forms.Application.Services.Responses;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Domain.Common;
@@ -30,7 +31,7 @@ public static class FormAdminEndpoints
     {
         var group = routes.MapGroup("api/admin/forms/").WithTags("FormsAdmin").RequireAuthorization();
 
-        group.MapGet("/", async (IFormService service, ICurrentUser user, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
+        group.MapGet("/", async (IFormCatalog service, ICurrentUser user, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -38,14 +39,14 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/all", async (IFormService service, [AsParameters] GetAllFormsRequest request, CancellationToken ct) =>
+        group.MapGet("/all", async (IFormCatalog service, [AsParameters] GetAllFormsRequest request, CancellationToken ct) =>
         {
             var result = await service.GetAllFormsAsync(request, ct);
             return result.ToApiResult();
         }).RequireAuthorization(FormsAuthorization.PlatformAdmin);
 
         // Hesabı silinen kişilerden kalan, sahibi Silinmiş kullanıcı olan formlar.
-        group.MapGet("/orphaned", async (IFormService service, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
+        group.MapGet("/orphaned", async (IFormCatalog service, [AsParameters] GetUserFormsRequest request, CancellationToken ct) =>
         {
             var result = await service.GetUserFormsAsync(DeletedUser.Id, request with { Role = CollaboratorRole.Owner }, ct);
             return result.ToApiResult();
@@ -59,7 +60,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}", async (Guid id, IFormService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, IFormCatalog service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -67,7 +68,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         }).WithName(FormRoute);
 
-        group.MapGet("/{id:guid}/info", async (Guid id, IFormService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/info", async (Guid id, IFormCatalog service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -75,7 +76,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/", async ([FromBody] FormUpsertRequest request, IFormService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
+        group.MapPost("/", async ([FromBody] FormUpsertRequest request, IFormAuthoring service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -89,7 +90,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPut("/{id:guid}", async (Guid id, [FromBody] FormUpsertRequest request, IFormService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPut("/{id:guid}", async (Guid id, [FromBody] FormUpsertRequest request, IFormAuthoring service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -123,7 +124,7 @@ public static class FormAdminEndpoints
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
         });
 
-        group.MapDelete("/{id:guid}", async (Guid id, IFormService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", async (Guid id, IFormAuthoring service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 

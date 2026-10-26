@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Services.AccountErasure;
+using Skylab.Forms.Application.Services.Forms;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.Mail;
@@ -18,7 +19,9 @@ public static class DependencyInjection
     {
         services.TryAddSingleton(TimeProvider.System);
 
-        services.AddScoped<IFormService, FormService>();
+        services.AddScoped<IFormAuthoring, FormAuthoring>();
+        services.AddScoped<IFormCatalog, FormCatalog>();
+        services.AddScoped<IRespondentFormView, RespondentFormView>();
         services.AddScoped<IResponseSubmission, ResponseSubmission>();
         services.AddScoped<IResponseQueries, ResponseQueries>();
         services.AddScoped<IResponseFiles, ResponseFiles>();
