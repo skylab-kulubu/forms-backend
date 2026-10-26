@@ -115,8 +115,11 @@ public record ResponseSummaryContract(
     DateTime? ArchivedAt,
     int? TimeSpent = null,
     ResponseAttemptSummaryContract? Attempt = null,
-    ResponseGuest? Guest = null
+    ResponseGuest? Guest = null,
+    ResponseSummaryWorkflowContract? Workflow = null
 );
+
+public record ResponseSummaryWorkflowContract(int Stage, int Round);
 
 public record ResponseAttemptSummaryContract(
     Guid Id,
