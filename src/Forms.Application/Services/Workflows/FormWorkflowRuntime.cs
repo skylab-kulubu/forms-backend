@@ -871,7 +871,6 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         return WorkflowJourneyBuilder.Build(workflowName, definition, steps, forms, voided: run.Status == WorkflowInstanceStatus.Voided);
     }
 
-    /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
     /// <summary>
     /// Akışta devam eden başvurusu olan kişi yeni başvuru açamaz; görüntüleme, süreli başlatma ve ilk gönderim aynı kurala
     /// bakar. Başvurunun sürümü bu formu içermiyorsa (akış başka bir başlangıç formuyla yeniden yayımlandı) form yeni bir
@@ -885,6 +884,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 location.NodeCount == 2)
             : null;
 
+    /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
     private static bool HasUsedOnlyRun(WorkflowNodeLocation location, WorkflowRunSummary? lastRun) =>
         !location.AllowMultipleRuns && lastRun is not null && lastRun.Status != WorkflowInstanceStatus.Voided;
 
