@@ -330,9 +330,10 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .ToList();
     }
 
-    public Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default) =>
+    public Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default) =>
         _context.Responses
             .IgnoreQueryFilters()
+            .Where(r => formIds.Contains(r.FormId))
             .Where(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged)
                 && !r.IsArchived
                 && r.PendingReminderSentAt == null

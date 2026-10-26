@@ -20,7 +20,7 @@ public interface IFormResponseRepository
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);
 
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
-    Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default);
+    Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default);
 
     void Add(FormResponse response);
     void Remove(FormResponse response);

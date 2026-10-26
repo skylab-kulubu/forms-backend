@@ -36,9 +36,8 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
             .Where(u => u.Email is not null)
             .ToDictionary(u => u.Id);
 
-        if (reviewers.Count == 0) return;
-
         var queued = true;
+        var reminded = new HashSet<Guid>();
         foreach (var (reviewerId, forms) in byReviewer)
         {
             if (!reviewers.TryGetValue(reviewerId, out var reviewer)) continue;
@@ -55,8 +54,9 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
             };
 
             queued &= await mail.EnqueueAsync(new EmailMessage(options.PendingReminderTemplateKey, reviewer.Email!, MailNames.Full(reviewer), variables), ct);
+            reminded.UnionWith(forms.Select(form => form.FormId));
         }
 
-        if (queued) await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, ct);
+        if (queued && reminded.Count > 0) await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, reminded, ct);
     }
 }
