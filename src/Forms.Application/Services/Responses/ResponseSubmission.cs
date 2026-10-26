@@ -85,8 +85,13 @@ public sealed class ResponseSubmission : IResponseSubmission
 
         if (userId == null && ResponseGuest.IsAskedBy(form.Schema))
         {
-            guest = ResponseGuest.From(form.Schema, contract.Responses);
-            if (guest is null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Ad, soyad ve e-posta zorunludur.");
+            guest = ResponseGuest.From(form.Schema, contract.Responses, out var unmailableEmail);
+            if (guest is null)
+            {
+                return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: unmailableEmail
+                    ? "E-posta adresi geçersiz görünüyor; kontrol edip tekrar deneyin."
+                    : "Ad, soyad ve e-posta zorunludur.");
+            }
         }
         else if (userId == null)
         {

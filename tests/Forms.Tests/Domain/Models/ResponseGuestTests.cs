@@ -28,7 +28,7 @@ public class ResponseGuestTests
     [Fact]
     public void Identity_answers_become_a_guest_with_a_lowercase_address()
     {
-        var guest = ResponseGuest.From(IdentitySchema, Answers(("f", " Ayşe "), ("l", "Yılmaz"), ("e", "Ayse@Example.com")));
+        var guest = ResponseGuest.From(IdentitySchema, Answers(("f", " Ayşe "), ("l", "Yılmaz"), ("e", "Ayse@Example.com")), out _);
 
         Assert.NotNull(guest);
         Assert.Equal(("Ayşe", "Yılmaz", "ayse@example.com"), (guest.FirstName, guest.LastName, guest.Email));
@@ -37,8 +37,9 @@ public class ResponseGuestTests
     [Fact]
     public void A_blank_name_or_an_address_without_at_yields_no_guest()
     {
-        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", " "), ("e", "ayse@example.com"))));
-        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", "Yılmaz"), ("e", "ayse.example.com"))));
+        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", " "), ("e", "ayse@example.com")), out var blankName));
+        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", "Yılmaz"), ("e", "ayse.example.com")), out var noAt));
+        Assert.Equal((false, true), (blankName, noAt));
     }
 
     [Theory]
@@ -48,8 +49,26 @@ public class ResponseGuestTests
     public void Identity_fields_take_only_an_address_the_recipient_list_would_mail(string email)
     {
         Assert.False(EmailAddress.IsValid(email));
-        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", "Yılmaz"), ("e", email))));
+        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", "Yılmaz"), ("e", email)), out var unmailable));
+        Assert.True(unmailable);
     }
+
+    [Theory]
+    [InlineData("mailto:Ayse@Example.com")]
+    [InlineData("<ayse@example.com>")]
+    [InlineData("ayse@example.com,")]
+    [InlineData("ayse@example.com; ")]
+    [InlineData("ay\u200Bse@example.com\u200B")]
+    public void Leftovers_of_a_pasted_address_are_dropped(string email)
+    {
+        var guest = ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", "Yılmaz"), ("e", email)), out _);
+
+        Assert.Equal("ayse@example.com", guest?.Email);
+    }
+
+    [Fact]
+    public void An_address_with_an_invisible_character_left_in_it_is_not_mailable() =>
+        Assert.False(EmailAddress.IsValid("ayse@example.com\u200B"));
 
     [Theory]
     [InlineData("Ayse@Example.com", "ayse@example.com")]

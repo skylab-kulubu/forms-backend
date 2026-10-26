@@ -22,8 +22,11 @@ public class ResponseGuest
         return keys.Contains("firstName") && keys.Contains("lastName") && keys.Contains("email");
     }
 
-    /// <summary>Kimlik alanlarına yazılanlar; biri boşsa ya da e-postaya mail gönderilemiyorsa null.</summary>
-    public static ResponseGuest? From(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers)
+    /// <summary>
+    /// Kimlik alanlarına yazılanlar; biri boşsa ya da e-postaya mail gönderilemiyorsa null. Ad ve soyad yazılmış ama adres
+    /// geçersizse <paramref name="unmailableEmail"/> true olur ki çağıran eksik alan yerine adresi söylesin.
+    /// </summary>
+    public static ResponseGuest? From(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers, out bool unmailableEmail)
     {
         string? AnswerTo(string key) => schema
             .Where(field => IdentityOf(field) == key)
@@ -32,7 +35,9 @@ public class ResponseGuest
 
         var firstName = AnswerTo("firstName");
         var lastName = AnswerTo("lastName");
-        var email = AnswerTo("email");
+        var email = EmailAddress.Clean(AnswerTo("email"));
+
+        unmailableEmail = firstName is not null && lastName is not null && !string.IsNullOrEmpty(email) && !EmailAddress.IsValid(email);
 
         if (firstName is null || lastName is null || !EmailAddress.IsValid(email))
             return null;
@@ -47,7 +52,7 @@ public class ResponseGuest
     public static ResponseGuest? FromEmailQuestion(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers)
     {
         var field = schema.FirstOrDefault(field => IdentityOf(field) == "email");
-        var email = field is null ? null : answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer?.Trim();
+        var email = field is null ? null : EmailAddress.Clean(answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer);
 
         return EmailAddress.IsValid(email) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
     }
