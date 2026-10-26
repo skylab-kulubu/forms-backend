@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Skylab.Forms.Application.Common;
@@ -16,7 +15,6 @@ namespace Skylab.Forms.Application.Services;
 
 public class FormMailNotifier : IFormMailNotifier
 {
-    private static readonly CultureInfo Culture = new("tr-TR");
     private static readonly TimeSpan GuestCopyWindow = TimeSpan.FromDays(1);
 
     private readonly IUserDirectory _userService;
@@ -53,7 +51,7 @@ public class FormMailNotifier : IFormMailNotifier
         var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
             ["formTitle"] = form.Title,
-            ["submittedAt"] = ClubTime.ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["submittedAt"] = ClubTime.ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture),
             ["answers"] = answers
         };
 
@@ -85,7 +83,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (response.ReviewedAt.HasValue)
-            variables["reviewedAt"] = ClubTime.ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["reviewedAt"] = ClubTime.ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture);
 
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
@@ -108,7 +106,7 @@ public class FormMailNotifier : IFormMailNotifier
             ["formTitle"] = voided.WorkflowName,
             ["status"] = "reopened",
             ["reviewNote"] = voided.Note ?? string.Empty,
-            ["reviewedAt"] = ClubTime.ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["reviewedAt"] = ClubTime.ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture),
             ["nextFormId"] = voided.StartFormId.ToString()
         };
 
@@ -132,7 +130,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (deadlineAt.HasValue)
-            variables["deadlineAt"] = ClubTime.ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["deadlineAt"] = ClubTime.ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture);
 
         if (minutes.HasValue)
         {

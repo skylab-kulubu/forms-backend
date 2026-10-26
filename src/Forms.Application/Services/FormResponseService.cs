@@ -696,7 +696,7 @@ public class FormResponseService : IFormResponseService
             {
                 response.Id.ToString(),
                 response.UserId?.ToString() ?? "Anonim",
-                ClubTime.ToLocal(response.SubmittedAt).ToString("dd.MM.yyyy HH:mm"),
+                ClubTime.ToLocal(response.SubmittedAt).ToString("dd.MM.yyyy HH:mm", ClubTime.Culture),
                 StatusLabel(response.Status),
                 response.ReviewNote ?? "",
                 response.Attribution?.Source ?? "",
@@ -708,7 +708,7 @@ public class FormResponseService : IFormResponseService
             {
                 var timing = timings.TryGetValue(response.Id, out var found) ? found : null;
 
-                row.Add(timing?.StartedAt is { } started ? ClubTime.ToLocal(started).ToString("dd.MM.yyyy HH:mm") : "");
+                row.Add(timing?.StartedAt is { } started ? ClubTime.ToLocal(started).ToString("dd.MM.yyyy HH:mm", ClubTime.Culture) : "");
                 row.Add(timing?.StartedAt is { } startedAt ? Math.Max(0, (int)Math.Round((response.SubmittedAt - startedAt).TotalMinutes)).ToString() : "");
                 row.Add(timing is { ExtendedMinutes: > 0 } ? timing.ExtendedMinutes.ToString() : "");
             }
