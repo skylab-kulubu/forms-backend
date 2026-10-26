@@ -70,11 +70,9 @@ public class FormMetricService : IFormMetricService
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);
         var channels = await BuildChannelsAsync(formId, cancellationToken);
 
-        var emptyDailyTrend = Enumerable.Range(0, 7).Select(offset =>
-        {
-            var targetDate = DateTime.UtcNow.AddDays(-6 + offset).Date;
-            return new TrendItemContract($"d-{offset}", targetDate.ToString("ddd"), 0);
-        }).ToList();
+        var now = ClubTime.ToLocal(DateTime.UtcNow);
+        var firstDay = now.Date.AddDays(-6);
+        var firstHour = now.Date.AddHours(now.Hour - 23);
 
         if (basicStats == null)
         {
@@ -87,41 +85,28 @@ public class FormMetricService : IFormMetricService
                 DailyTrendPercentage: 0,
                 HourlyTrendPercentage: 0,
                 SourceBreakdown: new SourceBreakdownContract(0, 0),
-                DailyTrend: emptyDailyTrend,
+                DailyTrend: DailyTrend(firstDay, []),
                 HourlyTrend: new List<TrendItemContract>(),
                 Channels: channels
             );
             return new ServiceResult<FormMetricsContract>(ServiceStatus.Success, Data: emptyMetrics);
         }
 
-        var now = DateTime.UtcNow;
-        var sevenDaysAgo = now.AddDays(-7).Date;
-        var dailyData = await _metrics.GetDailyResponseCountsAsync(formId, sevenDaysAgo, cancellationToken);
+        // Günlük pencere saatlik pencereyi kapsar; ikisi aynı gönderim anlarından sayılır.
+        var submitted = (await _metrics.GetSubmittedTimesAsync(formId, ClubTime.ToUtc(firstDay), cancellationToken))
+            .Select(ClubTime.ToLocal)
+            .ToList();
 
-        var dailyTrend = Enumerable.Range(0, 7).Select(offset =>
-        {
-            var targetDate = sevenDaysAgo.AddDays(offset + 1);
-            var data = dailyData.FirstOrDefault(d => d.Date == targetDate.Date);
-
-            return new TrendItemContract(
-                $"d-{offset}",
-                targetDate.ToString("ddd"),
-                data?.Count ?? 0
-            );
-        }).ToList();
-
-        var twentyFourHoursAgo = now.AddHours(-24);
-        var hourlyDataRaw = await _metrics.GetHourlyResponseCountsAsync(formId, twentyFourHoursAgo, cancellationToken);
+        var dailyTrend = DailyTrend(firstDay, submitted);
 
         var hourlyTrend = Enumerable.Range(0, 24).Select(offset =>
         {
-            var targetDateTime = twentyFourHoursAgo.AddHours(offset + 1);
-            var data = hourlyDataRaw.FirstOrDefault(d => d.Date == targetDateTime.Date && d.Hour == targetDateTime.Hour);
+            var hour = firstHour.AddHours(offset);
 
             return new TrendItemContract(
-                $"h-{targetDateTime.Hour}",
-                targetDateTime.ToString("HH:00"),
-                data?.Count ?? 0
+                $"h-{hour.Hour}",
+                hour.ToString("HH:00", ClubTime.Culture),
+                submitted.Count(at => at >= hour && at < hour.AddHours(1))
             );
         }).ToList();
 
@@ -141,6 +126,14 @@ public class FormMetricService : IFormMetricService
 
         return new ServiceResult<FormMetricsContract>(ServiceStatus.Success, Data: result);
     }
+
+    /// <summary>Bugünle biten yedi gün; gün adları kulübün dilinde.</summary>
+    private static List<TrendItemContract> DailyTrend(DateTime firstDay, IReadOnlyCollection<DateTime> submitted) =>
+        Enumerable.Range(0, 7).Select(offset =>
+        {
+            var day = firstDay.AddDays(offset);
+            return new TrendItemContract($"d-{offset}", day.ToString("ddd", ClubTime.Culture), submitted.Count(at => at.Date == day));
+        }).ToList();
 
     /// <summary>
     /// Kanal başına yanıt (forms) ve tıklama (core) sayısı. Etiketsiz satırın kaynağı null ve
@@ -196,15 +189,15 @@ public class FormMetricService : IFormMetricService
         var totalResponses = await _metrics.GetTotalResponsesCountAsync(cancellationToken);
         var pendingResponses = await _metrics.GetPendingNonArchivedResponsesCountAsync(cancellationToken);
 
-        var today = DateTime.UtcNow.Date;
+        var today = ClubTime.ToLocal(DateTime.UtcNow).Date;
         var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
         var currentWeekStart = today.AddDays(-1 * diff).Date;
 
         var weeksToFetch = 8;
         var startDate = currentWeekStart.AddDays(-(weeksToFetch - 1) * 7);
 
-        var formDates = await _metrics.GetFormCreatedDatesAsync(startDate, cancellationToken);
-        var responseDates = await _metrics.GetResponseSubmittedDatesAsync(startDate, cancellationToken);
+        var formDates = (await _metrics.GetFormCreatedDatesAsync(ClubTime.ToUtc(startDate), cancellationToken)).Select(ClubTime.ToLocal).ToList();
+        var responseDates = (await _metrics.GetResponseSubmittedDatesAsync(ClubTime.ToUtc(startDate), cancellationToken)).Select(ClubTime.ToLocal).ToList();
 
         var formsWeeklyTrend = new List<TrendItemContract>();
         var responsesWeeklyTrend = new List<TrendItemContract>();
@@ -214,7 +207,7 @@ public class FormMetricService : IFormMetricService
             var weekStart = currentWeekStart.AddDays(-i * 7);
             var weekEnd = weekStart.AddDays(7);
 
-            var weekLabel = $"{weekStart:dd MMM}";
+            var weekLabel = weekStart.ToString("dd MMM", ClubTime.Culture);
 
             var formCount = formDates.Count(d => d >= weekStart && d < weekEnd);
             var responseCount = responseDates.Count(d => d >= weekStart && d < weekEnd);

@@ -6,8 +6,8 @@ public interface IFormMetricsRepository
 {
     Task<FormBasicStats?> GetFormBasicStatsAsync(Guid formId, CancellationToken ct = default);
     Task<IReadOnlyList<List<FormResponseSchemaItem>>> GetNonArchivedResponseDataAsync(Guid formId, CancellationToken ct = default);
-    Task<IReadOnlyList<DailyResponseCount>> GetDailyResponseCountsAsync(Guid formId, DateTime sinceDate, CancellationToken ct = default);
-    Task<IReadOnlyList<HourlyResponseCount>> GetHourlyResponseCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default);
+    /// <summary>Formun sayılan cevaplarının gönderim anları (UTC). Günlere ve saatlere çağıran kulüp saatiyle böler.</summary>
+    Task<IReadOnlyList<DateTime>> GetSubmittedTimesAsync(Guid formId, DateTime since, CancellationToken ct = default);
     Task<IReadOnlyList<ResponseSourceCount>> GetResponseSourceCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default);
 
     Task<int> GetTotalFormsCountAsync(CancellationToken ct = default);
@@ -27,8 +27,6 @@ public sealed record FormBasicStats(
     int Anonymous
 );
 
-public sealed record DailyResponseCount(DateTime Date, int Count);
 
-public sealed record HourlyResponseCount(DateTime Date, int Hour, int Count);
 
 public sealed record ResponseSourceCount(string? Source, int Count);
