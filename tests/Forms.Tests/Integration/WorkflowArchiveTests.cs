@@ -9,6 +9,7 @@ using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Application.Services.Attempts;
+using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Infrastructure.Storage;
 
@@ -43,6 +44,28 @@ public class WorkflowArchiveTests(FormsApiFactory api)
         Assert.Equal(HttpStatusCode.OK, reviewed.StatusCode);
         Assert.Equal(WorkflowInstanceStatus.Terminated, await RunStatusAsync(workflowId, waiting.Id));
         Assert.Equal(1, await StepCountAsync(workflowId, waiting.Id));
+    }
+
+    [Fact]
+    public async Task The_bulk_stop_of_an_archive_writes_the_end_state_Stop_defines()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var (workflowId, apply, _) = await ReviewThenInterviewAsync(owner);
+        var moving = api.Users.Add("Zeynep Ak");
+        (await owner.PatchAsJsonAsync($"/api/admin/forms/responses/{await SubmitAsync(moving.Id, apply.Id)}/status", new { newStatus = FormResponseStatus.Approved })).EnsureSuccessStatusCode();
+
+        (await owner.DeleteAsync($"/api/admin/workflows/{workflowId}")).EnsureSuccessStatusCode();
+
+        using var scope = api.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<FormsDbContext>().WorkflowInstances.AsNoTracking()
+            .Include(run => run.Steps)
+            .SingleAsync(run => run.WorkflowId == workflowId && run.UserId == moving.Id);
+        var expected = new FormWorkflowInstance();
+        expected.Stop(DateTime.UtcNow);
+
+        Assert.Equal((expected.Status, expected.Outcome), (stored.Status, stored.Outcome));
+        Assert.NotNull(stored.CompletedAt);
+        Assert.All(stored.Steps, step => Assert.NotNull(step.CompletedAt));
     }
 
     [Fact]

@@ -5,9 +5,8 @@ using Skylab.Forms.Domain.Enums;
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
 /// <summary>
-/// Aktif başvuruları sonuçsuz bitirir (Terminated, Outcome None; yönetici tarafında durduruldu) ve açık adımlarını
-/// kapatır. Hesap silme ve arşivleme bunu kullanır. FormWorkflowRuntime bir başvuruyu bitirirken aynı alanları
-/// değiştirir; kural orada değişirse burada da değişmeli.
+/// Aktif başvuruları FormWorkflowInstance.Stop'un toplu karşılığıyla sonuçsuz bitirir ve açık adımlarını kapatır. Hesap
+/// silme ve arşivleme bunu kullanır; WorkflowArchiveTests ikisinin aynı durumu yazdığını denetler.
 /// </summary>
 internal static class WorkflowRunStop
 {
