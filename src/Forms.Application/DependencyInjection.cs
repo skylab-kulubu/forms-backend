@@ -30,6 +30,9 @@ public static class DependencyInjection
         services.AddScoped<IPendingResponseReminder, PendingResponseReminder>();
         services.AddScoped<IFormShortLinkService, FormShortLinkService>();
         services.AddScoped<IFormAttemptService, FormAttemptService>();
+        services.AddScoped<IAttemptExpiry, AttemptExpiry>();
+        services.AddScoped<IAttemptDecisions, AttemptDecisions>();
+        services.AddScoped<IAttemptReadModels, AttemptReadModels>();
         services.AddScoped<IGuestUploadService, GuestUploadService>();
         services.AddScoped<IAccountErasureService, AccountErasureService>();
 
