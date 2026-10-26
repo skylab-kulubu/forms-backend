@@ -134,7 +134,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             .Distinct()
             .ToList();
 
-        var lockedByNodeKey = await FindLockedQuestionsAsync(publishedVersionIds, ct);
+        var lockedByNode = await FindLockedQuestionsAsync(publishedVersionIds, ct);
         var now = DateTime.UtcNow;
 
         return chosen.ToDictionary(
@@ -147,7 +147,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
                 entry.Value.AllowMultipleRuns,
                 FormWorkflow.EffectiveIntake(entry.Value.Intake, entry.Value.IntakeClosesAt, now),
                 entry.Value.RequiresManualReview,
-                entry.Value.IsPublished && lockedByNodeKey.TryGetValue(entry.Value.NodeKey, out var locked)
+                entry.Value.IsPublished && lockedByNode.TryGetValue(NodeOf(entry.Value.WorkflowVersionId, entry.Value.NodeKey), out var locked)
                     ? [.. locked.Select(question => new WorkflowLockedQuestion(question.Key, question.Value))]
                     : [],
                 entry.Value.IntakeClosesAt));
@@ -158,13 +158,13 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
     /// okunduğu. Koşullar jsonb içinde saklandığı için sorguyla süzülemez;
     /// yönlendirmeler tek seferde okunup bellekte taranır.
     /// </summary>
-    private async Task<Dictionary<string, Dictionary<string, HashSet<string>>>> FindLockedQuestionsAsync(
+    private async Task<Dictionary<(Guid VersionId, string NodeKey), Dictionary<string, HashSet<string>>>> FindLockedQuestionsAsync(
         List<Guid> versionIds,
         CancellationToken ct)
     {
-        var readsByNodeKey = new Dictionary<string, Dictionary<string, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
+        var readsByNode = new Dictionary<(Guid VersionId, string NodeKey), Dictionary<string, HashSet<string>>>();
 
-        if (versionIds.Count == 0) return readsByNodeKey;
+        if (versionIds.Count == 0) return readsByNode;
 
         var nodeKeysById = await _context.WorkflowNodes.AsNoTracking()
             .Where(node => versionIds.Contains(node.WorkflowVersionId))
@@ -172,7 +172,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
 
         var transitions = await _context.WorkflowTransitions.AsNoTracking()
             .Where(transition => versionIds.Contains(transition.WorkflowVersionId))
-            .Select(transition => new { transition.SourceNodeId, transition.Condition })
+            .Select(transition => new { transition.WorkflowVersionId, transition.SourceNodeId, transition.Condition })
             .ToListAsync(ct);
 
         foreach (var transition in transitions)
@@ -182,12 +182,12 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             foreach (var rule in transition.Condition.Rules)
             {
                 // Boş nodeKey, kuralın kaynak adımın kendi cevabına baktığını gösterir.
-                var readsFrom = string.IsNullOrWhiteSpace(rule.NodeKey)
-                    ? nodeKeysById[transition.SourceNodeId]
-                    : rule.NodeKey;
+                var readsFrom = NodeOf(
+                    transition.WorkflowVersionId,
+                    string.IsNullOrWhiteSpace(rule.NodeKey) ? nodeKeysById[transition.SourceNodeId] : rule.NodeKey);
 
-                if (!readsByNodeKey.TryGetValue(readsFrom, out var questions))
-                    readsByNodeKey[readsFrom] = questions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+                if (!readsByNode.TryGetValue(readsFrom, out var questions))
+                    readsByNode[readsFrom] = questions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
                 if (!questions.TryGetValue(rule.QuestionId, out var values))
                     questions[rule.QuestionId] = values = new HashSet<string>(StringComparer.Ordinal);
@@ -196,8 +196,10 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             }
         }
 
-        return readsByNodeKey;
+        return readsByNode;
     }
+
+    private static (Guid VersionId, string NodeKey) NodeOf(Guid versionId, string nodeKey) => (versionId, nodeKey.ToLowerInvariant());
 
     /// <summary>Kuralın seçenek adıyla karşılaştırdığı metinler.</summary>
     private static IEnumerable<string> TextValuesOf(WorkflowConditionRule rule)
@@ -389,6 +391,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
         await _context.Forms.AsNoTracking()
             .IgnoreQueryFilters()
             .Where(form => formIds.Contains(form.Id))
+            .Select(form => new { form.Id, form.Title, form.RequiresManualReview, form.TimeLimitMinutes })
             .ToDictionaryAsync(form => form.Id, form => new WorkflowFormHeader(form.Title, form.RequiresManualReview, form.TimeLimitMinutes), ct);
 
     public async Task<IReadOnlyDictionary<Guid, string>> FindFormsInOtherPublishedWorkflowsAsync(
