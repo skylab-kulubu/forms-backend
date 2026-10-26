@@ -149,9 +149,12 @@ public class OwnershipService : IOwnershipService
         if (targetUserId == ownerId)
             return Fail(ServiceStatus.NotAcceptable, "Seçilen kişi zaten sahibi.");
 
+        var target = await _users.FindUserAsync(targetUserId, ct);
+        if (target.Outcome == UserLookupOutcome.Unavailable)
+            return Fail(ServiceStatus.ServiceUnavailable, "Seçilen kullanıcı şu an doğrulanamıyor. Biraz sonra tekrar deneyin.");
+
         // Silinmiş ya da silinmesi süren kişi core'dan adressiz döner; sahiplik yalnız etkin bir hesaba geçer.
-        var target = await _users.GetUserAsync(targetUserId, ct);
-        if (string.IsNullOrWhiteSpace(target?.Email))
+        if (string.IsNullOrWhiteSpace(target.User?.Email))
             return Fail(ServiceStatus.NotAcceptable, "Seçilen kullanıcı bulunamadı.");
 
         return null;

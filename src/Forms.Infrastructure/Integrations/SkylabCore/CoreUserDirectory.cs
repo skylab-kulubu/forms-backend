@@ -21,25 +21,32 @@ internal class CoreUserDirectory : IUserDirectory
         _logger = logger;
     }
 
-    public async Task<UserContract?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<UserContract?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        (await FindUserAsync(userId, cancellationToken)).User;
+
+    public async Task<UserLookup> FindUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         if (userId == DeletedUser.Id)
-            return new UserContract(userId, null, DeletedUser.DisplayName, null);
+            return new UserLookup(UserLookupOutcome.Found, new UserContract(userId, null, DeletedUser.DisplayName, null));
 
         try
         {
             var user = await _httpClient.GetFromJsonAsync<ExternalUserResponse>($"/v1/users/{userId}", JsonOptions, cancellationToken);
-            return user is null || user.Id == Guid.Empty ? null : MapToContract(user);
+            if (user is not null && user.Id != Guid.Empty)
+                return new UserLookup(UserLookupOutcome.Found, MapToContract(user));
+
+            _logger.LogWarning("Core kullanıcı yanıtı tanınmadı");
+            return new UserLookup(UserLookupOutcome.Unavailable);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            return null;
+            return new UserLookup(UserLookupOutcome.NotFound);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // Bulunamayan kullanıcı listede "??" görünür; çağrıyı düşürmek kayıtlı bir değişikliğe 500 döndürürdü.
             _logger.LogWarning("Core kullanıcısı okunamadı: {Error}", ex is HttpRequestException { StatusCode: { } status } ? (int)status : ex.GetType().Name);
-            return null;
+            return new UserLookup(UserLookupOutcome.Unavailable);
         }
     }
 
