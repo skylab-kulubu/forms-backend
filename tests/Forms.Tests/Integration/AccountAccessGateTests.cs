@@ -46,7 +46,9 @@ public class AccountAccessGateTests(FormsApiFactory api)
             .UseSetting("AccountAccessGate:Username", "default")
             .UseSetting("AccountAccessGate:Password", "unused")
             .UseSetting("AccountAccessGate:Database", GateDatabase.ToString())
-            .UseSetting("AccountAccessGate:Tls", "false"));
+            .UseSetting("AccountAccessGate:Tls", "false")
+            // Paylaşılan Redis bütün paket koşarken yavaşlayabilir; varsayılan 200 ms kapıyı "okunamadı"ya düşürürdü.
+            .UseSetting("AccountAccessGate:OperationTimeoutMilliseconds", "2000"));
 
     private async Task BlockAsync(Guid subject)
     {
