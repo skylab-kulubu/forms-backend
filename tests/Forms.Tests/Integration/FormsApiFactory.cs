@@ -25,7 +25,7 @@ namespace Skylab.Forms.Tests.Integration;
 public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     // Arka plan işleri core'a ve SkyMail'e gider; bir test bir işe ihtiyaç duyarsa onu kendisi çağırır.
-    private static readonly Type[] Workers =
+    internal static readonly Type[] Workers =
     [
         typeof(OutboxDispatcher),
         typeof(AnswerFileLinkWorker),
@@ -84,15 +84,8 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
 
         builder.ConfigureTestServices(services =>
         {
-            // Authority'siz statik yapılandırma: token metadata indirilmeden test anahtarıyla doğrulanır.
-            services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
-            {
-                options.Authority = null;
-                options.Configuration = new OpenIdConnectConfiguration { Issuer = TestTokens.Issuer };
-                options.Configuration.SigningKeys.Add(TestTokens.SigningKey);
-                options.TokenValidationParameters.ValidIssuer = TestTokens.Issuer;
-                options.TokenValidationParameters.IssuerSigningKey = TestTokens.SigningKey;
-            });
+            TrustTestTokens(services);
+            RemoveWorkers(services);
 
             services.RemoveAll<IUserDirectory>();
             services.AddSingleton<IUserDirectory>(Users);
@@ -102,10 +95,24 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
             services.AddSingleton<IEmailSender, UnreachableMail>();
             services.RemoveAll<IMailAudienceExport>();
             services.AddSingleton<IMailAudienceExport, UnreachableMail>();
-
-            foreach (var worker in services.Where(service => service.ServiceType == typeof(IHostedService) && Workers.Contains(service.ImplementationType)).ToList())
-                services.Remove(worker);
         });
+    }
+
+    /// <summary>Authority'siz statik yapılandırma: token metadata indirilmeden test anahtarıyla doğrulanır.</summary>
+    internal static void TrustTestTokens(IServiceCollection services) =>
+        services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+        {
+            options.Authority = null;
+            options.Configuration = new OpenIdConnectConfiguration { Issuer = TestTokens.Issuer };
+            options.Configuration.SigningKeys.Add(TestTokens.SigningKey);
+            options.TokenValidationParameters.ValidIssuer = TestTokens.Issuer;
+            options.TokenValidationParameters.IssuerSigningKey = TestTokens.SigningKey;
+        });
+
+    internal static void RemoveWorkers(IServiceCollection services)
+    {
+        foreach (var worker in services.Where(service => service.ServiceType == typeof(IHostedService) && Workers.Contains(service.ImplementationType)).ToList())
+            services.Remove(worker);
     }
 
     public Task InitializeAsync() => Task.WhenAll(_postgres.StartAsync(), _redis.StartAsync());
