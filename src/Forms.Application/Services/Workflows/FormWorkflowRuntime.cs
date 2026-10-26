@@ -581,16 +581,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         if (instance is null) return new ServiceResult<WorkflowRunVoided>(ServiceStatus.NotFound, Message: "Başvuru bulunamadı.");
 
         var now = _time.GetUtcNow().UtcDateTime;
-        var wasActive = instance.Status == WorkflowInstanceStatus.Active;
-
-        foreach (var step in instance.Steps.Where(step => step.CompletedAt is null))
-            step.CompletedAt = now;
-
-        instance.Status = WorkflowInstanceStatus.Voided;
-        instance.VoidedAt = now;
-        instance.VoidedBy = actorId;
-        instance.VoidNote = note;
-        if (wasActive) instance.CompletedAt = now;
+        var wasActive = instance.Void(actorId, note, now);
 
         // Cevaplar başvurunun geçmişinde kalır ama listeden ve sayımlardan çıkar: yeni başvuru kendi cevaplarıyla sayılır.
         var responseIds = instance.Steps.Where(step => step.ResponseId is not null).Select(step => step.ResponseId!.Value).ToList();
@@ -741,18 +732,15 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         if (instance.Workflow?.Status == WorkflowStatus.Archived)
         {
             step.SelectedTransitionId = null;
-            var stopped = Complete(instance, step, trigger, now, startFormId);
-            instance.Status = WorkflowInstanceStatus.Terminated;
 
-            return (stopped, null);
+            return (Complete(instance, step, trigger, now, startFormId, stopped: true), null);
         }
 
         if (decision.Outcome == WorkflowRouteOutcome.Unresolved)
         {
             // Publish doğrulaması varsayılan rotayı zorunlu kılar; buraya düşmek
             // tanımın doğrulama dışı bir yoldan bozulduğu anlamına gelir.
-            instance.Status = WorkflowInstanceStatus.Faulted;
-            instance.CompletedAt = now;
+            instance.Fault(now);
 
             return (new WorkflowStepOutcome(instance.Id, WorkflowActionState.Faulted, step.Sequence, null, startFormId), null);
         }
@@ -800,19 +788,20 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         FormWorkflowStep step,
         WorkflowTransitionTrigger trigger,
         DateTime now,
-        Guid startFormId)
+        Guid startFormId,
+        bool stopped = false)
     {
-        var declined = trigger is WorkflowTransitionTrigger.ResponseDeclined or WorkflowTransitionTrigger.TimedOut;
-
-        instance.Status = declined ? WorkflowInstanceStatus.Terminated : WorkflowInstanceStatus.Completed;
-        instance.CompletedAt = now;
-        instance.Outcome = trigger switch
+        var outcome = trigger switch
         {
             WorkflowTransitionTrigger.ResponseApproved => WorkflowInstanceOutcome.Approved,
             WorkflowTransitionTrigger.ResponseDeclined => WorkflowInstanceOutcome.Declined,
             WorkflowTransitionTrigger.TimedOut => WorkflowInstanceOutcome.TimedOut,
             _ => WorkflowInstanceOutcome.None
         };
+        var declined = outcome is WorkflowInstanceOutcome.Declined or WorkflowInstanceOutcome.TimedOut;
+
+        if (stopped) instance.Stop(now, outcome);
+        else instance.Finish(outcome, now);
 
         return new WorkflowStepOutcome(
             instance.Id,
