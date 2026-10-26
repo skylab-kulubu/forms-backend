@@ -45,6 +45,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         })
         .DisableAntiforgery()
+        .RequireRateLimiting(GuestUploadRateLimit.Policy)
         .WithMetadata(new RequestSizeLimitAttribute(GuestUploadRequestLimit));
 
         group.MapGet("/{id:guid}/guest-uploads/{mediaId:guid}", async (Guid id, Guid mediaId, [FromHeader(Name = GuestUploadSessionHeader)] string? sessionId, IGuestUploadService service, CancellationToken ct) =>

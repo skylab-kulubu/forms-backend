@@ -387,7 +387,7 @@ A signed-in respondent's browser uploads a file answer to core itself, as `answe
 
 Forms keeps each link in `AnswerFileLinks` with core's attachment id, which removing the link needs. `AnswerFileLinkWorker` applies them every 10 seconds and retries a failure with a growing delay of up to an hour, so a core outage delays a link but loses none; a file that was linked once stays in core for 30 days after its last link goes. A file core no longer has, one uploaded without a purpose (`legacy`), someone else's, or one the scan rejected is not linked.
 
-On submit Forms reads each file answer from core and refuses one that is not the respondent's `answer_file` (`fileExpired`), whose type or size the question does not allow (`fileTypeNotAllowed`, `fileTooLarge`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). Signed-in respondents can upload PDF, JPEG, PNG and DOCX of at most 50 MiB, narrowed by the question's `acceptedFiles` and `maxSize`; for an image, which core re-encodes, the size checked is the stored one. A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
+On submit Forms refuses a file answer that is not a file id (`fileExpired`), reads each file answer from core and refuses one that is not the respondent's `answer_file` or a legacy file someone else uploaded (`fileExpired`), whose type or size the question does not allow (`fileTypeNotAllowed`, `fileTooLarge`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). Signed-in respondents can upload PDF, JPEG, PNG and DOCX of at most 50 MiB, narrowed by the question's `acceptedFiles` and `maxSize`; for an image, which core re-encodes, the size checked is the stored one. A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
 
 ## Guest uploads and Turnstile
 
@@ -419,7 +419,7 @@ Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTI
 | Request body | 52 MiB, larger bodies get `413` |
 | Files per session | 10 |
 | Sessions per client address and minute | 30 |
-| Files per client address and minute | 60 |
+| Files per client address and minute | 60, also counted before the request body is read, per instance, so a flood is refused without reading its files |
 | Guest files per form and minute | 200 |
 
 The counters run on clock minutes, so `retryAfterSeconds` is at most 60. Short windows let a burst through (an event where everyone uploads at once from one network) and keep anyone over a limit waiting seconds, not an hour. Sessions are counted **before** Turnstile is asked, so a flood of session requests never reaches Cloudflare. A client address counts as itself for IPv4 and as its `/64` for IPv6, and is kept only as a hash. Every guest upload is also charged to the Forms service account's budget in core (100 uploads per 10 minutes and 2 GiB a day by default, shared by all guests; at 50 MiB a file that is about 40 files a day); a refusal there reaches the guest as `tooManyUploads` with core's `retryAfterSeconds`.

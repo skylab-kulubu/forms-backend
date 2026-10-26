@@ -221,13 +221,19 @@ public class GuestUploadService : IGuestUploadService
         foreach (var question in form.Schema.Where(GuestUploadRules.IsFileQuestion))
         {
             var answer = request.Responses?.FirstOrDefault(response => response.Id == question.Id)?.Answer;
-            if (!Guid.TryParse(answer, out var mediaId)) continue;
+            if (string.IsNullOrWhiteSpace(answer)) continue;
+
+            if (!Guid.TryParse(answer, out var mediaId)) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: question.Id));
 
             var read = await _files.FindAsync(mediaId, ct);
             if (read.Outcome == FileStoreOutcome.NotFound) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: question.Id));
             if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } media) return Reject(Refuse(GuestUploadReason.GuestUploadsUnavailable));
 
-            if (media.Origin == FileOrigin.Legacy) continue;
+            if (media.Origin == FileOrigin.Legacy)
+            {
+                if (media.UploadedBy is { } uploader && uploader != userId) return Reject(Refuse(GuestUploadReason.FileExpired, questionId: question.Id));
+                continue;
+            }
 
             if (CheckAccountFile(question, media, userId) is { } refusal) return Reject(refusal);
         }

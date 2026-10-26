@@ -16,6 +16,7 @@ builder.Services.AddFrontendCors();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddTrustedForwardedHeaders();
+builder.Services.AddGuestUploadRateLimit();
 builder.Services.AddFormsJwtAuthentication();
 builder.Services.AddFormsAuthorization();
 builder.Services.AddApplicationServices();
@@ -36,6 +37,7 @@ app.UseForwardedHeaders();
 await app.Services.ApplyDatabaseMigrationsAsync();
 
 app.UseCors(FrontendCorsExtensions.PolicyName);
+app.UseRateLimiter();
 app.UseStorageConflictResponses();
 app.UseFormsJwtAuthentication();
 app.UseAccountAccessGate();
