@@ -5,9 +5,10 @@ namespace Skylab.Forms.Api.Extensions;
 public static class ErrorResponses
 {
     /// <summary>
-    /// Servisin sonuç olarak dönmediği hatalar da gövdeyle yanıtlanır: eşzamanlı iki yazmadan geç kalan 409, beklenmeyen
-    /// her hata 500 alır. İç uçlar RFC 7807 konuşur, gerisi servislerin zarfını. IExceptionHandler yerine ayrı bir
-    /// middleware, çünkü .NET 9'da işleyicinin yakaladığı her hata yine "unhandled exception" diye loglanır.
+    /// Servisin sonuç olarak dönmediği hatalar da gövdeyle yanıtlanır: eşzamanlı iki yazmadan geç kalan 409, sunucunun
+    /// okuyamadığı istek kendi durumunu (çoğunlukla 400), beklenmeyen her hata 500 alır. İç uçlar RFC 7807 konuşur, gerisi
+    /// servislerin zarfını. IExceptionHandler yerine ayrı bir middleware, çünkü .NET 9'da işleyicinin yakaladığı her hata
+    /// yine "unhandled exception" diye loglanır.
     /// </summary>
     public static IApplicationBuilder UseErrorResponses(this IApplicationBuilder app)
     {
@@ -21,9 +22,13 @@ public static class ErrorResponses
             }
             catch (StorageConflictException) when (!context.Response.HasStarted)
             {
-                await WriteAsync(context, StatusCodes.Status409Conflict, "storage_conflict", new ServiceResult<object>(
-                    ServiceStatus.Conflict,
-                    Message: "Kayıt aynı anda başka bir işlemle değişti; sayfayı yenileyip tekrar deneyin."));
+                await WriteAsync(context, StatusCodes.Status409Conflict, "storage_conflict", ServiceStatus.Conflict,
+                    "Kayıt aynı anda başka bir işlemle değişti; sayfayı yenileyip tekrar deneyin.");
+            }
+            catch (BadHttpRequestException ex) when (!context.Response.HasStarted)
+            {
+                // Gövdesi yarım kalan ya da okunamayan istek istemcinin hatasıdır: Kestrel'in vereceği durum korunur, loglanmaz.
+                await WriteAsync(context, ex.StatusCode, "bad_request", ServiceStatus.NotAcceptable, "İstek okunamadı.");
             }
             catch (Exception ex) when (!context.Response.HasStarted && !context.RequestAborted.IsCancellationRequested)
             {
@@ -31,19 +36,20 @@ public static class ErrorResponses
                 logger.LogError(ex, "{Method} {Route} beklenmeyen bir hatayla bitti", context.Request.Method,
                     (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? "(eşleşen uç yok)");
 
-                await WriteAsync(context, StatusCodes.Status500InternalServerError, "unexpected_error", new ServiceResult<object>(ServiceStatus.UnexpectedError));
+                await WriteAsync(context, StatusCodes.Status500InternalServerError, "unexpected_error", ServiceStatus.UnexpectedError,
+                    "Beklenmeyen bir hata oluştu. Biraz sonra tekrar deneyin.");
             }
         });
     }
 
-    private static Task WriteAsync(HttpContext context, int statusCode, string problemCode, ServiceResult<object> envelope)
+    private static Task WriteAsync(HttpContext context, int statusCode, string problemCode, ServiceStatus status, string message)
     {
         // CORS başlıkları OnStarting ile yazıldığı için Clear onları silmez.
         context.Response.Clear();
 
         var result = context.Request.Path.StartsWithSegments("/internal")
             ? Results.Problem(statusCode: statusCode, extensions: new Dictionary<string, object?> { ["code"] = problemCode })
-            : envelope.ToApiResult();
+            : Results.Json(new ServiceResult<object>(status, Message: message), statusCode: statusCode);
 
         return result.ExecuteAsync(context);
     }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
@@ -13,17 +14,18 @@ namespace Skylab.Forms.Tests.Integration;
 public class ErrorResponseTests(FormsApiFactory api)
 {
     /// <summary>Hiçbir uçla eşleşmeyen istek, uygulamanın hattından geçtikten sonra burada patlar.</summary>
-    private sealed class FailingTail : IStartupFilter
+    private sealed class FailingTail(Func<Exception> failure) : IStartupFilter
     {
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
         {
             next(app);
-            app.Run(_ => throw new InvalidOperationException("beklenmeyen"));
+            app.Run(_ => throw failure());
         };
     }
 
-    private HttpClient FailingClient() =>
-        api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddTransient<IStartupFilter, FailingTail>()))
+    private HttpClient FailingClient(Func<Exception>? failure = null) =>
+        api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+                services.AddTransient<IStartupFilter>(_ => new FailingTail(failure ?? (() => new InvalidOperationException("beklenmeyen"))))))
             .CreateClient();
 
     [Fact]
@@ -35,6 +37,17 @@ public class ErrorResponseTests(FormsApiFactory api)
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         Assert.Equal(ServiceStatus.UnexpectedError, body!.Status);
         Assert.False(string.IsNullOrEmpty(body.Message));
+    }
+
+    [Fact]
+    public async Task A_request_the_server_cannot_read_keeps_its_400_instead_of_an_unexpected_500()
+    {
+        var response = await FailingClient(() => new BadHttpRequestException("Unexpected end of request content.", StatusCodes.Status400BadRequest))
+            .GetAsync("/api/forms/yarim-govde");
+
+        var body = await response.Content.ReadFromJsonAsync<ServiceResult<object>>();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ServiceStatus.NotAcceptable, body!.Status);
     }
 
     [Fact]
