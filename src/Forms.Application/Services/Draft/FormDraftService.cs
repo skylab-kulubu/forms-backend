@@ -37,8 +37,11 @@ public class FormDraftService : IFormDraftService
     {
         var now = _time.GetUtcNow().UtcDateTime;
         var form = await _forms.GetByIdAsync(formId, ct);
-        if (form is null || form.AvailabilityAt(now) != FormAvailability.Open)
+        if (form is null)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
+
+        if (form.AvailabilityAt(now) != FormAvailability.Open)
+            return new ServiceResult<bool>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         if (form.HasTimeLimit)
         {

@@ -22,7 +22,7 @@ public class FormAvailabilityTests(FormsApiFactory api)
         var draft = await applicant.PostAsJsonAsync("/api/forms/responses/draft", new ResponseDraftRequest(form.Id, [new FormResponseSchemaItem { Id = "name", Answer = "Mehmet" }], 10));
         var card = await api.CreateClient().GetAsync($"/api/forms/{form.Id}/meta");
 
-        Assert.Equal((HttpStatusCode.NotFound, HttpStatusCode.Gone), (draft.StatusCode, card.StatusCode));
+        Assert.Equal((HttpStatusCode.Gone, HttpStatusCode.Gone), (draft.StatusCode, card.StatusCode));
     }
 
     [Fact]
