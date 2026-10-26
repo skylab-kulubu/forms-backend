@@ -151,7 +151,7 @@ public class OwnershipService : IOwnershipService
 
         var target = await _users.FindUserAsync(targetUserId, ct);
         if (target.Outcome == UserLookupOutcome.Unavailable)
-            return Fail(ServiceStatus.ServiceUnavailable, "Seçilen kullanıcı şu an doğrulanamıyor. Biraz sonra tekrar deneyin.");
+            return Fail(ServiceStatus.ServiceUnavailable, "Seçilen kullanıcı doğrulanamadı: kişi dizinine ulaşılamıyor.");
 
         // Silinmiş ya da silinmesi süren kişi core'dan adressiz döner; sahiplik yalnız etkin bir hesaba geçer.
         if (string.IsNullOrWhiteSpace(target.User?.Email))

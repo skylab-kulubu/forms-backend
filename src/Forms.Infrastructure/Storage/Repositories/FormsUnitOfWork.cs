@@ -37,7 +37,7 @@ public sealed class FormsUnitOfWork : IFormsUnitOfWork
         return strategy.ExecuteAsync(async token =>
         {
             if (unsafeToRetry is not null)
-                throw new InvalidOperationException("Transaction kaydettiği değişikliklerden sonra düştü; güvenle yeniden denenemez.", unsafeToRetry);
+                throw new InvalidOperationException("Transaction değişikliklerini kaydettikten sonra düştü; commit edilmiş olabilir, güvenle yeniden denenemez.", unsafeToRetry);
 
             var saves = 0;
             void Count(object? sender, SavedChangesEventArgs e) => saves++;
