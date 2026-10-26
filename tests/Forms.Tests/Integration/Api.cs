@@ -24,18 +24,18 @@ internal static class Api
         return await response.DataAsync<FormContract>();
     }
 
-    public static async Task<Guid> CreateWorkflowAsync(this HttpClient client, string name)
+    public static async Task<Guid> CreateWorkflowAsync(this HttpClient client, string name, bool allowMultipleRuns = false)
     {
-        var response = await client.PostAsJsonAsync("/api/admin/workflows/", new WorkflowUpsertRequest(name, null, AllowMultipleRuns: false));
+        var response = await client.PostAsJsonAsync("/api/admin/workflows/", new WorkflowUpsertRequest(name, null, allowMultipleRuns));
         response.EnsureSuccessStatusCode();
 
         return (await response.DataAsync<WorkflowContract>()).Id;
     }
 
     /// <summary>Taslağı kaydedip yayına alır; tanım geçersizse yayın 400 döner ve test burada durur.</summary>
-    public static async Task<Guid> PublishWorkflowAsync(this HttpClient owner, string name, WorkflowDefinitionRequest definition)
+    public static async Task<Guid> PublishWorkflowAsync(this HttpClient owner, string name, WorkflowDefinitionRequest definition, bool allowMultipleRuns = false)
     {
-        var workflowId = await owner.CreateWorkflowAsync(name);
+        var workflowId = await owner.CreateWorkflowAsync(name, allowMultipleRuns);
 
         (await owner.PutAsJsonAsync($"/api/admin/workflows/{workflowId}/definition", definition)).EnsureSuccessStatusCode();
         (await owner.PostAsync($"/api/admin/workflows/{workflowId}/publish", null)).EnsureSuccessStatusCode();
