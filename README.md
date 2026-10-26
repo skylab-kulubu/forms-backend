@@ -566,7 +566,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them |
 | `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
-| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics |
+| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish |
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
 | `GET` | `/api/admin/forms/responses/{id}` | Get one response |
@@ -636,7 +636,7 @@ A **Viewer** is a response viewer: they handle answers but never change the form
 
 The owner of a form, component group or workflow hands it to another user with `POST …/{id}/transfer` and a body such as `{ "userId": "…" }`. A service administrator (`skyforms:*`) can do the same only for items left to `Silinmiş kullanıcı` by an erased account, never for an active user's items; the `…/orphaned` lists show them.
 
-- The new owner must be an active core user. On a form the previous owner stays as an editor; a `Silinmiş kullanıcı` owner row is removed.
+- The new owner must be an active core user. When the user directory cannot be read (core down or not configured) the transfer answers `503` instead of saying the person does not exist. On a form the previous owner stays as an editor; a `Silinmiş kullanıcı` owner row is removed.
 - A form that is a step of a workflow that is not archived moves only with its workflow (`409`). Transferring a workflow also moves the previous owner's step forms of every version, because publishing requires the workflow owner to own its step forms.
 - A component group's share link is revoked, so it never shows the new owner as the one who shared it.
 - When nobody takes over a workflow left to `Silinmiş kullanıcı`, a service administrator may archive it.
