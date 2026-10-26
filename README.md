@@ -662,7 +662,7 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Edit `.env` before starting Docker. The local `.env` file is ignored by Git.
+Edit `.env` before starting Docker. The local `.env` file is ignored by Git. Fill in `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`: Compose connects core and SkyMail, and Forms does not start without the service account it calls them with.
 
 ### Running Locally
 
@@ -735,7 +735,7 @@ A provider whose address is not set is off, and Forms logs at startup what that 
 | `FormMail:PendingReminderTemplateKey` | `FORMMAIL_PENDING_REMINDER_TEMPLATE_KEY` | Pending response reminder; empty turns it off | No; Compose uses `forms.pending-reminder` |
 | `FormMail:AttemptUpdateTemplateKey` | `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_KEY` | Timed task updates (reminder, extension, expiry, accept, close); empty turns them off and the team's remind action is refused | No; Compose uses `forms.attempt-update` |
 | `Integrations:Turnstile:SecretKey` | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest answers are not checked and guest uploads stay off | No |
-| `Integrations:Turnstile:AllowedHostnames` | `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |
+| `Integrations:Turnstile:AllowedHostnames` | `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. While a secret is set, an entry with a scheme or port stops startup | No |
 | `Integrations:Turnstile:AllowTestSecret` | | `true` lets a Cloudflare test secret run outside `Development` | No |
 | `GuestUploads:Mode` | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on`. Active only together with a Turnstile secret, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, `off` |
 | `GuestUploads:IpSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, `300` |

@@ -27,6 +27,8 @@ internal sealed class CoreAnswerFileStore : IAnswerFileStore
         _logger = logger;
     }
 
+    public bool IsConfigured => true;
+
     public async Task<FileUpload> UploadGuestFileAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default)
     {
         try

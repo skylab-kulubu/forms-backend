@@ -37,6 +37,9 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
             .Where(u => u.Email is not null)
             .ToDictionary(u => u.Id);
 
+        // Kimse bulunamadıysa (kişi dizini kapalı ya da ulaşılamıyor) hiçbir şey gitmez; damgalamak hatırlatmaları sonsuza dek düşürürdü.
+        if (reviewers.Count == 0) return;
+
         var queued = true;
         foreach (var (reviewerId, forms) in byReviewer)
         {

@@ -6,6 +6,9 @@ namespace Skylab.Forms.Application.Abstractions;
 /// </summary>
 public interface IAnswerFileStore
 {
+    /// <summary>Bir dosya deposu ayarlı mı; değilse her işlem Unavailable döner ve misafir yüklemesi açılmaz.</summary>
+    bool IsConfigured { get; }
+
     Task<FileUpload> UploadGuestFileAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default);
 
     Task<FileLookup> FindAsync(Guid fileId, CancellationToken ct = default);

@@ -30,8 +30,21 @@ public class IntegrationOptionsTests
 
         var options = configuration.GetSection(AccountAccessGateOptions.SectionName).Get<AccountAccessGateOptions>()!;
 
-        Assert.Equal((null, false, 200), (options.Database, options.Tls, options.OperationTimeoutMilliseconds));
+        Assert.Equal((null, false, 200), (options.DatabaseNumber, options.UsesTls, options.OperationTimeoutMilliseconds));
         Assert.True(Gate.Validate(null, options).Succeeded);
+    }
+
+    [Fact]
+    public void A_gate_that_is_off_ignores_leftover_redis_settings() =>
+        Assert.True(Gate.Validate(null, new AccountAccessGateOptions { Mode = "off", Database = "abc", Tls = "1" }).Succeeded);
+
+    [Fact]
+    public void An_enforcing_gate_reads_its_database_and_tls_strictly()
+    {
+        var result = Gate.Validate(null, new AccountAccessGateOptions { Mode = "enforce", Endpoint = "gate:6379", Username = "forms", Password = "secret", Database = "abc", Tls = "1" });
+
+        Assert.Contains("AccountAccessGate:Database must be a database number", result.FailureMessage);
+        Assert.Contains("AccountAccessGate:Tls must be 'true' or 'false'", result.FailureMessage);
     }
 
     [Theory]
@@ -55,7 +68,7 @@ public class IntegrationOptionsTests
     [Fact]
     public void An_enforcing_gate_over_tls_needs_its_certificate_files()
     {
-        var result = Gate.Validate(null, new AccountAccessGateOptions { Mode = "enforce", Endpoint = "gate:6379", Username = "forms", Password = "secret", Database = 2, Tls = true });
+        var result = Gate.Validate(null, new AccountAccessGateOptions { Mode = "enforce", Endpoint = "gate:6379", Username = "forms", Password = "secret", Database = "2", Tls = "true" });
 
         Assert.Contains("AccountAccessGate:CaCertificateFile", result.FailureMessage);
     }
