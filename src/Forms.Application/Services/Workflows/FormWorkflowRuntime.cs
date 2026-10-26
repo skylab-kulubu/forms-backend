@@ -145,6 +145,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
 
+        if (await RefuseWhileRunActiveAsync(location, lastRun, cancellationToken) is { } running) return running;
+
         if (HasUsedOnlyRun(location, lastRun))
         {
             return new ServiceResult<WorkflowStepOutcome>(
@@ -294,6 +296,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             }
 
             var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
+
+            if (await RefuseWhileRunActiveAsync(location, lastRun, cancellationToken) is { } running) return running;
 
             if (HasUsedOnlyRun(location, lastRun))
             {
@@ -627,14 +631,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
 
-        // Aktif başvuru bu formu içermiyorsa kullanıcı akışın başka bir dalında demektir.
-        if (lastRun is { Status: WorkflowInstanceStatus.Active })
-        {
-            return Result(
-                new WorkflowStepOutcome(lastRun.InstanceId, WorkflowActionState.RequiresPreviousStep, lastRun.LastSequence, null, location.StartFormId, Journey: await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken)),
-                "Devam eden bir başvurunuz var; önce onu tamamlayın.",
-                isTwoStepFlow);
-        }
+        if (await RefuseWhileRunActiveAsync(location, lastRun, cancellationToken) is { } running) return running;
 
         // Sonuçlanmış başvuru kabul durumundan önce gelir: akış kapansa da sonucu görünsün.
         if (HasUsedOnlyRun(location, lastRun)) return ClosedRun(lastRun!, isTwoStepFlow, location.StartFormId, await RunJourneyAsync(location.WorkflowName, lastRun!, cancellationToken));
@@ -881,6 +878,15 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
     }
 
     /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
+    // Aktif başvuru bu formu içermiyorsa kullanıcı akışın başka bir dalında demektir.
+    private async Task<ServiceResult<WorkflowStepOutcome>?> RefuseWhileRunActiveAsync(WorkflowNodeLocation location, WorkflowRunSummary? lastRun, CancellationToken cancellationToken) =>
+        lastRun is { Status: WorkflowInstanceStatus.Active }
+            ? Result(
+                new WorkflowStepOutcome(lastRun.InstanceId, WorkflowActionState.RequiresPreviousStep, lastRun.LastSequence, null, location.StartFormId, Journey: await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken)),
+                "Devam eden bir başvurunuz var; önce onu tamamlayın.",
+                location.NodeCount == 2)
+            : null;
+
     private static bool HasUsedOnlyRun(WorkflowNodeLocation location, WorkflowRunSummary? lastRun) =>
         !location.AllowMultipleRuns && lastRun is not null && lastRun.Status != WorkflowInstanceStatus.Voided;
 
