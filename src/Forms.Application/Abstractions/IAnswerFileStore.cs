@@ -2,6 +2,8 @@ namespace Skylab.Forms.Application.Abstractions;
 
 public interface IAnswerFileStore
 {
+    bool IsConfigured { get; }
+
     Task<FileUpload> UploadGuestFileAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default);
 
     Task<FileLookup> FindAsync(Guid fileId, CancellationToken ct = default);

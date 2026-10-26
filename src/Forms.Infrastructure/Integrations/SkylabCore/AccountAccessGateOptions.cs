@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
@@ -19,8 +20,9 @@ internal sealed class AccountAccessGateOptions
     public string? Username { get; init; }
     public string? Password { get; init; }
 
-    public int? Database { get; init; }
-    public bool? Tls { get; init; }
+    public string? Database { get; init; }
+    public string? Tls { get; init; }
+
     public string? CaCertificateFile { get; init; }
     public string? ClientCertificateFile { get; init; }
     public string? ClientKeyFile { get; init; }
@@ -29,6 +31,10 @@ internal sealed class AccountAccessGateOptions
 
     public bool Enforces => string.Equals(Mode?.Trim(), "enforce", StringComparison.OrdinalIgnoreCase);
 
+    internal int? DatabaseNumber => int.TryParse(Database, NumberStyles.Integer, CultureInfo.InvariantCulture, out var database) && database >= 0 ? database : null;
+
+    internal bool? UsesTls => bool.TryParse(Tls?.Trim(), out var tls) ? tls : null;
+
     internal int OperationTimeout => OperationTimeoutMilliseconds ?? 200;
 
     public int RetryAfter => RetryAfterSeconds ?? 1;
@@ -36,13 +42,13 @@ internal sealed class AccountAccessGateOptions
     internal ConfigurationOptions ToRedisConfiguration()
     {
         var (host, port) = ParseEndpoint(Endpoint!)!.Value;
-        var useTls = Tls == true;
+        var useTls = UsesTls == true;
 
         var redis = new ConfigurationOptions
         {
             User = Username,
             Password = Password,
-            DefaultDatabase = Database,
+            DefaultDatabase = DatabaseNumber,
             Ssl = useTls,
             SslHost = useTls ? host : null,
             ClientName = "forms-account-access-gate",
@@ -120,10 +126,10 @@ internal sealed class AccountAccessGateOptionsValidator : IValidateOptions<Accou
 
         if (string.IsNullOrWhiteSpace(options.Username)) failures.Add(Required("Username"));
         if (string.IsNullOrWhiteSpace(options.Password)) failures.Add(Required("Password"));
-        if (options.Database is not >= 0) failures.Add(Required("Database"));
-        if (options.Tls is null) failures.Add("AccountAccessGate:Tls must be 'true' or 'false' when the gate enforces.");
+        if (options.DatabaseNumber is null) failures.Add("AccountAccessGate:Database must be a database number when AccountAccessGate:Mode is enforce.");
+        if (options.UsesTls is null) failures.Add("AccountAccessGate:Tls must be 'true' or 'false' when AccountAccessGate:Mode is enforce.");
 
-        if (options.Tls == true)
+        if (options.UsesTls == true)
         {
             foreach (var (key, path) in new[] { ("CaCertificateFile", options.CaCertificateFile), ("ClientCertificateFile", options.ClientCertificateFile), ("ClientKeyFile", options.ClientKeyFile) })
             {

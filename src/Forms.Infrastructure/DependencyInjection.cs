@@ -105,14 +105,18 @@ public static class DependencyInjection
 
         var guestUploads = services.GetRequiredService<GuestUploadOptions>().Enabled;
         var humanCheck = services.GetRequiredService<IHumanVerifier>().IsEnabled;
+        var fileStore = services.GetRequiredService<IAnswerFileStore>().IsConfigured;
 
         if (guestUploads && !humanCheck)
             logger.LogWarning("GuestUploads:Mode on ama insan doğrulaması kapalı; misafir dosya yükleme kapalı kalıyor");
 
+        if (guestUploads && !fileStore)
+            logger.LogWarning("GuestUploads:Mode on ama dosya deposu yok; misafir dosya yükleme kapalı kalıyor");
+
         logger.LogInformation(
             "İnsan doğrulaması {HumanCheckState}, misafir dosya yükleme {GuestUploadState}",
             humanCheck ? "on" : "off",
-            guestUploads && humanCheck ? "on" : "off");
+            guestUploads && humanCheck && fileStore ? "on" : "off");
     }
 
     public static async Task ApplyDatabaseMigrationsAsync(

@@ -18,6 +18,8 @@ internal sealed class UnconfiguredUserDirectory : IUserDirectory
 
 internal sealed class UnconfiguredAnswerFileStore : IAnswerFileStore
 {
+    public bool IsConfigured => false;
+
     public Task<FileUpload> UploadGuestFileAsync(Stream content, string fileName, string? contentType, CancellationToken ct = default) =>
         Task.FromResult(new FileUpload(FileStoreOutcome.Unavailable));
 
@@ -37,7 +39,7 @@ internal sealed class UnconfiguredShortLinks : IShortLinkProvider
 {
     private static readonly Task<ShortLinkResult> Failed = Task.FromResult(new ShortLinkResult(ShortLinkStatus.Failed));
 
-    public Task<ShortLinkResult> GetAsync(Guid formId, CancellationToken ct = default) => Failed;
+    public Task<ShortLinkResult> GetAsync(Guid formId, CancellationToken ct = default) => Task.FromResult(new ShortLinkResult(ShortLinkStatus.NotFound));
 
     public Task<ShortLinkResult> EnsureAsync(Guid formId, string url, string? label, string alias, Guid? actorId, CancellationToken ct = default) => Failed;
 

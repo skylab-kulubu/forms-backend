@@ -36,6 +36,8 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
             .Where(u => u.Email is not null)
             .ToDictionary(u => u.Id);
 
+        if (reviewers.Count == 0) return;
+
         var queued = true;
         foreach (var (reviewerId, forms) in byReviewer)
         {

@@ -41,7 +41,7 @@ public class GuestUploadService : IGuestUploadService
         _options = options;
     }
 
-    private bool IsActive => _options.Enabled && _turnstile.IsEnabled;
+    private bool IsActive => _options.Enabled && _turnstile.IsEnabled && _files.IsConfigured;
 
     public GuestUploadsContract? Capability =>
         IsActive ? new GuestUploadsContract(GuestUploadRules.MaxBytes, [.. GuestUploadRules.Types]) : null;
