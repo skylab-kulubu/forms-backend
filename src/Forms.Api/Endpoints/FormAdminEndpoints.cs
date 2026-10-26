@@ -148,6 +148,14 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/responses/{responseId:guid}/page", async (Guid id, Guid responseId, [AsParameters] GetResponsesRequest request, IResponseQueries service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.GetResponsePageAsync(id, responseId, userId, request, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/{id:guid}/mail-recipients", async (Guid id, IResponseExports service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             httpContext.Response.Headers.CacheControl = "no-store";

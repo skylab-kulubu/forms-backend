@@ -17,6 +17,7 @@ public interface IFormResponseRepository
     Task<IReadOnlyList<FormResponse>> GetForEditByIdsAsync(IReadOnlyCollection<Guid> responseIds, CancellationToken ct = default);
 
     Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
+    Task<int?> FindPageAsync(Guid formId, Guid responseId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);
     /// <summary>GetNonArchivedByFormAsync ile aynı cevaplar, aynı sırada; yalnız kime ait oldukları.</summary>
     Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default);

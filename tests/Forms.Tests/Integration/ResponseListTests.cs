@@ -1,7 +1,11 @@
+using System.Net;
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Tests.Integration;
 
@@ -61,6 +65,53 @@ public class ResponseListTests(FormsApiFactory api)
         await SubmitAsync(api.ClientFor(api.Users.Add("Mehmet Kaya").Id), form.Id);
 
         Assert.Null((await RowsAsync(owner, form.Id)).Single().Workflow);
+    }
+
+    [Fact]
+    public async Task A_response_is_found_on_the_page_the_list_shows_it_on()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var form = await owner.CreateFormAsync(Api.NewForm("Kulüp başvurusu", Api.Question("name")));
+        var oldest = await SubmitAsync(api.ClientFor(api.Users.Add("Mehmet Kaya").Id), form.Id);
+        var middle = await SubmitAsync(api.ClientFor(api.Users.Add("Zeynep Ak").Id), form.Id);
+        var newest = await SubmitAsync(api.ClientFor(api.Users.Add("Can Demir").Id), form.Id);
+        await SubmittedAtAsync(oldest, DateTime.UtcNow.AddHours(-3));
+        await SubmittedAtAsync(middle, DateTime.UtcNow.AddHours(-2));
+        await SubmittedAtAsync(newest, DateTime.UtcNow.AddHours(-1));
+
+        var page = await PageOfAsync(owner, form.Id, oldest, "PageSize=2");
+        var listed = await (await owner.GetAsync($"/api/admin/forms/{form.Id}/responses?PageSize=2&Page={page}")).DataAsync<FormResponsesListResult>();
+
+        Assert.Equal(2, page);
+        Assert.Contains(oldest, listed.PaginationData.Items.Select(row => row.Id));
+        Assert.Equal(1, await PageOfAsync(owner, form.Id, oldest, "PageSize=2&SortingDirection=ascending"));
+        Assert.Equal(1, await PageOfAsync(owner, form.Id, newest, "PageSize=2"));
+    }
+
+    [Fact]
+    public async Task A_response_the_list_leaves_out_has_no_page()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var form = await owner.CreateFormAsync(Api.NewForm("Kulüp başvurusu", Api.Question("name")));
+        var other = await owner.CreateFormAsync(Api.NewForm("Başka form", Api.Question("name")));
+        var responseId = await SubmitAsync(api.ClientFor(api.Users.Add("Mehmet Kaya").Id), form.Id);
+
+        var approvedOnly = await owner.GetAsync($"/api/admin/forms/{form.Id}/responses/{responseId}/page?Status={(int)FormResponseStatus.Approved}");
+        var otherForm = await owner.GetAsync($"/api/admin/forms/{other.Id}/responses/{responseId}/page");
+
+        Assert.Equal((HttpStatusCode.NotFound, HttpStatusCode.NotFound), (approvedOnly.StatusCode, otherForm.StatusCode));
+    }
+
+    private static async Task<int> PageOfAsync(HttpClient owner, Guid formId, Guid responseId, string query) =>
+        (await (await owner.GetAsync($"/api/admin/forms/{formId}/responses/{responseId}/page?{query}")).DataAsync<ResponseListPageContract>()).Page;
+
+    private async Task SubmittedAtAsync(Guid responseId, DateTime submittedAt)
+    {
+        using var scope = api.Services.CreateScope();
+
+        await scope.ServiceProvider.GetRequiredService<FormsDbContext>().Responses
+            .Where(response => response.Id == responseId)
+            .ExecuteUpdateAsync(set => set.SetProperty(response => response.SubmittedAt, submittedAt));
     }
 
     private static async Task<List<ResponseSummaryContract>> RowsAsync(HttpClient owner, Guid formId, string filter = "") =>
