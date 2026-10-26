@@ -695,7 +695,7 @@ dotnet build src/Forms.sln
 dotnet run --project src/Forms.Api
 ```
 
-Database migrations run automatically on startup. Swagger UI is available at the application's `/swagger` path.
+Database migrations run automatically on startup. In the `Development` environment (the `dotnet run` profiles set it), Swagger UI is available at the application's `/swagger` path; other environments do not serve it.
 
 ### Docker Compose
 
