@@ -23,6 +23,12 @@ public class FormResponse
     public DateTime? ReviewedAt { get; set; }
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? PendingReminderSentAt { get; set; }
+
+    /// <summary>
+    /// Tek cevaplı forma girişli kişinin verdiği cevap. Arşivlenmemişken (form, kişi) başına bir tane olabilir; bunu
+    /// veritabanı garanti eder, "cevap var mı?" kontrolüyle kayıt arasındaki yarışı uygulama kapatamaz.
+    /// </summary>
+    public bool IsSingleResponse { get; set; }
     public ResponseAttribution? Attribution { get; set; }
     public ResponseGuest? Guest { get; set; }
 

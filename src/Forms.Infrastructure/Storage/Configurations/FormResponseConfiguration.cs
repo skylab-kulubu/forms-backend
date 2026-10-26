@@ -64,6 +64,14 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.HasOne(fr => fr.Form).WithMany(f => f.Responses).HasForeignKey(fr => fr.FormId).OnDelete(DeleteBehavior.Restrict);
 
+        // Filtreli indeks bütün satırları kapsamaz; forma göre okumalar kendi indeksini korur.
+        builder.HasIndex(fr => fr.FormId);
+
+        builder.HasIndex(fr => new { fr.FormId, fr.UserId })
+            .IsUnique()
+            .HasFilter("\"IsSingleResponse\" AND NOT \"IsArchived\"")
+            .HasDatabaseName("IX_Responses_SingleResponse");
+
         builder.HasQueryFilter(fr => fr.Form.Status != FormStatus.Deleted);
 
         // İki inceleyen aynı cevaba aynı anda karar verirse ikincisi çakışma alır; son karar sessizce kazanmaz, iki mail gitmez.

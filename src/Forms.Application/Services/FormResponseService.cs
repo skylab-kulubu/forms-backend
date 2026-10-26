@@ -156,6 +156,8 @@ public class FormResponseService : IFormResponseService
 
         if (!guestGate.Verified) response.Status = FormResponseStatus.Flagged;
 
+        response.IsSingleResponse = userId.HasValue && !form.AllowMultipleResponses && attempt is null;
+
         IReadOnlyList<GuestAttachment> attachments = [];
         if (guestGate.Files.Count > 0)
         {
@@ -169,6 +171,13 @@ public class FormResponseService : IFormResponseService
         {
             _responses.Add(response);
             await _uow.SaveChangesAsync(cancellationToken);
+        }
+        catch (StorageConflictException) when (response.IsSingleResponse)
+        {
+            // Aynı anda gelen bir başka gönderim önce kaydedildiyse tekil indeks bunu durdurdu.
+            if (!await _responses.HasNonArchivedResponseAsync(form.Id, userId!.Value, cancellationToken)) throw;
+
+            return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
         catch
         {
