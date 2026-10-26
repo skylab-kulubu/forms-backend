@@ -14,8 +14,8 @@ namespace Skylab.Forms.Infrastructure.AnswerFiles;
 /// vermeden gider. Core aynı bağı yeniden istemeye var olanla cevap verdiği için yarıda kalan adım
 /// güvenle yeniden denenir.
 /// </summary>
-public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, ICacheService cache, ILogger<AnswerFileLinkWorker> logger)
-    : ScheduledWorker(cache, logger)
+public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<AnswerFileLinkWorker> logger)
+    : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 20;
     private static readonly TimeSpan DraftCheckInterval = TimeSpan.FromDays(1);

@@ -61,6 +61,7 @@ public static class DependencyInjection
         services.AddSingleton<IConnectionMultiplexer>(provider =>
             ConnectionMultiplexer.Connect(provider.GetRequiredService<IOptions<StorageOptions>>().Value.Redis));
         services.AddSingleton<ICacheService, RedisCacheService>();
+        services.AddSingleton<IDistributedLock, RedisDistributedLock>();
         services.AddScoped<IExcelService, ExcelService>();
 
         services.AddHttpContextAccessor();

@@ -6,8 +6,8 @@ using Skylab.Forms.Infrastructure.Scheduling;
 
 namespace Skylab.Forms.Infrastructure.Attempts;
 
-public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, ICacheService cache, ILogger<FormAttemptExpiryWorker> logger)
-    : ScheduledWorker(cache, logger)
+public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<FormAttemptExpiryWorker> logger)
+    : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 100;
 

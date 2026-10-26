@@ -4,7 +4,7 @@ using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Infrastructure.Scheduling;
 
-public abstract class ScheduledWorker(ICacheService cache, ILogger logger) : BackgroundService
+public abstract class ScheduledWorker(IDistributedLock locks, ILogger logger) : BackgroundService
 {
     protected abstract string LockKey { get; }
 
@@ -24,7 +24,7 @@ public abstract class ScheduledWorker(ICacheService cache, ILogger logger) : Bac
         {
             try
             {
-                if (!await cache.AcquireLockAsync(LockKey, LockTtl, stoppingToken)) continue;
+                if (await locks.TryAcquireAsync(LockKey, LockTtl, stoppingToken) is not { } lease) continue;
 
                 try
                 {
@@ -32,7 +32,7 @@ public abstract class ScheduledWorker(ICacheService cache, ILogger logger) : Bac
                 }
                 finally
                 {
-                    if (ReleasesLock) await cache.ReleaseLockAsync(LockKey, CancellationToken.None);
+                    if (ReleasesLock) await locks.ReleaseAsync(lease, CancellationToken.None);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

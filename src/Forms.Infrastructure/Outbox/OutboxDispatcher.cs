@@ -8,8 +8,8 @@ using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Infrastructure.Outbox;
 
-public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, ICacheService cache, ILogger<OutboxDispatcher> logger)
-    : ScheduledWorker(cache, logger)
+public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<OutboxDispatcher> logger)
+    : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 50;
 
