@@ -67,7 +67,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<WorkflowContract>> UpdateAsync(
@@ -92,7 +92,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<WorkflowContract>> UpdateIntakeScheduleAsync(
@@ -112,7 +112,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     private async Task<bool> HasTimedStepAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -152,7 +152,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<WorkflowContract>> GetAsync(
@@ -166,7 +166,7 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return NotOwner<WorkflowContract>();
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<PagedResult<WorkflowSummaryContract>>> GetOwnedAsync(
@@ -285,7 +285,7 @@ public class FormWorkflowService : IFormWorkflowService
                 await _uow.SaveChangesAsync(cancellationToken);
             }
 
-            return await BuildContractAsync(workflow, cancellationToken);
+            return await BuildContractAsync(workflow, userId, cancellationToken);
         }
 
         if (isNewDraft) _workflows.Add(draft);
@@ -307,7 +307,7 @@ public class FormWorkflowService : IFormWorkflowService
             return true;
         }, cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<List<WorkflowAvailableFormContract>>> GetAvailableFormsAsync(
@@ -642,7 +642,7 @@ public class FormWorkflowService : IFormWorkflowService
 
     private sealed record TransitionShape(string Source, string? Target, WorkflowTransitionTrigger Trigger, int Priority, string Condition);
 
-    private async Task<ServiceResult<WorkflowContract>> BuildContractAsync(FormWorkflow workflow, CancellationToken cancellationToken)
+    private async Task<ServiceResult<WorkflowContract>> BuildContractAsync(FormWorkflow workflow, Guid userId, CancellationToken cancellationToken)
     {
         var draft = await _workflows.GetVersionAsync(workflow.Id, WorkflowStatus.Draft, cancellationToken);
         var published = await _workflows.GetVersionAsync(workflow.Id, WorkflowStatus.Published, cancellationToken);
@@ -675,6 +675,7 @@ public class FormWorkflowService : IFormWorkflowService
             workflow.Intake,
             await _instances.CountActiveAsync(workflow.Id, cancellationToken),
             owner,
+            workflow.OwnerUserId == userId,
             ToVersionContract(draft, headers),
             ToVersionContract(published, headers),
             validation,

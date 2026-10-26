@@ -584,7 +584,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear; each row carries `runs`, see [Tracking applications](#tracking-applications) |
 | `GET` | `/api/admin/workflows/orphaned` | List workflows left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the same parameters |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
-| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
+| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions, the number of running applications (`activeRunCount`), and `canEdit`, which is `true` only for the owner: a service administrator may read a workflow but not change it |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
 | `PUT` | `/api/admin/workflows/{id}/intake` | Set the intake (`0` open, `1` closed to new applications, `2` closed) from a body such as `{ "intake": 1 }` |
 | `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole, refusing what the database would reject (see [Publishing](#publishing)); each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
