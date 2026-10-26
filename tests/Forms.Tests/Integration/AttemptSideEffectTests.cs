@@ -58,12 +58,11 @@ public class AttemptSideEffectTests(FormsApiFactory api)
         var ownerThroughBrokenCache = redisDown.CreateClient();
         ownerThroughBrokenCache.DefaultRequestHeaders.Authorization = owner.DefaultRequestHeaders.Authorization;
 
-        // TestServer işlenmeyen hatayı çağırana verir; production'da bu bir 500'dür.
-        var failure = await Record.ExceptionAsync(() => ownerThroughBrokenCache.PostAsJsonAsync($"/api/admin/forms/attempts/{attemptId}/extend", new { minutes = 10 }));
+        var extended = await ownerThroughBrokenCache.PostAsJsonAsync($"/api/admin/forms/attempts/{attemptId}/extend", new { minutes = 10 });
 
         using var check = api.Services.CreateScope();
         var checkDb = check.ServiceProvider.GetRequiredService<FormsDbContext>();
-        Assert.IsType<TimeoutException>(failure);
+        Assert.Equal(HttpStatusCode.InternalServerError, extended.StatusCode);
         Assert.Equal(FormAttemptStatus.Provisional, await checkDb.Attempts.Where(a => a.Id == attemptId).Select(a => a.Status).SingleAsync());
         Assert.True(await checkDb.Responses.AnyAsync(r => r.FormId == exam.Id && r.Status == FormResponseStatus.Provisional));
     }

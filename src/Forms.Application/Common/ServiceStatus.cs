@@ -12,6 +12,8 @@ public enum ServiceStatus
     Conflict = 409,
     NotAvailable = 410,
     TooManyRequests = 429,
+    /// <summary>Servislerin dönmediği, Api'nin hata katmanının yakaladığı beklenmeyen bir hata.</summary>
+    UnexpectedError = 500,
     ServiceUnavailable = 503,
 
     PendingApproval = 600,
