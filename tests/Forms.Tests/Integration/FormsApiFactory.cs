@@ -41,6 +41,8 @@ public sealed class FormsApiFactory : WebApplicationFactory<Program>, IAsyncLife
 
     public string RedisEndpoint => _redis.GetConnectionString();
 
+    public string PostgresConnectionString => _postgres.GetConnectionString();
+
     public HttpClient ClientFor(Guid userId, params string[] formsRoles)
     {
         var client = CreateClient();

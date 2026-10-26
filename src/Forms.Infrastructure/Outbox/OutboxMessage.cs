@@ -19,12 +19,18 @@ public class OutboxMessage
     public int Attempts { get; set; }
     public DateTime NextAttemptAt { get; set; }
 
-    public static OutboxMessage Of<T>(string type, T payload, DateTime now) => new()
+    /// <summary>Mesajı üreten kayıt; tabloya yazılmaz, aynı değişikliğin olayının iki kez eklenmesini önler.</summary>
+    internal string? Source { get; init; }
+
+    public static OutboxMessage Of<T>(string type, T payload, DateTime now) => Of(type, payload, now, null);
+
+    internal static OutboxMessage Of<T>(string type, T payload, DateTime now, string? source) => new()
     {
         Type = type,
         Payload = JsonSerializer.Serialize(payload, Json),
         CreatedAt = now,
-        NextAttemptAt = now
+        NextAttemptAt = now,
+        Source = source
     };
 }
 
