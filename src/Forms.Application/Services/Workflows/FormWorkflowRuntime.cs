@@ -869,7 +869,6 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         return WorkflowJourneyBuilder.Build(workflowName, definition, steps, forms, voided: run.Status == WorkflowInstanceStatus.Voided);
     }
 
-    /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
     // Aktif başvuru bu formu içermiyorsa kullanıcı akışın başka bir dalında demektir.
     private async Task<ServiceResult<WorkflowStepOutcome>?> RefuseWhileRunActiveAsync(WorkflowNodeLocation location, WorkflowRunSummary? lastRun, CancellationToken cancellationToken) =>
         lastRun is { Status: WorkflowInstanceStatus.Active }
@@ -879,6 +878,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 location.NodeCount == 2)
             : null;
 
+    /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
     private static bool HasUsedOnlyRun(WorkflowNodeLocation location, WorkflowRunSummary? lastRun) =>
         !location.AllowMultipleRuns && lastRun is not null && lastRun.Status != WorkflowInstanceStatus.Voided;
 
