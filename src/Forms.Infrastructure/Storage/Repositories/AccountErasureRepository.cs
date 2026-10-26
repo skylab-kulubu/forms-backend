@@ -20,7 +20,8 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
         _context.Responses.IgnoreQueryFilters().Where(r => r.UserId == userId).ExecuteUpdateAsync(s => s
             .SetProperty(r => r.UserId, (Guid?)replacementUserId)
             .SetProperty(r => r.Data, new List<FormResponseSchemaItem>())
-            .SetProperty(r => r.ReviewNote, (string?)null), ct);
+            .SetProperty(r => r.ReviewNote, (string?)null)
+            .SetProperty(r => r.IsSingleResponse, false), ct);
 
     // Taslak kopyası kişinin cevaplarıdır ve (form, kişi) başına tek deneme olabildiği için yer tutucuya
     // taşınamaz; olayları cascade ile gider.

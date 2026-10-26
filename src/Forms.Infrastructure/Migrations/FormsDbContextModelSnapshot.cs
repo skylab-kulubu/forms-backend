@@ -266,6 +266,9 @@ namespace Forms.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsSingleResponse")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("PendingReminderSentAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -305,6 +308,11 @@ namespace Forms.Infrastructure.Migrations
                     b.HasIndex("FormId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("FormId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Responses_SingleResponse")
+                        .HasFilter("\"IsSingleResponse\" AND NOT \"IsArchived\"");
 
                     b.HasIndex("Status", "IsArchived", "PendingReminderSentAt");
 
