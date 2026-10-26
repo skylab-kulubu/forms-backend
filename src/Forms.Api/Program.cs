@@ -38,7 +38,7 @@ await app.Services.ApplyDatabaseMigrationsAsync();
 
 app.UseCors(FrontendCorsExtensions.PolicyName);
 app.UseRateLimiter();
-app.UseStorageConflictResponses();
+app.UseErrorResponses();
 app.UseFormsJwtAuthentication();
 app.UseAccountAccessGate();
 app.UseAuthorization();
