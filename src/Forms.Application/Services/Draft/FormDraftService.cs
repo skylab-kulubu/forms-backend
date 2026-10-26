@@ -40,7 +40,7 @@ public class FormDraftService : IFormDraftService
         if (form.HasTimeLimit)
         {
             var attempt = await _attempts.GetLatestAsync(formId, userId, ct);
-            if (attempt is null || !attempt.AcceptsSubmissionAt(DateTime.UtcNow, AttemptLimits.SubmitGrace))
+            if (attempt is null || !attempt.AcceptsSubmissionAt(DateTime.UtcNow))
                 return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Süre işlemediği için taslak kaydedilmedi.");
         }
 

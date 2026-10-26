@@ -66,7 +66,7 @@ public class FormAttemptService : IFormAttemptService
             attempt = await OpenAsync(form, userId, stepId, now, ct);
         }
 
-        if (attempt.Status == FormAttemptStatus.Started && attempt.DeadlineAt <= now)
+        if (attempt.HasExpiredAt(now))
             attempt = await ExpireAsync(attempt, form, ct) ?? await _attempts.GetLatestForEditAsync(form.Id, userId, ct) ?? attempt;
 
         return new AttemptDisplay(await DisplayOfAsync(form, attempt, now, ct), attempt.WorkflowStepId);
@@ -182,9 +182,9 @@ public class FormAttemptService : IFormAttemptService
         if (attempt.Status == FormAttemptStatus.Submitted)
             return AttemptGate.Reject(new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz."));
 
-        if (attempt.AcceptsSubmissionAt(now, AttemptLimits.SubmitGrace)) return AttemptGate.Allow(attempt);
+        if (attempt.AcceptsSubmissionAt(now)) return AttemptGate.Allow(attempt);
 
-        if (attempt.Status == FormAttemptStatus.Started) await ExpireAsync(attempt, form, ct);
+        if (attempt.HasExpiredAt(now)) await ExpireAsync(attempt, form, ct);
 
         return AttemptGate.Reject(Closed(FormClosedReason.TimeUp, "Süren doldu."));
     }
@@ -548,9 +548,7 @@ public class FormAttemptService : IFormAttemptService
     {
         var attempt = await _attempts.GetForEditAsync(attemptId, ct);
 
-        if (attempt is not { Status: FormAttemptStatus.Started, DeadlineAt: { } deadline }) return;
-        if (deadline > DateTime.UtcNow - AttemptLimits.SubmitGrace) return;
-        if (!attempt.Form.HasTimeLimit) return;
+        if (attempt is null || !attempt.HasExpiredAt(DateTime.UtcNow) || !attempt.Form.HasTimeLimit) return;
 
         await ExpireAsync(attempt, attempt.Form, ct);
     }
