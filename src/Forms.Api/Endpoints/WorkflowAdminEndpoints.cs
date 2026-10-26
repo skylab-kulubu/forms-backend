@@ -35,6 +35,15 @@ public static class WorkflowAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/available-forms", async (IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Formları görmek için giriş yapmalısınız.");
+
+            var result = await service.GetCandidateFormsAsync(userId.Value, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/{id:guid}", async (Guid id, IFormWorkflowService service, ICurrentUserService userService, CancellationToken ct) =>
         {
             var userId = await userService.GetUserIdAsync(ct);
@@ -50,6 +59,24 @@ public static class WorkflowAdminEndpoints
             if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Sürümleri görmek için giriş yapmalısınız.");
 
             var result = await service.GetVersionsAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/runs/overview", async (Guid id, IFormWorkflowRunService service, ICurrentUserService userService, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Başvuruları görmek için giriş yapmalısınız.");
+
+            var result = await service.GetOverviewAsync(id, userId.Value, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/runs", async (Guid id, IFormWorkflowRunService service, ICurrentUserService userService, [AsParameters] GetWorkflowRunsRequest request, CancellationToken ct) =>
+        {
+            var userId = await userService.GetUserIdAsync(ct);
+            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Başvuruları görmek için giriş yapmalısınız.");
+
+            var result = await service.GetRunsAsync(id, request, userId.Value, ct);
             return result.ToApiResult();
         });
 

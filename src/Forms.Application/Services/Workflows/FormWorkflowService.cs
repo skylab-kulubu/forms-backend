@@ -20,6 +20,7 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly ICurrentUserService _currentUserService;
     private readonly IFormWorkflowRuntime _runtime;
     private readonly IFormMailNotifier _mailNotifier;
+    private readonly IFormWorkflowRunService _runs;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
@@ -28,7 +29,8 @@ public class FormWorkflowService : IFormWorkflowService
         IExternalUserService userService,
         ICurrentUserService currentUserService,
         IFormWorkflowRuntime runtime,
-        IFormMailNotifier mailNotifier)
+        IFormMailNotifier mailNotifier,
+        IFormWorkflowRunService runs)
     {
         _workflows = workflows;
         _instances = instances;
@@ -37,6 +39,7 @@ public class FormWorkflowService : IFormWorkflowService
         _currentUserService = currentUserService;
         _runtime = runtime;
         _mailNotifier = mailNotifier;
+        _runs = runs;
     }
 
     public async Task<ServiceResult<WorkflowContract>> CreateAsync(
@@ -178,6 +181,7 @@ public class FormWorkflowService : IFormWorkflowService
             .ToList();
 
         var headers = await _workflows.GetFormHeadersAsync(startFormIds, cancellationToken);
+        var runs = await _runs.GetOverviewsAsync([.. workflows.Select(workflow => workflow.Id)], cancellationToken);
 
         var summaries = workflows
             .Select(workflow => new WorkflowSummaryContract(
@@ -190,7 +194,8 @@ public class FormWorkflowService : IFormWorkflowService
                 workflow.NodeCount,
                 workflow.PublishedVersion,
                 workflow.HasUnpublishedChanges,
-                workflow.UpdatedAt))
+                workflow.UpdatedAt,
+                runs.GetValueOrDefault(workflow.Id)))
             .ToList();
 
         return new ServiceResult<PagedResult<WorkflowSummaryContract>>(
@@ -311,6 +316,30 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow is null) return NotFound<List<WorkflowAvailableFormContract>>();
         if (workflow.OwnerUserId != userId) return NotOwner<List<WorkflowAvailableFormContract>>();
 
+        var draft = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
+        var used = (draft?.Nodes ?? []).Select(node => node.FormId).ToHashSet();
+
+        var available = await BuildAvailableFormsAsync(workflowId, userId, workflow.AllowMultipleRuns, used, cancellationToken);
+
+        return new ServiceResult<List<WorkflowAvailableFormContract>>(ServiceStatus.Success, available);
+    }
+
+    public async Task<ServiceResult<List<WorkflowAvailableFormContract>>> GetCandidateFormsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var available = await BuildAvailableFormsAsync(Guid.Empty, userId, allowMultipleRuns: false, new HashSet<Guid>(), cancellationToken);
+
+        return new ServiceResult<List<WorkflowAvailableFormContract>>(ServiceStatus.Success, available);
+    }
+
+    private async Task<List<WorkflowAvailableFormContract>> BuildAvailableFormsAsync(
+        Guid workflowId,
+        Guid userId,
+        bool allowMultipleRuns,
+        IReadOnlySet<Guid> used,
+        CancellationToken cancellationToken)
+    {
         var candidates = await _workflows.GetOwnedFormsAsync(userId, cancellationToken);
         var formIds = candidates.Select(form => form.Id).ToList();
 
@@ -318,13 +347,10 @@ public class FormWorkflowService : IFormWorkflowService
         var clashes = await _workflows.FindFormsInOtherPublishedWorkflowsAsync(workflowId, formIds, cancellationToken);
         var legacyLinked = await _workflows.FindLegacyLinkedFormsAsync(formIds, cancellationToken);
 
-        var draft = await _workflows.GetVersionAsync(workflowId, WorkflowStatus.Draft, cancellationToken);
-        var used = (draft?.Nodes ?? []).Select(node => node.FormId).ToHashSet();
-
-        var available = candidates
+        return candidates
             .Select(form =>
             {
-                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked, workflow.AllowMultipleRuns);
+                var reason = FindIneligibilityReason(form.Id, facts, clashes, legacyLinked, allowMultipleRuns);
 
                 return new WorkflowAvailableFormContract(
                     form.Id,
@@ -336,8 +362,6 @@ public class FormWorkflowService : IFormWorkflowService
                     form.TimeLimitMinutes is > 0 ? form.TimeLimitMinutes : null);
             })
             .ToList();
-
-        return new ServiceResult<List<WorkflowAvailableFormContract>>(ServiceStatus.Success, available);
     }
 
     /// <summary>

@@ -19,6 +19,20 @@ public record GetWorkflowsRequest(
     bool ShowArchived = false
 );
 
+public enum WorkflowRunFilter
+{
+    Active = 0,
+    AwaitingReview = 1,
+    Finished = 2
+}
+
+public record GetWorkflowRunsRequest(
+    int Page = 1,
+    int PageSize = 20,
+    WorkflowRunFilter Filter = WorkflowRunFilter.Active,
+    string? NodeKey = null
+);
+
 /// <param name="Intake">Boş gelen istek reddedilir; eksik bir alan akışı sessizce yeniden açmasın.</param>
 public record WorkflowIntakeRequest(WorkflowIntake? Intake);
 

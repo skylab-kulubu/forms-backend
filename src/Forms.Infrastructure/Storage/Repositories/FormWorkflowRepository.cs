@@ -51,6 +51,30 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             : new WorkflowDefinition(version.WorkflowId, version.Id, [.. version.Nodes], [.. version.Transitions]);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, WorkflowDefinition>> GetCurrentDefinitionsAsync(
+        IReadOnlyCollection<Guid> workflowIds,
+        CancellationToken ct = default)
+    {
+        if (workflowIds.Count == 0) return new Dictionary<Guid, WorkflowDefinition>();
+
+        var versions = await _context.WorkflowVersions.AsNoTracking()
+            .Include(version => version.Nodes)
+            .Include(version => version.Transitions)
+            .Where(version => workflowIds.Contains(version.WorkflowId))
+            .Where(version => version.Status == WorkflowStatus.Published || version.Status == WorkflowStatus.Draft)
+            .ToListAsync(ct);
+
+        return versions
+            .GroupBy(version => version.WorkflowId)
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                {
+                    var version = group.FirstOrDefault(candidate => candidate.Status == WorkflowStatus.Published) ?? group.First();
+                    return new WorkflowDefinition(version.WorkflowId, version.Id, [.. version.Nodes], [.. version.Transitions]);
+                });
+    }
+
     public async Task<IReadOnlyDictionary<Guid, WorkflowFormMembership>> GetFormMembershipsAsync(
         IReadOnlyCollection<Guid> formIds,
         CancellationToken ct = default)
