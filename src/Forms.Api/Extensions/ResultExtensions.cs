@@ -34,6 +34,9 @@ public static class ResultExtensions
         return Results.Json(body, statusCode: statusCode);
     }
 
+    public static IResult ToCreatedResult<T>(this ServiceResult<T> result, HttpContext context, string routeName, object routeValues) =>
+        Results.Created(context.RequestServices.GetRequiredService<LinkGenerator>().GetPathByName(context, routeName, routeValues), result);
+
     public static IResult ToApiResult(this ServiceStatus status, string? message = null)
     {
         return new ServiceResult<object>(status, Message: message).ToApiResult();
