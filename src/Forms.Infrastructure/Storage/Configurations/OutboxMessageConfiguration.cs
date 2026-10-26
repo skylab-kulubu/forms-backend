@@ -16,5 +16,7 @@ public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage
         builder.Property(m => m.Payload).HasColumnType("jsonb").IsRequired();
 
         builder.HasIndex(m => m.NextAttemptAt);
+
+        builder.Ignore(m => m.Source);
     }
 }

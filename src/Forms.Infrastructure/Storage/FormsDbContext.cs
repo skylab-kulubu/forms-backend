@@ -76,10 +76,17 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     {
         var now = DateTime.UtcNow;
 
+        var pending = ChangeTracker.Entries<OutboxMessage>()
+            .Where(e => e.State == EntityState.Added)
+            .Select(e => e.Entity.Source)
+            .ToHashSet();
+
         Outbox.AddRange(ChangeTracker.Entries<FormResponse>()
             .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified && e.Property(r => r.Status).IsModified)
             .Where(e => e.Entity.Status != FormResponseStatus.Provisional)
-            .Select(e => OutboxMessage.Of(OutboxTypes.ResponseStatusChanged, ResponseStatusChanged.Of(e.Entity), now))
+            .Select(e => (Response: e.Entity, Source: $"response:{e.Entity.Id}:{e.Entity.Status}"))
+            .Where(change => !pending.Contains(change.Source))
+            .Select(change => OutboxMessage.Of(OutboxTypes.ResponseStatusChanged, ResponseStatusChanged.Of(change.Response), now, change.Source))
             .ToList());
     }
 
