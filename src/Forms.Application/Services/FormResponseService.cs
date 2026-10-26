@@ -303,12 +303,7 @@ public class FormResponseService : IFormResponseService
             attempt.ExpiredAt,
             attempt.ExtendedMinutes,
             attempt.ClosedByTeam,
-            attempt.Status switch
-            {
-                FormAttemptStatus.Started or FormAttemptStatus.Provisional => true,
-                FormAttemptStatus.NoSubmission => attempt.WorkflowStepId is null && !attempt.ClosedByTeam,
-                _ => false
-            },
+            FormAttempt.CanBeExtended(attempt.Status, attempt.WorkflowStepId, attempt.ClosedByTeam),
             canRemind && attempt.Status == FormAttemptStatus.Opened,
             attempt is { StartedAt: { } startedAt, ResponseSubmittedAt: { } submittedAt, Status: FormAttemptStatus.Submitted }
                 ? (int)Math.Max(0, (submittedAt - startedAt).TotalSeconds)

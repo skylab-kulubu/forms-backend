@@ -25,4 +25,13 @@ public class FormAttempt : BaseEntity
 
     public bool HasExpiredAt(DateTime now) =>
         Status == FormAttemptStatus.Started && DeadlineAt is { } deadline && now > deadline + AttemptLimits.SubmitGrace;
+
+    public bool CanBeExtended(bool closedByTeam) => CanBeExtended(Status, WorkflowStepId, closedByTeam);
+
+    public static bool CanBeExtended(FormAttemptStatus status, Guid? workflowStepId, bool closedByTeam) => status switch
+    {
+        FormAttemptStatus.Started or FormAttemptStatus.Provisional => true,
+        FormAttemptStatus.NoSubmission => workflowStepId is null && !closedByTeam,
+        _ => false
+    };
 }
