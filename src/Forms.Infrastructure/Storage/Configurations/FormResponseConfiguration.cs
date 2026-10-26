@@ -66,5 +66,7 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.HasQueryFilter(fr => fr.Form.Status != FormStatus.Deleted);
 
+        // İki inceleyen aynı cevaba aynı anda karar verirse ikincisi çakışma alır; son karar sessizce kazanmaz, iki mail gitmez.
+        builder.Property<uint>("xmin").IsRowVersion();
     }
 }
