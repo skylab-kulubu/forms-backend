@@ -93,14 +93,15 @@ public class FormResponseService : IFormResponseService
     {
         var form = await _forms.GetByIdAsync(contract.FormId, cancellationToken);
         if (form == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
-        if (form.Status != FormStatus.Open) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
-
-        if (!form.HasTimeLimit && form.HasClosedAt(DateTime.UtcNow))
+        switch (form.AvailabilityAt(DateTime.UtcNow))
         {
-            return new ServiceResult<ResponseSubmitResult>(
-                ServiceStatus.NotAvailable,
-                new ResponseSubmitResult(null, null, 0, Reason: FormClosedReason.Closed),
-                "Bu form kapanış saatinde kendiliğinden kapandı.");
+            case FormAvailability.Closed:
+                return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
+            case FormAvailability.ClosesAtPassed:
+                return new ServiceResult<ResponseSubmitResult>(
+                    ServiceStatus.NotAvailable,
+                    new ResponseSubmitResult(null, null, 0, Reason: FormClosedReason.Closed),
+                    "Bu form kapanış saatinde kendiliğinden kapandı.");
         }
 
         if (!form.AllowAnonymousResponses && userId == null) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.Unauthorized, Message: "Bu formu doldurmak için giriş yapmalısınız.");

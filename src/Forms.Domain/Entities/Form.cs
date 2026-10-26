@@ -31,6 +31,15 @@ public class Form : BaseEntity
 
     public bool HasClosedAt(DateTime now) => ClosesAt is { } closesAt && now >= closesAt;
 
+    /// <summary>
+    /// Form şu an cevap alıyor mu. Süreli formda kapanış saati yalnız yeni denemeleri durdurur: başlamış deneme süresi
+    /// içinde cevap verebilir, o yüzden süreli form kapanış saatinden sonra da açık sayılır.
+    /// </summary>
+    public FormAvailability AvailabilityAt(DateTime now) =>
+        Status != FormStatus.Open ? FormAvailability.Closed
+        : !HasTimeLimit && HasClosedAt(now) ? FormAvailability.ClosesAtPassed
+        : FormAvailability.Open;
+
     public CollaboratorRole RoleOf(Guid userId) =>
         Collaborators.FirstOrDefault(collaborator => collaborator.UserId == userId)?.Role ?? CollaboratorRole.None;
 

@@ -292,13 +292,12 @@ public class GuestUploadService : IGuestUploadService
         if (!TakesSignedOutAnswers(form) || !form.Schema.Any(GuestUploadRules.IsFileQuestion))
             return Refuse(GuestUploadReason.GuestUploadsDisabled);
 
-        if (form.Status != FormStatus.Open)
-            return new Refusal(ServiceStatus.NotAvailable, "Bu form şu anda yanıt kabul etmiyor.", FormClosedReason.Closed);
-
-        if (!form.HasTimeLimit && form.HasClosedAt(DateTime.UtcNow))
-            return new Refusal(ServiceStatus.NotAvailable, "Bu form kapanış saatinde kendiliğinden kapandı.", FormClosedReason.Closed);
-
-        return null;
+        return form.AvailabilityAt(DateTime.UtcNow) switch
+        {
+            FormAvailability.Closed => new Refusal(ServiceStatus.NotAvailable, "Bu form şu anda yanıt kabul etmiyor.", FormClosedReason.Closed),
+            FormAvailability.ClosesAtPassed => new Refusal(ServiceStatus.NotAvailable, "Bu form kapanış saatinde kendiliğinden kapandı.", FormClosedReason.Closed),
+            _ => null
+        };
     }
 
     private async Task<GuestUploadSession?> FindSessionAsync(string? sessionId, Guid formId, DateTime now, CancellationToken ct)

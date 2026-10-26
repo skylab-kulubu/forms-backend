@@ -228,14 +228,16 @@ public class FormService : IFormService
         if (form == null || form.Status == FormStatus.Deleted)
             return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-        // Kapalı form "yok" değildir: istemci bunu ayrı bir ekranla karşılayabilsin.
-        if (form.Status == FormStatus.Closed)
-            return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, new FormDisplayPayload(null, 0, FormTitle: form.Title), "Bu form şu anda yanıt kabul etmiyor.");
-
         var now = DateTime.UtcNow;
 
-        if (!form.HasTimeLimit && form.HasClosedAt(now))
-            return ClosesAtPassed(form, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
+        // Kapalı form "yok" değildir: istemci bunu ayrı bir ekranla karşılayabilsin.
+        switch (form.AvailabilityAt(now))
+        {
+            case FormAvailability.Closed:
+                return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, new FormDisplayPayload(null, 0, FormTitle: form.Title), "Bu form şu anda yanıt kabul etmiyor.");
+            case FormAvailability.ClosesAtPassed:
+                return ClosesAtPassed(form, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
+        }
 
         if (userId == null && !form.AllowAnonymousResponses)
         {
@@ -344,7 +346,7 @@ public class FormService : IFormService
         if (form == null || form.Status == FormStatus.Deleted)
             return new ServiceResult<FormMetaContract>(ServiceStatus.NotFound);
 
-        if (form.Status == FormStatus.Closed)
+        if (form.AvailabilityAt(DateTime.UtcNow) != FormAvailability.Open)
             return new ServiceResult<FormMetaContract>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         return new ServiceResult<FormMetaContract>(
@@ -516,8 +518,13 @@ public class FormService : IFormService
             target = await _forms.GetByIdAsync(targetFormId, cancellationToken);
             if (target == null) return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotFound);
 
-            if (!target.HasTimeLimit && target.HasClosedAt(now))
-                return ClosesAtPassed(target, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
+            switch (target.AvailabilityAt(now))
+            {
+                case FormAvailability.Closed:
+                    return new ServiceResult<FormDisplayPayload>(ServiceStatus.NotAvailable, new FormDisplayPayload(null, 0, FormTitle: target.Title), "Bu form şu anda yanıt kabul etmiyor.");
+                case FormAvailability.ClosesAtPassed:
+                    return ClosesAtPassed(target, FormClosedReason.Closed, "Bu form kapanış saatinde kendiliğinden kapandı.");
+            }
 
             var requiresManualReview = outcome.Journey?.Route.FirstOrDefault(step => step.Status == WorkflowJourneyStatus.Current)?.RequiresManualReview ?? false;
             contract = ToDisplayContract(target, requiresManualReview);
