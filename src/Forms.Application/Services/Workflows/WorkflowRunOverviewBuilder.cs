@@ -7,15 +7,23 @@ namespace Skylab.Forms.Application.Services.Workflows;
 
 public static class WorkflowRunOverviewBuilder
 {
+    private static readonly WorkflowRunFinishedContract NoEnds = new(0, 0, 0, 0, 0);
+
     public static WorkflowRunOverviewContract Build(
         WorkflowDefinition? definition,
         IReadOnlyCollection<WorkflowOpenStepFact> openSteps,
         IReadOnlyCollection<WorkflowRunTally> tallies,
+        IReadOnlyCollection<WorkflowRouteTally> routes,
+        IReadOnlyCollection<WorkflowEndTally> ends,
         IReadOnlyDictionary<Guid, WorkflowFormHeader> forms)
     {
         var openByNode = openSteps
             .GroupBy(step => step.NodeKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+
+        var endsByNode = ends
+            .GroupBy(end => end.NodeKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => FinishedOf(group.Select(end => (end.Status, end.Outcome, end.Count))), StringComparer.Ordinal);
 
         var ordered = definition is null ? [] : WorkflowStepOrder.Arrange(definition.Nodes, definition.Transitions);
         var current = ordered.Select(entry => entry.Node.NodeKey).ToHashSet(StringComparer.Ordinal);
@@ -29,6 +37,7 @@ public static class WorkflowRunOverviewBuilder
                 entry.Depth,
                 isRemoved: false,
                 openByNode.GetValueOrDefault(entry.Node.NodeKey) ?? [],
+                endsByNode.GetValueOrDefault(entry.Node.NodeKey) ?? NoEnds,
                 forms))
             .Concat(openByNode
                 .Where(group => !current.Contains(group.Key))
@@ -41,24 +50,20 @@ public static class WorkflowRunOverviewBuilder
                     depth: 0,
                     isRemoved: true,
                     group.Value,
+                    endsByNode.GetValueOrDefault(group.Key) ?? NoEnds,
                     forms)))
             .ToList();
-
-        var finished = tallies
-            .Where(tally => tally.Status != WorkflowInstanceStatus.Active)
-            .GroupBy(tally => StateOf(tally.Status, tally.Outcome, hasResponse: false, timerRunning: false, round: 1))
-            .ToDictionary(group => group.Key, group => group.Sum(tally => tally.Count));
 
         return new WorkflowRunOverviewContract(
             tallies.Where(tally => tally.Status == WorkflowInstanceStatus.Active).Sum(tally => tally.Count),
             openSteps.Count(step => StateOf(step) == WorkflowRunState.AwaitingReview),
             steps,
-            new WorkflowRunFinishedContract(
-                finished.GetValueOrDefault(WorkflowRunState.Completed),
-                finished.GetValueOrDefault(WorkflowRunState.Declined),
-                finished.GetValueOrDefault(WorkflowRunState.TimedOut),
-                finished.GetValueOrDefault(WorkflowRunState.Voided),
-                finished.GetValueOrDefault(WorkflowRunState.Stopped)));
+            FinishedOf(tallies.Select(tally => (tally.Status, tally.Outcome, tally.Count))),
+            [.. routes
+                .OrderBy(route => route.SourceNodeKey, StringComparer.Ordinal)
+                .ThenBy(route => route.Trigger)
+                .ThenBy(route => route.TargetNodeKey, StringComparer.Ordinal)
+                .Select(route => new WorkflowRunRouteContract(route.SourceNodeKey, route.Trigger, route.TargetNodeKey, route.Count))]);
     }
 
     public static WorkflowRunState StateOf(
@@ -85,6 +90,21 @@ public static class WorkflowRunOverviewBuilder
     private static WorkflowRunState StateOf(WorkflowOpenStepFact step) =>
         StateOf(WorkflowInstanceStatus.Active, WorkflowInstanceOutcome.None, step.HasResponse, step.TimerRunning, step.Round);
 
+    private static WorkflowRunFinishedContract FinishedOf(IEnumerable<(WorkflowInstanceStatus Status, WorkflowInstanceOutcome Outcome, int Count)> runs)
+    {
+        var byState = runs
+            .Where(run => run.Status != WorkflowInstanceStatus.Active)
+            .GroupBy(run => StateOf(run.Status, run.Outcome, hasResponse: false, timerRunning: false, round: 1))
+            .ToDictionary(group => group.Key, group => group.Sum(run => run.Count));
+
+        return new WorkflowRunFinishedContract(
+            byState.GetValueOrDefault(WorkflowRunState.Completed),
+            byState.GetValueOrDefault(WorkflowRunState.Declined),
+            byState.GetValueOrDefault(WorkflowRunState.TimedOut),
+            byState.GetValueOrDefault(WorkflowRunState.Voided),
+            byState.GetValueOrDefault(WorkflowRunState.Stopped));
+    }
+
     private static WorkflowRunStepContract ToStep(
         string nodeKey,
         Guid formId,
@@ -93,6 +113,7 @@ public static class WorkflowRunOverviewBuilder
         int depth,
         bool isRemoved,
         IReadOnlyCollection<WorkflowOpenStepFact> open,
+        WorkflowRunFinishedContract finished,
         IReadOnlyDictionary<Guid, WorkflowFormHeader> forms)
     {
         var states = open.Select(step => StateOf(step)).ToList();
@@ -109,6 +130,7 @@ public static class WorkflowRunOverviewBuilder
             states.Count(state => state == WorkflowRunState.AwaitingReview),
             states.Count(state => state == WorkflowRunState.AwaitingApplicant),
             states.Count(state => state == WorkflowRunState.TimerRunning),
-            states.Count(state => state == WorkflowRunState.RevisionRequested));
+            states.Count(state => state == WorkflowRunState.RevisionRequested),
+            finished);
     }
 }
