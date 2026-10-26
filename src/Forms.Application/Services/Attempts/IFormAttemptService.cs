@@ -12,7 +12,12 @@ public interface IFormAttemptService
     Task<ServiceResult<FormAttemptStartResult>> StartAsync(Guid formId, Guid userId, CancellationToken ct = default);
 
     Task<AttemptGate> CheckSubmitAsync(Form form, Guid userId, CancellationToken ct = default);
-    Task MarkSubmittedAsync(Guid attemptId, Guid responseId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Denemeyi gönderilmiş işaretler ama kaydetmez: işaret cevabın kendi commit'ine girer, cevap kaydedilmezse işaret de
+    /// yazılmaz. Deneme bu arada değiştiyse commit çakışmayla döner ve cevap da kaydedilmez.
+    /// </summary>
+    void MarkSubmitted(FormAttempt attempt, Guid responseId);
 
     Task<ServiceResult<FormAttemptDetailContract>> ExtendAsync(Guid attemptId, Guid actorId, AttemptExtendRequest request, CancellationToken ct = default);
     Task<ServiceResult<FormAttemptDetailContract>> AcceptAsync(Guid attemptId, Guid actorId, AttemptDecisionRequest? request, CancellationToken ct = default);

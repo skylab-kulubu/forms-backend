@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Net;
 using System.Net.Mail;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Attribution;
 using Skylab.Forms.Application.Common;
@@ -46,6 +47,7 @@ public class FormResponseService : IFormResponseService
     private readonly IGuestUploadService _guestUploads;
     private readonly IAnswerFileStore _files;
     private readonly IMailAudienceExport _mailAudience;
+    private readonly ILogger<FormResponseService> _logger;
 
     public FormResponseService(
         IFormRepository forms,
@@ -63,9 +65,11 @@ public class FormResponseService : IFormResponseService
         IFormAttemptRepository attemptRecords,
         IGuestUploadService guestUploads,
         IAnswerFileStore files,
-        IMailAudienceExport mailAudience)
+        IMailAudienceExport mailAudience,
+        ILogger<FormResponseService> logger)
     {
         _mailAudience = mailAudience;
+        _logger = logger;
         _attempts = attempts;
         _attemptRecords = attemptRecords;
         _guestUploads = guestUploads;
@@ -118,36 +122,37 @@ public class FormResponseService : IFormResponseService
             : await _guestUploads.CheckAccountSubmitAsync(form, contract, userId.Value, cancellationToken);
         if (guestGate.Rejection is not null) return guestGate.Rejection;
 
-        Guid? attemptId = null;
+        FormAttempt? attempt = null;
 
         if (userId.HasValue && form.HasTimeLimit)
         {
             var gate = await _attempts.CheckSubmitAsync(form, userId.Value, cancellationToken);
             if (gate.Rejection is not null) return gate.Rejection;
 
-            attemptId = gate.Attempt?.Id;
+            attempt = gate.Attempt;
         }
+
+        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
+
+        // Deneme cevapla tek commit'te gönderilmiş olur: akış ya da düz kayıt cevabı yazmazsa işaret de yazılmaz.
+        if (attempt is not null) _attempts.MarkSubmitted(attempt, response.Id);
 
         if (userId.HasValue)
         {
-            var workflowResult = await SubmitThroughWorkflowAsync(form, contract, userId.Value, cancellationToken);
+            var workflowResult = await SubmitThroughWorkflowAsync(form, response, userId.Value, cancellationToken);
 
             if (workflowResult is not null)
             {
-                if (attemptId.HasValue && !workflowResult.Status.IsFailure() && workflowResult.Data?.ResponseId is { } workflowResponseId)
-                    await _attempts.MarkSubmittedAsync(attemptId.Value, workflowResponseId, cancellationToken);
-
                 return workflowResult;
             }
         }
 
-        if (userId.HasValue && !form.AllowMultipleResponses && !attemptId.HasValue)
+        if (userId.HasValue && !form.AllowMultipleResponses && attempt is null)
         {
             var hasExistingResponse = await _responses.HasNonArchivedResponseAsync(form.Id, userId.Value, cancellationToken);
             if (hasExistingResponse) return new ServiceResult<ResponseSubmitResult>(ServiceStatus.NotAcceptable, Message: "Bu formu daha önce doldurdunuz.");
         }
 
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution, guest);
         if (!guestGate.Verified) response.Status = FormResponseStatus.Flagged;
 
         IReadOnlyList<GuestAttachment> attachments = [];
@@ -171,10 +176,7 @@ public class FormResponseService : IFormResponseService
         }
 
         if (guestGate.SessionId is { } guestSessionId)
-            await _guestUploads.ConsumeAsync(guestSessionId, guestGate.Files);
-
-        if (attemptId.HasValue)
-            await _attempts.MarkSubmittedAsync(attemptId.Value, response.Id, cancellationToken);
+            await AfterCommitAsync("misafir yükleme oturumunu kapatma", response.Id, () => _guestUploads.ConsumeAsync(guestSessionId, guestGate.Files), cancellationToken);
 
         await AfterResponseSavedAsync(form, response, cancellationToken, sendCopy: guestGate.Verified);
 
@@ -188,11 +190,10 @@ public class FormResponseService : IFormResponseService
 
     private async Task<ServiceResult<ResponseSubmitResult>?> SubmitThroughWorkflowAsync(
         Form form,
-        ResponseSubmitRequest contract,
+        FormResponse response,
         Guid userId,
         CancellationToken cancellationToken)
     {
-        var response = MapToEntity(form, contract.Responses, contract.TimeSpent, userId, contract.Attribution);
         var workflow = await _workflowRuntime.SubmitAsync(form, response, userId, cancellationToken);
 
         if (workflow.Data is { State: WorkflowActionState.NotInWorkflow }) return null;
@@ -223,11 +224,24 @@ public class FormResponseService : IFormResponseService
     {
         await _cache.TryRemoveAsync(FormCacheKeys.Analytics(form.Id), cancellationToken);
 
-        if (response.UserId.HasValue)
-            await _draftService.DeleteResponseDraftAsync(form.Id, response.UserId.Value, cancellationToken);
+        if (response.UserId is { } userId)
+            await AfterCommitAsync("taslağı silme", response.Id, () => _draftService.DeleteResponseDraftAsync(form.Id, userId, cancellationToken), cancellationToken);
 
         if (sendCopy)
-            await _mailNotifier.NotifyResponseCopyAsync(form, response, cancellationToken);
+            await AfterCommitAsync("kopya maili", response.Id, () => _mailNotifier.NotifyResponseCopyAsync(form, response, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>Cevap kaydedildi; sonrası en iyi çabadır, bir yan etkinin hatası kaydedilmiş cevabı başarısız göstermez.</summary>
+    private async Task AfterCommitAsync(string effect, Guid responseId, Func<Task> run, CancellationToken ct)
+    {
+        try
+        {
+            await run();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Cevap {ResponseId} kaydedildi ama {Effect} yapılamadı", responseId, effect);
+        }
     }
 
     public async Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)

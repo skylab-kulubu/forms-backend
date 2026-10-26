@@ -189,34 +189,13 @@ public class FormAttemptService : IFormAttemptService
         return AttemptGate.Reject(Closed(FormClosedReason.TimeUp, "Süren doldu."));
     }
 
-    public async Task MarkSubmittedAsync(Guid attemptId, Guid responseId, CancellationToken ct = default)
+    public void MarkSubmitted(FormAttempt attempt, Guid responseId)
     {
-        for (var pass = 0; pass < 2; pass++)
-        {
-            var attempt = await _attempts.GetForEditAsync(attemptId, ct);
-            if (attempt is null) return;
+        attempt.Status = FormAttemptStatus.Submitted;
+        attempt.ResponseId = responseId;
+        attempt.DraftSnapshot = null;
 
-            if (attempt.Status == FormAttemptStatus.Provisional && attempt.ResponseId is { } provisionalId && provisionalId != responseId)
-            {
-                var provisional = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(provisionalId, ct);
-                if (provisional is { Status: FormResponseStatus.Provisional }) _responses.Remove(provisional);
-            }
-
-            attempt.Status = FormAttemptStatus.Submitted;
-            attempt.ResponseId = responseId;
-            attempt.DraftSnapshot = null;
-
-            _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Submitted });
-
-            try
-            {
-                await _uow.SaveChangesAsync(ct);
-                return;
-            }
-            catch (StorageConflictException) when (pass == 0)
-            {
-            }
-        }
+        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Submitted });
     }
 
     public async Task<ServiceResult<FormAttemptDetailContract>> ExtendAsync(Guid attemptId, Guid actorId, AttemptExtendRequest request, CancellationToken ct = default)
