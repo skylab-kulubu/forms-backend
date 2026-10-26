@@ -112,7 +112,7 @@ public class WorkflowArchiveTests(FormsApiFactory api)
         var attemptId = await db.Attempts.Where(a => a.FormId == exam.Id && a.UserId == candidate.Id).Select(a => a.Id).SingleAsync();
         await db.Attempts.Where(a => a.Id == attemptId).ExecuteUpdateAsync(s => s.SetProperty(a => a.DeadlineAt, DateTime.UtcNow.AddMinutes(-10)));
 
-        await scope.ServiceProvider.GetRequiredService<IFormAttemptService>().ExpireByIdAsync(attemptId);
+        await scope.ServiceProvider.GetRequiredService<IAttemptExpiry>().ExpireByIdAsync(attemptId);
 
         Assert.Equal(FormAttemptStatus.NoSubmission, await db.Attempts.Where(a => a.Id == attemptId).Select(a => a.Status).SingleAsync());
         Assert.DoesNotContain(FormAttemptEventType.Closed, await db.AttemptEvents.Where(e => e.AttemptId == attemptId).Select(e => e.Type).ToListAsync());

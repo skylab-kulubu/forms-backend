@@ -24,8 +24,8 @@ public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, IDistrib
 
         using (var scope = _scopeFactory.CreateScope())
         {
-            var attempts = scope.ServiceProvider.GetRequiredService<IFormAttemptService>();
-            due = await attempts.GetDueAsync(time.GetUtcNow().UtcDateTime, BatchSize, ct);
+            var expiry = scope.ServiceProvider.GetRequiredService<IAttemptExpiry>();
+            due = await expiry.GetDueAsync(time.GetUtcNow().UtcDateTime, BatchSize, ct);
         }
 
         foreach (var attemptId in due)
@@ -33,8 +33,8 @@ public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, IDistrib
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                var attempts = scope.ServiceProvider.GetRequiredService<IFormAttemptService>();
-                await attempts.ExpireByIdAsync(attemptId, ct);
+                var expiry = scope.ServiceProvider.GetRequiredService<IAttemptExpiry>();
+                await expiry.ExpireByIdAsync(attemptId, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

@@ -43,6 +43,7 @@ public class FormResponseService : IFormResponseService
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormAttemptService _attempts;
+    private readonly IAttemptReadModels _attemptViews;
     private readonly IFormAttemptRepository _attemptRecords;
     private readonly IGuestUploadService _guestUploads;
     private readonly IAnswerFileStore _files;
@@ -63,6 +64,7 @@ public class FormResponseService : IFormResponseService
         IFormWorkflowRuntime workflowRuntime,
         IFormWorkflowInstanceRepository instances,
         IFormAttemptService attempts,
+        IAttemptReadModels attemptViews,
         IFormAttemptRepository attemptRecords,
         IGuestUploadService guestUploads,
         IAnswerFileStore files,
@@ -73,6 +75,7 @@ public class FormResponseService : IFormResponseService
         _mailAudience = mailAudience;
         _logger = logger;
         _attempts = attempts;
+        _attemptViews = attemptViews;
         _attemptRecords = attemptRecords;
         _guestUploads = guestUploads;
         _files = files;
@@ -364,7 +367,7 @@ public class FormResponseService : IFormResponseService
         if (workflow?.Run is { } run && users.FirstOrDefault(u => u.Id == voidedById) is { } voidedBy)
             workflow = workflow with { Run = run with { VoidedBy = voidedBy } };
 
-        var attempt = canView ? await _attempts.GetDetailForResponseAsync(response, cancellationToken) : null;
+        var attempt = canView ? await _attemptViews.GetDetailForResponseAsync(response, cancellationToken) : null;
 
         return new ServiceResult<ResponseContract>(
             ServiceStatus.Success,
@@ -886,7 +889,7 @@ public class FormResponseService : IFormResponseService
         var context = await _instances.GetContextByResponseAsync(response.Id, cancellationToken);
 
         if (context is null && response.Status == FormResponseStatus.Provisional
-            && await _attempts.FindStepIdForResponseAsync(response.Id, cancellationToken) is { } stepId
+            && await _attemptViews.FindStepIdForResponseAsync(response.Id, cancellationToken) is { } stepId
             && await _instances.GetContextByStepAsync(stepId, cancellationToken) is { } stepContext)
         {
             context = stepContext with

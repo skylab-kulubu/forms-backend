@@ -50,7 +50,7 @@ public class AttemptSideEffectTests(FormsApiFactory api)
             var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
             attemptId = await db.Attempts.Where(a => a.FormId == exam.Id).Select(a => a.Id).SingleAsync();
             await db.Attempts.Where(a => a.Id == attemptId).ExecuteUpdateAsync(s => s.SetProperty(a => a.DeadlineAt, DateTime.UtcNow.AddMinutes(-10)));
-            await scope.ServiceProvider.GetRequiredService<IFormAttemptService>().ExpireByIdAsync(attemptId);
+            await scope.ServiceProvider.GetRequiredService<IAttemptExpiry>().ExpireByIdAsync(attemptId);
         }
 
         await using var redisDown = DraftStoreDown();

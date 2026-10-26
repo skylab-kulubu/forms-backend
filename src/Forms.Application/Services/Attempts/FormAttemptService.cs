@@ -1,16 +1,11 @@
-using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
-using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Attempts;
-using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Application.Services.Workflows;
-using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
-using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services.Attempts;
 
@@ -18,42 +13,24 @@ public class FormAttemptService : IFormAttemptService
 {
     private readonly IFormAttemptRepository _attempts;
     private readonly IFormRepository _forms;
-    private readonly IFormResponseRepository _responses;
-    private readonly IFormWorkflowInstanceRepository _instances;
-    private readonly IFormDraftService _drafts;
     private readonly IFormWorkflowRuntime _workflowRuntime;
     private readonly IFormsUnitOfWork _uow;
-    private readonly IFormMailNotifier _mail;
-    private readonly IUserDirectory _users;
-    private readonly ICurrentUser _currentUser;
-    private readonly ICacheService _cache;
+    private readonly IAttemptExpiry _expiry;
     private readonly TimeProvider _time;
 
     public FormAttemptService(
         IFormAttemptRepository attempts,
         IFormRepository forms,
-        IFormResponseRepository responses,
-        IFormWorkflowInstanceRepository instances,
-        IFormDraftService drafts,
         IFormWorkflowRuntime workflowRuntime,
         IFormsUnitOfWork uow,
-        IFormMailNotifier mail,
-        IUserDirectory users,
-        ICurrentUser currentUser,
-        ICacheService cache,
+        IAttemptExpiry expiry,
         TimeProvider time)
     {
         _attempts = attempts;
         _forms = forms;
-        _responses = responses;
-        _instances = instances;
-        _drafts = drafts;
         _workflowRuntime = workflowRuntime;
         _uow = uow;
-        _mail = mail;
-        _users = users;
-        _currentUser = currentUser;
-        _cache = cache;
+        _expiry = expiry;
         _time = time;
     }
 
@@ -70,7 +47,7 @@ public class FormAttemptService : IFormAttemptService
         }
 
         if (attempt.HasExpiredAt(now))
-            attempt = await ExpireAsync(attempt, form, ct) ?? await _attempts.GetLatestForEditAsync(form.Id, userId, ct) ?? attempt;
+            attempt = await _expiry.ExpireAsync(attempt, form, ct) ?? await _attempts.GetLatestForEditAsync(form.Id, userId, ct) ?? attempt;
 
         return new AttemptDisplay(await DisplayOfAsync(form, attempt, now, ct), attempt.WorkflowStepId);
     }
@@ -187,7 +164,7 @@ public class FormAttemptService : IFormAttemptService
 
         if (attempt.AcceptsSubmissionAt(now)) return AttemptGate.Allow(attempt);
 
-        if (attempt.HasExpiredAt(now)) await ExpireAsync(attempt, form, ct);
+        if (attempt.HasExpiredAt(now)) await _expiry.ExpireAsync(attempt, form, ct);
 
         return AttemptGate.Reject(Closed(FormClosedReason.TimeUp, "Süren doldu."));
     }
@@ -199,437 +176,6 @@ public class FormAttemptService : IFormAttemptService
         attempt.DraftSnapshot = null;
 
         _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Submitted, CreatedAt = _time.GetUtcNow().UtcDateTime });
-    }
-
-    public async Task<ServiceResult<FormAttemptDetailContract>> ExtendAsync(Guid attemptId, Guid actorId, AttemptExtendRequest request, CancellationToken ct = default)
-    {
-        if (request.Minutes < 1 || request.Minutes > AttemptLimits.MaxExtensionMinutes)
-            return Rejected($"Süre 1 dakika ile {TimeSpan.FromMinutes(AttemptLimits.MaxExtensionMinutes).TotalDays:0} gün arasında olmalıdır.");
-
-        var note = NormalizeNote(request.Note);
-        if (note?.Length > AttemptLimits.MaxNoteLength)
-            return Rejected($"Not en fazla {AttemptLimits.MaxNoteLength} karakter olabilir.");
-
-        var attempt = await _attempts.GetForEditAsync(attemptId, ct);
-        if (attempt is null) return NotFound();
-        if (!CanManage(attempt.Form, actorId)) return NotAuthorized();
-
-        var now = _time.GetUtcNow().UtcDateTime;
-        var events = await _attempts.GetEventsAsync(attempt.Id, ct);
-        var closedByTeam = events.Any(item => item.Type == FormAttemptEventType.Closed);
-        var snapshot = attempt.DraftSnapshot;
-        var timeSpent = 0;
-        List<FormResponseSchemaItem>? submission = null;
-
-        if (!attempt.CanBeExtended(closedByTeam)) return Rejected("Bu adaya şu anda süre verilemez.");
-
-        switch (attempt.Status)
-        {
-            case FormAttemptStatus.Started:
-                var from = attempt.DeadlineAt is { } deadline && deadline > now ? deadline : now;
-                attempt.DeadlineAt = from.AddMinutes(request.Minutes);
-                snapshot = null;
-                break;
-
-            case FormAttemptStatus.Provisional:
-                if (attempt.ResponseId is { } responseId)
-                {
-                    var provisional = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(responseId, ct);
-                    if (provisional is { Status: FormResponseStatus.Provisional })
-                    {
-                        timeSpent = provisional.TimeSpent ?? 0;
-                        submission = provisional.Data;
-                        _responses.Remove(provisional);
-                    }
-                }
-
-                attempt.ResponseId = null;
-                Reopen(attempt, now, request.Minutes);
-                break;
-
-            default:
-                snapshot = null;
-                Reopen(attempt, now, request.Minutes);
-                break;
-        }
-
-        _attempts.Add(new FormAttemptEvent
-        {
-            AttemptId = attempt.Id,
-            Type = FormAttemptEventType.Extended,
-            ActorUserId = actorId,
-            Minutes = request.Minutes,
-            Note = note,
-            DeadlineAt = attempt.DeadlineAt,
-            CreatedAt = now
-        });
-
-        // Geçici cevabın yanıtlarının tek kopyası artık bellekte: önce taslağa yazılır, commit en son gelir. Taslak
-        // yazılamazsa uzatma kaydedilmez ve geçici cevap yerinde kalır.
-        if (snapshot is { Count: > 0 })
-            await _drafts.RestoreResponseDraftAsync(attempt.FormId, attempt.UserId, snapshot, timeSpent, submission, ct);
-
-        try
-        {
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return Conflicted();
-        }
-
-        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Extended, attempt.DeadlineAt, request.Minutes, ct: ct);
-
-        return new ServiceResult<FormAttemptDetailContract>(
-            ServiceStatus.Success,
-            await DetailOfAsync(attempt, attempt.Form, null, ct),
-            $"Adaya {DurationText.Of(request.Minutes)} verildi.");
-    }
-
-    public async Task<ServiceResult<FormAttemptDetailContract>> AcceptAsync(Guid attemptId, Guid actorId, AttemptDecisionRequest? request, CancellationToken ct = default)
-    {
-        var note = NormalizeNote(request?.Note);
-        if (note?.Length > AttemptLimits.MaxNoteLength)
-            return Rejected($"Not en fazla {AttemptLimits.MaxNoteLength} karakter olabilir.");
-
-        var attempt = await _attempts.GetForEditAsync(attemptId, ct);
-        if (attempt is null) return NotFound();
-        if (!CanManage(attempt.Form, actorId)) return NotAuthorized();
-
-        if (attempt.Status != FormAttemptStatus.Provisional || attempt.ResponseId is not { } responseId)
-            return Rejected("Yalnızca geçici cevaplar teslim olarak kabul edilebilir.");
-
-        var response = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(responseId, ct);
-        if (response is not { Status: FormResponseStatus.Provisional })
-            return Rejected("Geçici cevap bulunamadı.");
-
-        var now = _time.GetUtcNow().UtcDateTime;
-
-        attempt.Status = FormAttemptStatus.Submitted;
-
-        _attempts.Add(new FormAttemptEvent
-        {
-            AttemptId = attempt.Id,
-            Type = FormAttemptEventType.Accepted,
-            ActorUserId = actorId,
-            Note = note,
-            CreatedAt = now
-        });
-
-        Guid? nextFormId = null;
-
-        try
-        {
-            var routedInWorkflow = false;
-
-            if (attempt.WorkflowStepId is not null)
-            {
-                var routed = await _workflowRuntime.AcceptAsync(response.Form, response, attempt.UserId, ct);
-
-                if (routed.Data is not { State: WorkflowActionState.NotInWorkflow })
-                {
-                    if (routed.Status.IsFailure() || routed.Data is null)
-                        return new ServiceResult<FormAttemptDetailContract>(routed.Status, Message: routed.Message);
-
-                    routedInWorkflow = true;
-                    if (routed.Data is { State: WorkflowActionState.ShowForm, FormId: { } next }) nextFormId = next;
-                }
-            }
-
-            if (!routedInWorkflow)
-                response.Status = response.Form.RequiresManualReview ? FormResponseStatus.Pending : FormResponseStatus.NonRestrict;
-
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return Conflicted();
-        }
-
-        await _cache.TryRemoveAsync(FormCacheKeys.Analytics(response.FormId), ct);
-        await _mail.NotifyResponseCopyAsync(response.Form, response, ct);
-        await _mail.NotifyAttemptAsync(response.Form, attempt.UserId, AttemptMailKind.Accepted, nextFormId: nextFormId, ct: ct);
-
-        return new ServiceResult<FormAttemptDetailContract>(
-            ServiceStatus.Success,
-            await DetailOfAsync(attempt, response.Form, response, ct),
-            "Geçici cevap teslim olarak kabul edildi.");
-    }
-
-    public async Task<ServiceResult<FormAttemptDetailContract>> CloseAsync(Guid attemptId, Guid actorId, AttemptDecisionRequest? request, CancellationToken ct = default)
-    {
-        var note = NormalizeNote(request?.Note);
-        if (note?.Length > AttemptLimits.MaxNoteLength)
-            return Rejected($"Not en fazla {AttemptLimits.MaxNoteLength} karakter olabilir.");
-
-        var attempt = await _attempts.GetForEditAsync(attemptId, ct);
-        if (attempt is null) return NotFound();
-        if (!CanManage(attempt.Form, actorId)) return NotAuthorized();
-
-        if (attempt.Status != FormAttemptStatus.Provisional)
-            return Rejected("Yalnızca geçici cevaplar teslim yok olarak kapatılabilir.");
-
-        var now = _time.GetUtcNow().UtcDateTime;
-
-        if (attempt.ResponseId is { } responseId)
-        {
-            var provisional = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(responseId, ct);
-
-            if (provisional is { Status: FormResponseStatus.Provisional }) provisional.Archive(actorId, now);
-        }
-
-        attempt.Status = FormAttemptStatus.NoSubmission;
-
-        _attempts.Add(new FormAttemptEvent
-        {
-            AttemptId = attempt.Id,
-            Type = FormAttemptEventType.Closed,
-            ActorUserId = actorId,
-            Note = note,
-            CreatedAt = now
-        });
-
-        Guid? nextFormId = null;
-
-        try
-        {
-            if (attempt.WorkflowStepId is { } stepId)
-                nextFormId = NextFormOf(await _workflowRuntime.TimeOutAsync(stepId, ct));
-
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return Conflicted();
-        }
-
-        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Closed, nextFormId: nextFormId, ct: ct);
-
-        return new ServiceResult<FormAttemptDetailContract>(
-            ServiceStatus.Success,
-            await DetailOfAsync(attempt, attempt.Form, null, ct),
-            "Geçici cevap teslim yok olarak kapatıldı.");
-    }
-
-    public async Task<ServiceResult<FormAttemptDetailContract>> RemindAsync(Guid attemptId, Guid actorId, CancellationToken ct = default)
-    {
-        var attempt = await _attempts.GetForEditAsync(attemptId, ct);
-        if (attempt is null) return NotFound();
-        if (!CanManage(attempt.Form, actorId)) return NotAuthorized();
-
-        if (attempt.Status != FormAttemptStatus.Opened)
-            return Rejected("Yalnızca görevi başlatmamış adaylara hatırlatma gönderilebilir.");
-
-        if (!_mail.CanNotifyAttempts)
-            return Rejected("Hatırlatma e-postası için şablon tanımlı değil.");
-
-        var now = _time.GetUtcNow().UtcDateTime;
-
-        if (attempt.Form.HasClosedAt(now))
-            return Rejected("Son başlama saati geçti; hatırlatma gönderilemez.");
-
-        if (attempt.ReminderSentAt is { } sentAt && now - sentAt < AttemptLimits.ReminderCooldown)
-            return Rejected($"Bu adaya son {AttemptLimits.ReminderCooldown.TotalHours:0} saat içinde hatırlatma gönderildi.");
-
-        attempt.ReminderSentAt = now;
-
-        _attempts.Add(new FormAttemptEvent
-        {
-            AttemptId = attempt.Id,
-            Type = FormAttemptEventType.Reminded,
-            ActorUserId = actorId,
-            CreatedAt = now
-        });
-
-        try
-        {
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return Conflicted();
-        }
-
-        await _mail.NotifyAttemptAsync(attempt.Form, attempt.UserId, AttemptMailKind.Reminder, attempt.Form.ClosesAt, attempt.Form.TimeLimitMinutes, ct: ct);
-
-        return new ServiceResult<FormAttemptDetailContract>(
-            ServiceStatus.Success,
-            await DetailOfAsync(attempt, attempt.Form, null, ct),
-            "Hatırlatma gönderildi.");
-    }
-
-    public async Task<ServiceResult<FormAttemptViewContract>> GetViewAsync(Guid attemptId, Guid userId, CancellationToken ct = default)
-    {
-        var attempt = await _attempts.GetWithFormAsync(attemptId, ct);
-        if (attempt is null)
-            return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotFound, Message: "Kayıt bulunamadı.");
-
-        if (!attempt.Form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
-            return new ServiceResult<FormAttemptViewContract>(ServiceStatus.NotAuthorized, Message: "Bu kaydı görüntüleme yetkiniz yok.");
-
-        var user = await _users.GetUserAsync(attempt.UserId, ct) ?? new UserContract(attempt.UserId, null, "??", null);
-        var detail = await DetailOfAsync(attempt, attempt.Form, null, ct);
-        var workflow = attempt.WorkflowStepId is { } stepId ? await StepWorkflowAsync(stepId, ct) : null;
-
-        return new ServiceResult<FormAttemptViewContract>(
-            ServiceStatus.Success,
-            new FormAttemptViewContract(attempt.Id, attempt.FormId, user, detail, attempt.Form.Task, workflow));
-    }
-
-    public async Task<FormAttemptDetailContract?> GetDetailForResponseAsync(FormResponse response, CancellationToken ct = default)
-    {
-        var attempt = await _attempts.GetByResponseAsync(response.Id, ct);
-
-        return attempt is null ? null : await DetailOfAsync(attempt, response.Form, response, ct);
-    }
-
-    public async Task<Guid?> FindStepIdForResponseAsync(Guid responseId, CancellationToken ct = default) =>
-        (await _attempts.GetByResponseAsync(responseId, ct))?.WorkflowStepId;
-
-    public async Task<ServiceResult<FormAttemptAnalyticsContract>> GetAnalyticsAsync(Guid formId, Guid userId, CancellationToken ct = default)
-    {
-        var form = await _forms.GetByIdAsync(formId, ct);
-        if (form is null)
-            return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
-
-        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, ct), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
-            return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
-
-        if (!form.HasTimeLimit)
-            return new ServiceResult<FormAttemptAnalyticsContract>(ServiceStatus.NotAcceptable, Message: "Bu formda kişisel süre yok.");
-
-        var stats = await _attempts.GetStatsAsync(formId, ct);
-
-        var durations = stats.Durations
-            .Select(item => (int)Math.Round((item.SubmittedAt - item.StartedAt).TotalMinutes))
-            .Where(minutes => minutes >= 0)
-            .OrderBy(minutes => minutes)
-            .ToList();
-
-        var byActor = stats.Extensions
-            .Where(item => item.ActorUserId.HasValue)
-            .GroupBy(item => item.ActorUserId!.Value)
-            .Select(group => new { ActorId = group.Key, Count = group.Count(), Minutes = group.Sum(item => item.Minutes) })
-            .OrderByDescending(item => item.Minutes)
-            .ToList();
-
-        var actors = byActor.Count == 0 ? [] : await _users.GetUsersAsync(byActor.Select(item => item.ActorId), ct);
-
-        var extendedBy = byActor
-            .Select(item => new FormAttemptActorStatContract(
-                actors.FirstOrDefault(user => user.Id == item.ActorId) ?? new UserContract(item.ActorId, null, null, null),
-                item.Count,
-                item.Minutes))
-            .ToList();
-
-        return new ServiceResult<FormAttemptAnalyticsContract>(
-            ServiceStatus.Success,
-            new FormAttemptAnalyticsContract(
-                form.TimeLimitMinutes ?? 0,
-                stats.Opened,
-                stats.Started,
-                stats.Submitted,
-                stats.Provisional,
-                stats.Running,
-                stats.NoSubmission,
-                durations,
-                stats.Extensions.Select(item => item.AttemptId).Distinct().Count(),
-                stats.Extensions.Sum(item => item.Minutes),
-                extendedBy,
-                FindStalledQuestion(form, stats.ExpiredDrafts),
-                stats.ExpiredWithDraft));
-    }
-
-    public Task<IReadOnlyList<Guid>> GetDueAsync(DateTime now, int take, CancellationToken ct = default) =>
-        _attempts.GetDueAsync(now - AttemptLimits.SubmitGrace, take, ct);
-
-    public async Task ExpireByIdAsync(Guid attemptId, CancellationToken ct = default)
-    {
-        var attempt = await _attempts.GetForEditAsync(attemptId, ct);
-
-        if (attempt is null || !attempt.HasExpiredAt(_time.GetUtcNow().UtcDateTime) || !attempt.Form.HasTimeLimit) return;
-
-        await ExpireAsync(attempt, attempt.Form, ct);
-    }
-
-    private async Task<FormAttempt?> ExpireAsync(FormAttempt attempt, Form form, CancellationToken ct)
-    {
-        if (attempt.Status != FormAttemptStatus.Started || attempt.DeadlineAt is not { } deadline) return attempt;
-
-        // Başvuru durdurulduysa (akış arşivlendi) geçici cevap yönlendirilemez; deneme sessizce kapanır.
-        if (attempt.WorkflowStepId is { } stepOfRun && !await _instances.IsStepOpenAsync(stepOfRun, ct))
-            return await CloseStoppedAsync(attempt, deadline, ct);
-
-        var draft = (await _drafts.GetResponseDraftAsync(form.Id, attempt.UserId, ct)).Data;
-        var hasDraft = draft is { Responses.Count: > 0 };
-
-        attempt.ExpiredAt = deadline;
-
-        if (hasDraft)
-        {
-            var answers = draft!.Submission is { Count: > 0 } submission ? submission : ResponseDataMapper.FromDraft(draft.Responses);
-
-            var response = new FormResponse
-            {
-                FormId = form.Id,
-                UserId = attempt.UserId,
-                Data = ResponseDataMapper.Map(form.Schema, answers),
-                TimeSpent = draft.TimeSpent,
-                Status = FormResponseStatus.Provisional,
-                SubmittedAt = deadline
-            };
-
-            _responses.Add(response);
-
-            attempt.Status = FormAttemptStatus.Provisional;
-            attempt.ResponseId = response.Id;
-            attempt.DraftSnapshot = draft.Responses;
-
-            _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Expired, CreatedAt = deadline });
-        }
-        else
-        {
-            attempt.Status = FormAttemptStatus.NoSubmission;
-
-            _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.ExpiredEmpty, CreatedAt = deadline });
-        }
-
-        Guid? nextFormId = null;
-
-        try
-        {
-            if (!hasDraft && attempt.WorkflowStepId is { } stepId)
-                nextFormId = NextFormOf(await _workflowRuntime.TimeOutAsync(stepId, ct));
-
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return null;
-        }
-
-        await _mail.NotifyAttemptAsync(form, attempt.UserId, hasDraft ? AttemptMailKind.Expired : AttemptMailKind.ExpiredEmpty, deadline, nextFormId: nextFormId, ct: ct);
-
-        return attempt;
-    }
-
-    private async Task<FormAttempt?> CloseStoppedAsync(FormAttempt attempt, DateTime deadline, CancellationToken ct)
-    {
-        attempt.Status = FormAttemptStatus.NoSubmission;
-        attempt.ExpiredAt = deadline;
-        // Closed olayı "ekip kapattı" demektir; burada kimse kapatmadı, süre teslimsiz doldu.
-        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.ExpiredEmpty, CreatedAt = deadline });
-
-        try
-        {
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return null;
-        }
-
-        return attempt;
     }
 
     private async Task<FormAttempt> OpenAsync(Form form, Guid userId, Guid? stepId, DateTime now, CancellationToken ct)
@@ -689,144 +235,6 @@ public class FormAttemptService : IFormAttemptService
             events.Any(item => item.Type == FormAttemptEventType.Expired));
     }
 
-    private async Task<FormAttemptDetailContract> DetailOfAsync(FormAttempt attempt, Form form, FormResponse? response, CancellationToken ct)
-    {
-        var now = _time.GetUtcNow().UtcDateTime;
-        var events = await _attempts.GetEventsAsync(attempt.Id, ct);
-
-        var actorIds = events
-            .Where(item => item.ActorUserId.HasValue)
-            .Select(item => item.ActorUserId!.Value)
-            .Distinct()
-            .ToList();
-
-        var actors = actorIds.Count == 0 ? [] : await _users.GetUsersAsync(actorIds, ct);
-        var closedByTeam = events.Any(item => item.Type == FormAttemptEventType.Closed);
-
-        var acceptRequiresReview = form.RequiresManualReview;
-        FormAttemptRouteContract? onAccept = null;
-        FormAttemptRouteContract? onClose = null;
-
-        if (attempt.Status == FormAttemptStatus.Provisional && attempt.WorkflowStepId is { } stepId)
-        {
-            var preview = await _workflowRuntime.PreviewAttemptAsync(stepId, response?.Data ?? [], ct);
-
-            if (preview is not null)
-            {
-                acceptRequiresReview = preview.RequiresReview;
-                onAccept = await RouteOfAsync(preview.OnSubmit, ct);
-                onClose = await RouteOfAsync(preview.OnTimeout, ct);
-            }
-        }
-
-        var submittedAt = attempt.Status == FormAttemptStatus.Submitted
-            ? response?.SubmittedAt ?? events.LastOrDefault(item => item.Type is FormAttemptEventType.Submitted or FormAttemptEventType.Accepted)?.CreatedAt
-            : null;
-
-        // Yan yana dört bool var; isimli argümanlar yerlerinin sessizce kaymasını engeller.
-        return new FormAttemptDetailContract(
-            Id: attempt.Id,
-            Status: attempt.Status,
-            ResponseId: attempt.ResponseId,
-            OpenedAt: attempt.CreatedAt,
-            StartedAt: attempt.StartedAt,
-            DeadlineAt: attempt.DeadlineAt,
-            ExpiredAt: attempt.ExpiredAt,
-            SubmittedAt: submittedAt,
-            TimeLimitMinutes: form.TimeLimitMinutes ?? 0,
-            ExtendedMinutes: events.Where(item => item.Type == FormAttemptEventType.Extended).Sum(item => item.Minutes ?? 0),
-            ClosedByTeam: closedByTeam,
-            CanExtend: attempt.CanBeExtended(closedByTeam),
-            CanDecide: attempt.Status == FormAttemptStatus.Provisional,
-            CanRemind: CanRemind(attempt, form, now),
-            ReminderSentAt: attempt.ReminderSentAt,
-            AcceptRequiresReview: acceptRequiresReview,
-            OnAccept: onAccept,
-            OnClose: onClose,
-            Events: [.. events
-                .OrderBy(item => item.CreatedAt)
-                .Select(item => new FormAttemptEventContract(
-                    item.Id,
-                    item.Type,
-                    item.ActorUserId is { } actorId
-                        ? actors.FirstOrDefault(user => user.Id == actorId) ?? new UserContract(actorId, null, null, null)
-                        : null,
-                    item.Minutes,
-                    item.Note,
-                    item.DeadlineAt,
-                    item.CreatedAt))]);
-    }
-
-    private async Task<FormAttemptRouteContract?> RouteOfAsync(WorkflowRouteTarget? target, CancellationToken ct)
-    {
-        if (target is null) return null;
-        if (target.FormId is not { } formId) return new FormAttemptRouteContract(true, null, null);
-
-        var form = await _forms.GetByIdAsync(formId, ct);
-
-        return new FormAttemptRouteContract(false, formId, form?.Title);
-    }
-
-    private async Task<ResponseWorkflowContract?> StepWorkflowAsync(Guid stepId, CancellationToken ct)
-    {
-        var context = await _instances.GetContextByStepAsync(stepId, ct);
-        if (context is null) return null;
-
-        return new ResponseWorkflowContract(
-            context.InstanceId,
-            context.Stage,
-            [.. context.Steps.Select(step => new ResponseWorkflowStepContract(step.Stage, step.FormTitle, step.ResponseId, step.Status))],
-            null,
-            null);
-    }
-
-    private static FormAttemptStalledQuestionContract? FindStalledQuestion(Form form, IReadOnlyList<List<FormResponseSchemaItem>> drafts)
-    {
-        var questions = form.Schema.Where(item => item.Type != "separator").ToList();
-        if (questions.Count == 0 || drafts.Count == 0) return null;
-
-        var counts = new int[questions.Count];
-
-        foreach (var draft in drafts)
-        {
-            var answered = draft.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
-            var index = questions.FindIndex(question => !answered.Contains(question.Id));
-            if (index >= 0) counts[index]++;
-        }
-
-        var top = Array.IndexOf(counts, counts.Max());
-        if (counts[top] == 0) return null;
-
-        var stalled = questions[top];
-
-        return new FormAttemptStalledQuestionContract(
-            stalled.Id,
-            ResponseDataMapper.QuestionOf(stalled),
-            top + 1,
-            counts[top],
-            ResponseDataMapper.IsRequired(stalled));
-    }
-
-    private static void Reopen(FormAttempt attempt, DateTime now, int minutes)
-    {
-        attempt.Status = FormAttemptStatus.Started;
-        attempt.ExpiredAt = null;
-        attempt.DraftSnapshot = null;
-        attempt.DeadlineAt = now.AddMinutes(minutes);
-    }
-
-    private bool CanRemind(FormAttempt attempt, Form form, DateTime now) =>
-        attempt.Status == FormAttemptStatus.Opened && !form.HasClosedAt(now) && _mail.CanNotifyAttempts;
-
-    private bool CanManage(Form form, Guid userId) =>
-        form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.HandleResponses);
-
-    private static string? NormalizeNote(string? note) =>
-        string.IsNullOrWhiteSpace(note) ? null : note.Trim();
-
-    private static Guid? NextFormOf(ServiceResult<WorkflowStepOutcome> routed) =>
-        routed.Data is { State: WorkflowActionState.ShowForm, FormId: { } next } ? next : null;
-
     private static FormAttemptDisplayContract StartClosedDisplay(Form form) =>
         new(FormAttemptState.StartClosed, form.TimeLimitMinutes ?? 0, form.ClosesAt, null, null, 0, null, false, false);
 
@@ -838,16 +246,4 @@ public class FormAttemptService : IFormAttemptService
 
     private static ServiceResult<ResponseSubmitResult> Closed(string reason, string message) =>
         new(ServiceStatus.NotAvailable, new ResponseSubmitResult(null, null, 0, Reason: reason), message);
-
-    private static ServiceResult<FormAttemptDetailContract> Rejected(string message) =>
-        new(ServiceStatus.NotAcceptable, Message: message);
-
-    private static ServiceResult<FormAttemptDetailContract> NotFound() =>
-        new(ServiceStatus.NotFound, Message: "Kayıt bulunamadı.");
-
-    private static ServiceResult<FormAttemptDetailContract> NotAuthorized() =>
-        new(ServiceStatus.NotAuthorized, Message: "Bu işlem için yetkiniz yok.");
-
-    private static ServiceResult<FormAttemptDetailContract> Conflicted() =>
-        new(ServiceStatus.Conflict, Message: "Kayıt bu sırada değişti; sayfayı yenileyip tekrar deneyin.");
 }

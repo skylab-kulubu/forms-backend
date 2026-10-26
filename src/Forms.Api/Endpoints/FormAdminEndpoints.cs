@@ -285,7 +285,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/attempts/{id:guid}", async (Guid id, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/attempts/{id:guid}", async (Guid id, IAttemptReadModels service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -293,7 +293,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/attempts/{id:guid}/extend", async (Guid id, [FromBody] AttemptExtendRequest request, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/attempts/{id:guid}/extend", async (Guid id, [FromBody] AttemptExtendRequest request, IAttemptDecisions service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -301,7 +301,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/attempts/{id:guid}/accept", async (Guid id, [FromBody] AttemptDecisionRequest? request, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/attempts/{id:guid}/accept", async (Guid id, [FromBody] AttemptDecisionRequest? request, IAttemptDecisions service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -309,7 +309,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/attempts/{id:guid}/close", async (Guid id, [FromBody] AttemptDecisionRequest? request, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/attempts/{id:guid}/close", async (Guid id, [FromBody] AttemptDecisionRequest? request, IAttemptDecisions service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -317,7 +317,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/attempts/{id:guid}/remind", async (Guid id, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/attempts/{id:guid}/remind", async (Guid id, IAttemptDecisions service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -325,7 +325,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/attempts/analytics", async (Guid id, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/attempts/analytics", async (Guid id, IAttemptReadModels service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 

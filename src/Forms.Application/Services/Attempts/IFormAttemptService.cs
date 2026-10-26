@@ -5,6 +5,7 @@ using Skylab.Forms.Domain.Entities;
 
 namespace Skylab.Forms.Application.Services.Attempts;
 
+/// <summary>Adayın yolu: görevi görüntüleme, başlatma ve cevabın süre içinde gelip gelmediği.</summary>
 public interface IFormAttemptService
 {
     Task<AttemptDisplay> PrepareDisplayAsync(Form form, Guid userId, Guid? stepId, CancellationToken ct = default);
@@ -18,19 +19,6 @@ public interface IFormAttemptService
     /// yazılmaz. Deneme bu arada değiştiyse commit çakışmayla döner ve cevap da kaydedilmez.
     /// </summary>
     void MarkSubmitted(FormAttempt attempt, Guid responseId);
-
-    Task<ServiceResult<FormAttemptDetailContract>> ExtendAsync(Guid attemptId, Guid actorId, AttemptExtendRequest request, CancellationToken ct = default);
-    Task<ServiceResult<FormAttemptDetailContract>> AcceptAsync(Guid attemptId, Guid actorId, AttemptDecisionRequest? request, CancellationToken ct = default);
-    Task<ServiceResult<FormAttemptDetailContract>> CloseAsync(Guid attemptId, Guid actorId, AttemptDecisionRequest? request, CancellationToken ct = default);
-    Task<ServiceResult<FormAttemptDetailContract>> RemindAsync(Guid attemptId, Guid actorId, CancellationToken ct = default);
-
-    Task<ServiceResult<FormAttemptViewContract>> GetViewAsync(Guid attemptId, Guid userId, CancellationToken ct = default);
-    Task<FormAttemptDetailContract?> GetDetailForResponseAsync(FormResponse response, CancellationToken ct = default);
-    Task<Guid?> FindStepIdForResponseAsync(Guid responseId, CancellationToken ct = default);
-    Task<ServiceResult<FormAttemptAnalyticsContract>> GetAnalyticsAsync(Guid formId, Guid userId, CancellationToken ct = default);
-
-    Task<IReadOnlyList<Guid>> GetDueAsync(DateTime now, int take, CancellationToken ct = default);
-    Task ExpireByIdAsync(Guid attemptId, CancellationToken ct = default);
 }
 
 public sealed record AttemptDisplay(FormAttemptDisplayContract Contract, Guid? WorkflowStepId);
