@@ -40,12 +40,12 @@ public static class FormValidator
     public static ServiceResult<bool> ValidateTiming(bool allowAnonymous, bool allowMultiple, FormTask? task, int? timeLimitMinutes)
     {
         if (task?.Content.Length > AttemptLimits.MaxTaskLength)
-            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Görev metni en fazla 50.000 karakter olabilir.");
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Görev metni en fazla {AttemptLimits.MaxTaskLength.ToString("N0", ClubTime.Culture)} karakter olabilir.");
 
         if (timeLimitMinutes is not { } minutes) return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
 
         if (minutes < 1 || minutes > AttemptLimits.MaxTimeLimitMinutes)
-            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Kişisel süre 1 dakika ile 30 gün arasında olmalıdır.");
+            return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Kişisel süre 1 dakika ile {TimeSpan.FromMinutes(AttemptLimits.MaxTimeLimitMinutes).TotalDays:0} gün arasında olmalıdır.");
 
         if (allowAnonymous)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Anonim cevaba açık formda kişisel süre kullanılamaz.");

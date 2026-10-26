@@ -204,7 +204,7 @@ public class FormAttemptService : IFormAttemptService
     public async Task<ServiceResult<FormAttemptDetailContract>> ExtendAsync(Guid attemptId, Guid actorId, AttemptExtendRequest request, CancellationToken ct = default)
     {
         if (request.Minutes < 1 || request.Minutes > AttemptLimits.MaxExtensionMinutes)
-            return Rejected("Süre 1 dakika ile 7 gün arasında olmalıdır.");
+            return Rejected($"Süre 1 dakika ile {TimeSpan.FromMinutes(AttemptLimits.MaxExtensionMinutes).TotalDays:0} gün arasında olmalıdır.");
 
         var note = NormalizeNote(request.Note);
         if (note?.Length > AttemptLimits.MaxNoteLength)
@@ -429,7 +429,7 @@ public class FormAttemptService : IFormAttemptService
             return Rejected("Son başlama saati geçti; hatırlatma gönderilemez.");
 
         if (attempt.ReminderSentAt is { } sentAt && now - sentAt < AttemptLimits.ReminderCooldown)
-            return Rejected("Bu adaya son 12 saat içinde hatırlatma gönderildi.");
+            return Rejected($"Bu adaya son {AttemptLimits.ReminderCooldown.TotalHours:0} saat içinde hatırlatma gönderildi.");
 
         attempt.ReminderSentAt = now;
 
@@ -723,26 +723,27 @@ public class FormAttemptService : IFormAttemptService
             ? response?.SubmittedAt ?? events.LastOrDefault(item => item.Type is FormAttemptEventType.Submitted or FormAttemptEventType.Accepted)?.CreatedAt
             : null;
 
+        // Yan yana dört bool var; isimli argümanlar yerlerinin sessizce kaymasını engeller.
         return new FormAttemptDetailContract(
-            attempt.Id,
-            attempt.Status,
-            attempt.ResponseId,
-            attempt.CreatedAt,
-            attempt.StartedAt,
-            attempt.DeadlineAt,
-            attempt.ExpiredAt,
-            submittedAt,
-            form.TimeLimitMinutes ?? 0,
-            events.Where(item => item.Type == FormAttemptEventType.Extended).Sum(item => item.Minutes ?? 0),
-            closedByTeam,
-            attempt.CanBeExtended(closedByTeam),
-            attempt.Status == FormAttemptStatus.Provisional,
-            CanRemind(attempt, form, now),
-            attempt.ReminderSentAt,
-            acceptRequiresReview,
-            onAccept,
-            onClose,
-            [.. events
+            Id: attempt.Id,
+            Status: attempt.Status,
+            ResponseId: attempt.ResponseId,
+            OpenedAt: attempt.CreatedAt,
+            StartedAt: attempt.StartedAt,
+            DeadlineAt: attempt.DeadlineAt,
+            ExpiredAt: attempt.ExpiredAt,
+            SubmittedAt: submittedAt,
+            TimeLimitMinutes: form.TimeLimitMinutes ?? 0,
+            ExtendedMinutes: events.Where(item => item.Type == FormAttemptEventType.Extended).Sum(item => item.Minutes ?? 0),
+            ClosedByTeam: closedByTeam,
+            CanExtend: attempt.CanBeExtended(closedByTeam),
+            CanDecide: attempt.Status == FormAttemptStatus.Provisional,
+            CanRemind: CanRemind(attempt, form, now),
+            ReminderSentAt: attempt.ReminderSentAt,
+            AcceptRequiresReview: acceptRequiresReview,
+            OnAccept: onAccept,
+            OnClose: onClose,
+            Events: [.. events
                 .OrderBy(item => item.CreatedAt)
                 .Select(item => new FormAttemptEventContract(
                     item.Id,
