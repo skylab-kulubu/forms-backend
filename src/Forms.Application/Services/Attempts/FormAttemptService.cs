@@ -372,12 +372,7 @@ public class FormAttemptService : IFormAttemptService
         {
             var provisional = await _responses.GetForEditByIdWithFormAndCollaboratorsAsync(responseId, ct);
 
-            if (provisional is { Status: FormResponseStatus.Provisional })
-            {
-                provisional.IsArchived = true;
-                provisional.ArchivedBy = actorId;
-                provisional.ArchivedAt = now;
-            }
+            if (provisional is { Status: FormResponseStatus.Provisional }) provisional.Archive(actorId, now);
         }
 
         attempt.Status = FormAttemptStatus.NoSubmission;

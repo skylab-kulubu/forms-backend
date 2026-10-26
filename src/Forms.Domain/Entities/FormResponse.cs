@@ -36,4 +36,12 @@ public class FormResponse
         ReviewNote = note;
         ReviewedAt = reviewedAt;
     }
+
+    /// <summary>Cevap listeden ve sayımlardan çıkar; kimin ne zaman arşivlediği kalır.</summary>
+    public void Archive(Guid archiverId, DateTime archivedAt)
+    {
+        IsArchived = true;
+        ArchivedBy = archiverId;
+        ArchivedAt = archivedAt;
+    }
 }

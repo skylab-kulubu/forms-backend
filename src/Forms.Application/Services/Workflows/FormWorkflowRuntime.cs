@@ -591,11 +591,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         foreach (var response in await _responses.GetForEditByIdsAsync(responseIds, cancellationToken))
         {
-            if (response.IsArchived) continue;
-
-            response.IsArchived = true;
-            response.ArchivedBy = actorId;
-            response.ArchivedAt = now;
+            if (!response.IsArchived) response.Archive(actorId, now);
         }
 
         try

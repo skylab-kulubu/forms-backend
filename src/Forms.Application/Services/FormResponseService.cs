@@ -547,6 +547,8 @@ public class FormResponseService : IFormResponseService
         if (response.Status == FormResponseStatus.Returned)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Düzeltme istenen cevap başvurunun geçmişinde kalır; arşivlenemez.");
 
+        var now = DateTime.UtcNow;
+
         if (response.Status is FormResponseStatus.Pending or FormResponseStatus.Flagged)
         {
             if (await _workflowRuntime.HasPendingRouteAsync(responseId, cancellationToken))
@@ -556,15 +558,10 @@ public class FormResponseService : IFormResponseService
                     Message: "Akış içindeki bekleyen bir cevap arşivlenemez; önce onaylayın veya reddedin.");
             }
 
-            response.Status = FormResponseStatus.Declined;
-            response.ReviewNote = "Arşivlendiği için sistem tarafından otomatik olarak reddedildi.";
-            response.ReviewedBy = archiverId;
-            response.ReviewedAt = DateTime.UtcNow;
+            response.ApplyReview(FormResponseStatus.Declined, archiverId, "Arşivlendiği için sistem tarafından otomatik olarak reddedildi.", now);
         }
 
-        response.IsArchived = true;
-        response.ArchivedBy = archiverId;
-        response.ArchivedAt = DateTime.UtcNow;
+        response.Archive(archiverId, now);
 
         await _uow.SaveChangesAsync(cancellationToken);
 
