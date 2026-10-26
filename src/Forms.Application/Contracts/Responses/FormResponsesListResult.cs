@@ -9,3 +9,5 @@ public record FormResponsesListResult(
     double? AverageTaskSeconds = null,
     bool HasTimeLimit = false
 );
+
+public record ResponseListPageContract(int Page);

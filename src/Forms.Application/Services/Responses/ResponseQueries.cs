@@ -14,6 +14,7 @@ namespace Skylab.Forms.Application.Services.Responses;
 public interface IResponseQueries
 {
     Task<ServiceResult<FormResponsesListResult>> GetFormResponsesAsync(Guid formId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<ResponseListPageContract>> GetResponsePageAsync(Guid formId, Guid responseId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default);
     Task<ServiceResult<ResponseContract>> GetResponseByIdAsync(Guid responseId, Guid userId, string? token, CancellationToken cancellationToken = default);
 }
 
@@ -103,6 +104,19 @@ public sealed class ResponseQueries : IResponseQueries
             hasTimeLimit);
 
         return new ServiceResult<FormResponsesListResult>(ServiceStatus.Success, Data: finalResult);
+    }
+
+    public async Task<ServiceResult<ResponseListPageContract>> GetResponsePageAsync(Guid formId, Guid responseId, Guid userId, GetResponsesRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
+            return new ServiceResult<ResponseListPageContract>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
+
+        var form = await _forms.GetByIdAsync(formId, cancellationToken);
+        var page = await _responses.FindPageAsync(formId, responseId, request, form?.HasTimeLimit == true, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
+        return page is { } found
+            ? new ServiceResult<ResponseListPageContract>(ServiceStatus.Success, new ResponseListPageContract(found))
+            : new ServiceResult<ResponseListPageContract>(ServiceStatus.NotFound, Message: "Yanıt bu listede yok.");
     }
 
     private static ResponseAttemptSummaryContract ToAttemptSummary(ResponseAttemptProjection attempt, bool canRemind) =>
