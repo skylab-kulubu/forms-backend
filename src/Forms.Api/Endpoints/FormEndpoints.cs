@@ -3,6 +3,7 @@ using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Api.Extensions;
 using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Services.Responses;
 using Microsoft.AspNetCore.Mvc;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Draft;
@@ -77,7 +78,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         }).RequireAuthorization();
 
-        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IFormResponseService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
+        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IResponseSubmission service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             var userId = user.Id;
             var result = await service.SubmitResponseAsync(request, userId, httpContext.Connection.RemoteIpAddress, ct);
@@ -120,7 +121,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/responses/{id:guid}/meta", async (Guid id, [FromQuery] string token, IFormResponseService service, CancellationToken ct) =>
+        group.MapGet("/responses/{id:guid}/meta", async (Guid id, [FromQuery] string token, IResponseShareLinks service, CancellationToken ct) =>
         {
             var result = await service.GetResponseMetaAsync(id, token, ct);
             return result.ToApiResult();

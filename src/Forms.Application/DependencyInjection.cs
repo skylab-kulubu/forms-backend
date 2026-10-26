@@ -6,6 +6,7 @@ using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.Mail;
 using Skylab.Forms.Application.Services.Ownership;
+using Skylab.Forms.Application.Services.Responses;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Application.Services.Workflows;
 
@@ -18,7 +19,12 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
 
         services.AddScoped<IFormService, FormService>();
-        services.AddScoped<IFormResponseService, FormResponseService>();
+        services.AddScoped<IResponseSubmission, ResponseSubmission>();
+        services.AddScoped<IResponseQueries, ResponseQueries>();
+        services.AddScoped<IResponseFiles, ResponseFiles>();
+        services.AddScoped<IResponseReview, ResponseReview>();
+        services.AddScoped<IResponseExports, ResponseExports>();
+        services.AddScoped<IResponseShareLinks, ResponseShareLinks>();
         services.AddScoped<IFormMetricService, FormMetricService>();
         services.AddScoped<IFormDraftService, FormDraftService>();
         services.AddScoped<IComponentGroupService, ComponentGroupService>();
