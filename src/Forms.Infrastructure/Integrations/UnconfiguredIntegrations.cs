@@ -17,6 +17,9 @@ internal sealed class UnconfiguredUserDirectory : IUserDirectory
 
     public Task<List<UserContract>> GetUsersAsync(IEnumerable<Guid> userIds, CancellationToken ct = default) =>
         Task.FromResult(userIds.Contains(DeletedUser.Id) ? [new UserContract(DeletedUser.Id, null, DeletedUser.DisplayName, null)] : new List<UserContract>());
+
+    public async Task<UserLookup> FindUserAsync(Guid userId, CancellationToken ct = default) =>
+        await GetUserAsync(userId, ct) is { } user ? new UserLookup(UserLookupOutcome.Found, user) : new UserLookup(UserLookupOutcome.Unavailable);
 }
 
 internal sealed class UnconfiguredAnswerFileStore : IAnswerFileStore

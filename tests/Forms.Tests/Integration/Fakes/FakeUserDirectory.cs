@@ -22,4 +22,7 @@ public sealed class FakeUserDirectory : IUserDirectory
 
     public Task<List<UserContract>> GetUsersAsync(IEnumerable<Guid> userIds, CancellationToken ct = default) =>
         Task.FromResult(userIds.Distinct().Select(id => _users.GetValueOrDefault(id)).OfType<UserContract>().ToList());
+
+    public Task<UserLookup> FindUserAsync(Guid userId, CancellationToken ct = default) =>
+        Task.FromResult(_users.TryGetValue(userId, out var user) ? new UserLookup(UserLookupOutcome.Found, user) : new UserLookup(UserLookupOutcome.NotFound));
 }
