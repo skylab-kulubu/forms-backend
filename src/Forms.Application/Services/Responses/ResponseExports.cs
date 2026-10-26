@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Common;
@@ -79,11 +78,7 @@ public sealed class ResponseExports : IResponseExports
                 name = $"{response.Guest?.FirstName?.Trim()} {response.Guest?.LastName?.Trim()}".Trim();
             }
 
-            if (email is not { Length: > 0 and <= 254 }
-                || email.Any(char.IsWhiteSpace) || email.Count(character => character == '@') != 1
-                || !MailAddress.TryCreate(email, out var address)
-                || !string.Equals(address.Address, email, StringComparison.OrdinalIgnoreCase)
-                || !address.Host.Contains('.'))
+            if (!EmailAddress.IsValid(email))
             {
                 skipped++;
                 continue;

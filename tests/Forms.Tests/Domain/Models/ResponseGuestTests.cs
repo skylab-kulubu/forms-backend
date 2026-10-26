@@ -42,6 +42,16 @@ public class ResponseGuestTests
     }
 
     [Theory]
+    [InlineData("ayse@example")]
+    [InlineData("ayse@@example.com")]
+    [InlineData("Ayşe <ayse@example.com>")]
+    public void Identity_fields_take_only_an_address_the_recipient_list_would_mail(string email)
+    {
+        Assert.False(EmailAddress.IsValid(email));
+        Assert.Null(ResponseGuest.From(IdentitySchema, Answers(("f", "Ayşe"), ("l", "Yılmaz"), ("e", email))));
+    }
+
+    [Theory]
     [InlineData("Ayse@Example.com", "ayse@example.com")]
     [InlineData("ayse@example", null)]
     [InlineData("ayşe @example.com", null)]
@@ -54,7 +64,7 @@ public class ResponseGuestTests
     }
 
     [Fact]
-    public void An_overlong_address_is_refused_before_the_pattern_runs()
+    public void An_overlong_address_is_refused()
     {
         var answer = new string('a', 250) + "@x.co";
 
