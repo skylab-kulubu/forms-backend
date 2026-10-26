@@ -122,7 +122,7 @@ public class FormService : IFormService
 
     public async Task<ServiceResult<FormContract>> UpdateFormAsync(Guid formId, FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default)
     {
-        var existingForm = await _forms.GetForEditWithDetailsAsync(formId, cancellationToken);
+        var existingForm = await _forms.GetForEditWithCollaboratorsAsync(formId, cancellationToken);
         if (existingForm == null)
             return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
@@ -205,7 +205,7 @@ public class FormService : IFormService
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var form = await _forms.GetWithDetailsAsync(id, cancellationToken);
+        var form = await _forms.GetWithCollaboratorsAsync(id, cancellationToken);
 
         if (form == null) return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
@@ -441,7 +441,7 @@ public class FormService : IFormService
 
     public async Task<ServiceResult<bool>> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
-        var form = await _forms.GetForEditWithDetailsAsync(id, cancellationToken);
+        var form = await _forms.GetForEditWithCollaboratorsAsync(id, cancellationToken);
 
         if (form == null) return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 

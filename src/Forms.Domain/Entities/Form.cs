@@ -15,11 +15,6 @@ public class Form : BaseEntity
     public bool AllowAnonymousResponses { get; set; } = false;
     public bool AllowMultipleResponses { get; set; } = false;
     public bool RequiresManualReview { get; set; } = false;
-    /// <summary>
-    /// Eski bagli form akisindan kalan alan. Artik hicbir yerde okunmuyor; akislara
-    /// donusum sonrasi bir surumluk geri donus penceresi icin kolonla birlikte
-    /// duruyor ve bir sonraki surumde kaldirilacak.
-    /// </summary>
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
     public FormTask? Task { get; set; }
