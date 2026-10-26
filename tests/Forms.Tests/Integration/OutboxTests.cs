@@ -41,7 +41,7 @@ public class OutboxTests(FormsApiFactory api)
     }
 
     [Fact]
-    public async Task The_dispatcher_removes_what_it_delivered_retries_what_it_did_not_and_drops_what_nobody_takes()
+    public async Task The_dispatcher_removes_what_it_delivered_retries_the_rest_and_drops_only_what_is_too_old()
     {
         await using var host = api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
@@ -54,7 +54,9 @@ public class OutboxTests(FormsApiFactory api)
         var delivered = OutboxMessage.Of("test.delivered", new { }, now);
         var failing = OutboxMessage.Of("test.failing", new { }, now);
         var stale = OutboxMessage.Of("test.stale", new { }, now.AddHours(-2));
+        // İşleyicisi olmayan tür de bekler: sağlayıcının ayarı eksik kaldıysa düzeltilince teslim edilir.
         var unknown = OutboxMessage.Of("test.unknown", new { }, now);
+        var unknownTooOld = OutboxMessage.Of("test.unknown", new { }, now.AddDays(-8));
 
         using (var scope = host.Services.CreateScope())
         {
@@ -62,7 +64,7 @@ public class OutboxTests(FormsApiFactory api)
 
             // Diğer testlerin olayları da paylaşılan tabloda bekler; bir tur yalnız bu mesajları görsün.
             await db.Outbox.ExecuteDeleteAsync();
-            db.Outbox.AddRange(delivered, failing, stale, unknown);
+            db.Outbox.AddRange(delivered, failing, stale, unknown, unknownTooOld);
             await db.SaveChangesAsync();
         }
 
@@ -72,9 +74,9 @@ public class OutboxTests(FormsApiFactory api)
         using var check = host.Services.CreateScope();
         var left = await check.ServiceProvider.GetRequiredService<FormsDbContext>().Outbox.AsNoTracking().ToListAsync();
 
-        var retried = Assert.Single(left);
-        Assert.Equal((failing.Id, 1), (retried.Id, retried.Attempts));
-        Assert.True(retried.NextAttemptAt > now);
+        Assert.Equal(new[] { failing.Id, unknown.Id }.Order(), left.Select(message => message.Id).Order());
+        Assert.All(left, message => Assert.Equal(1, message.Attempts));
+        Assert.All(left, message => Assert.True(message.NextAttemptAt > now));
     }
 
     [Fact]

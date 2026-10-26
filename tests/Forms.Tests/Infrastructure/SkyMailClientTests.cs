@@ -74,7 +74,9 @@ public class SkyMailClientTests
 
     [Theory]
     [InlineData(HttpStatusCode.BadRequest, MailDelivery.Refused)]
-    [InlineData(HttpStatusCode.NotFound, MailDelivery.Refused)]
+    [InlineData(HttpStatusCode.UnprocessableEntity, MailDelivery.Refused)]
+    [InlineData(HttpStatusCode.Unauthorized, MailDelivery.RetryLater)]
+    [InlineData(HttpStatusCode.NotFound, MailDelivery.RetryLater)]
     [InlineData(HttpStatusCode.TooManyRequests, MailDelivery.RetryLater)]
     [InlineData(HttpStatusCode.RequestTimeout, MailDelivery.RetryLater)]
     [InlineData(HttpStatusCode.BadGateway, MailDelivery.RetryLater)]

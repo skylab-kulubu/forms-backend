@@ -12,6 +12,8 @@ internal class SkyMailClient : IEmailSender, IMailAudienceExport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(){ PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
+    private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(10);
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<SkyMailClient> _logger;
 
@@ -82,15 +84,20 @@ internal class SkyMailClient : IEmailSender, IMailAudienceExport
     {
         try
         {
+            // Outbox turu bir teslimi en çok bu kadar bekler; cevap vermeyen SkyMail diğer mesajları ve kilit süresini tüketmesin.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(SendTimeout);
+
             var task = new SingleMailTask(request.TemplateKey, request.RecipientEmail, request.RecipientFullName, request.BodyVariables);
-            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", task, JsonOptions, ct);
+            using var response = await _httpClient.PostAsJsonAsync("mail_tasks/single", task, JsonOptions, timeout.Token);
 
             if (response.IsSuccessStatusCode) return MailDelivery.Sent;
 
+            // Yalnız isteğin kendisini reddeden cevaplar kalıcıdır; 401, 403, 404 bir token ya da dağıtım anının geçici hâli olabilir.
+            var refused = response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.UnprocessableEntity;
+
             // Hata gövdesi alıcı adresini alıntılayabilir; yalnız durum yazılır.
-            var code = (int)response.StatusCode;
-            var refused = code is >= 400 and < 500 && response.StatusCode is not (HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests);
-            _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateKey}){Outcome}", code, request.TemplateKey, refused ? "; mail bırakıldı" : "; yeniden denenecek");
+            _logger.LogError("skymail /mail_tasks/single başarısız: {Status} (template {TemplateKey}){Outcome}", (int)response.StatusCode, request.TemplateKey, refused ? "; mail bırakıldı" : "; yeniden denenecek");
 
             return refused ? MailDelivery.Refused : MailDelivery.RetryLater;
         }
