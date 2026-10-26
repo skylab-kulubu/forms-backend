@@ -13,6 +13,8 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, ICacheSe
 {
     private const int BatchSize = 50;
 
+    private static readonly TimeSpan UnhandledKeepTrying = TimeSpan.FromDays(7);
+
     protected override string LockKey => "forms:outbox:lock";
 
     protected override TimeSpan Interval => TimeSpan.FromSeconds(10);
@@ -29,6 +31,7 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, ICacheSe
         var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
         var handlers = scope.ServiceProvider.GetServices<IOutboxHandler>().ToDictionary(handler => handler.Type);
         var now = DateTime.UtcNow;
+        var dropped = new Dictionary<string, int>();
 
         var due = await db.Outbox
             .Where(message => message.NextAttemptAt <= now)
@@ -38,16 +41,16 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, ICacheSe
 
         foreach (var message in due)
         {
-            if (!handlers.TryGetValue(message.Type, out var handler))
+            ct.ThrowIfCancellationRequested();
+
+            var handler = handlers.GetValueOrDefault(message.Type);
+
+            if (message.CreatedAt < now - (handler?.KeepTrying ?? UnhandledKeepTrying))
             {
                 db.Outbox.Remove(message);
+                dropped[message.Type] = dropped.GetValueOrDefault(message.Type) + 1;
             }
-            else if (message.CreatedAt < now - handler.KeepTrying)
-            {
-                logger.LogWarning("Outbox mesajı {MessageId} ({Type}) {Days} günde teslim edilemediği için bırakıldı", message.Id, message.Type, handler.KeepTrying.TotalDays);
-                db.Outbox.Remove(message);
-            }
-            else if (await TryHandleAsync(handler, message, ct))
+            else if (handler is not null && await TryHandleAsync(handler, message, ct))
             {
                 db.Outbox.Remove(message);
             }
@@ -57,8 +60,11 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, ICacheSe
                 message.NextAttemptAt = now + RetryBackoff.After(message.Attempts);
             }
 
-            await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(CancellationToken.None);
         }
+
+        foreach (var (type, count) in dropped)
+            logger.LogWarning("{Count} outbox mesajı ({Type}) vazgeçme süresi içinde teslim edilemediği için bırakıldı", count, type);
     }
 
     private async Task<bool> TryHandleAsync(IOutboxHandler handler, OutboxMessage message, CancellationToken ct)

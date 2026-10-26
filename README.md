@@ -132,8 +132,8 @@ Dynamic form creation and response management service.
 - Redis-backed form and response drafts
 - Response and component-group sharing tokens
 - XLSX response export
-- Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day; one it refuses for good (a `4xx` such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
-- Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days, and with core off no adapter takes it and the dispatcher drops it
+- Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
+- Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days. With core off no adapter takes it; it waits the same seven days, so a setting missing from one deployment loses nothing once it is fixed
 
 **Database Models:**
 
