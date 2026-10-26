@@ -45,8 +45,11 @@ public sealed record ResponseRowProjection(
     DateTime? ArchivedAt,
     int? TimeSpent,
     ResponseAttemptProjection? Attempt,
-    ResponseGuest? Guest = null
+    ResponseGuest? Guest = null,
+    ResponseRowStep? Step = null
 );
+
+public sealed record ResponseRowStep(int Stage, int Round);
 
 public sealed record ResponseAttemptProjection(
     Guid Id,

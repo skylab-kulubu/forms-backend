@@ -87,7 +87,8 @@ public sealed class ResponseQueries : IResponseQueries
                 r.Id, userDetail, r.Status, r.IsArchived, reviewerDetail, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt,
                 r.TimeSpent,
                 r.Attempt is { } attempt ? ToAttemptSummary(attempt, canRemind) : null,
-                r.Guest);
+                r.Guest,
+                r.Step is { } step ? new ResponseSummaryWorkflowContract(step.Stage, step.Round) : null);
         }).ToList();
 
         var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);

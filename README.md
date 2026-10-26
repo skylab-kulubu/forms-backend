@@ -564,7 +564,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
-| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them |
+| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them. A row of a workflow step, answered or still a timed attempt, carries `workflow` with the step's `stage` and the submission's `round` |
 | `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
 | `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish |
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |

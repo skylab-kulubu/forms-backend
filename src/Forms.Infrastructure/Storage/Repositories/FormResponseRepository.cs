@@ -219,6 +219,24 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 .ToListAsync(ct)
             : [];
 
+        var attemptStepIds = attemptItems
+            .Where(a => pageAttemptIds.Contains(a.Id) && a.WorkflowStepId != null)
+            .Select(a => a.WorkflowStepId!.Value)
+            .ToList();
+
+        var places = pageResponseIds.Count + attemptStepIds.Count > 0
+            ? await _context.WorkflowSteps.AsNoTracking()
+                .Where(step => (step.ResponseId != null && pageResponseIds.Contains(step.ResponseId.Value)) || attemptStepIds.Contains(step.Id))
+                .Select(step => new { step.Id, step.ResponseId, step.Sequence, step.Round })
+                .ToListAsync(ct)
+            : [];
+
+        ResponseRowStep? StepOfResponse(Guid responseId) =>
+            places.FirstOrDefault(place => place.ResponseId == responseId) is { } place ? new ResponseRowStep(place.Sequence, place.Round) : null;
+
+        ResponseRowStep? StepOfAttempt(Guid? stepId) =>
+            stepId is { } id && places.FirstOrDefault(place => place.Id == id) is { } place ? new ResponseRowStep(place.Sequence, place.Round) : null;
+
         var factIds = pageAttemptIds.Concat(linkedAttempts.Select(a => a.Id)).Distinct().ToList();
 
         var facts = factIds.Count > 0
@@ -257,7 +275,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 }
 
                 return new ResponseRowProjection(
-                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt, r.Guest);
+                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt, r.Guest,
+                    StepOfResponse(responseId));
             }
 
             var a = attemptItems.First(item => item.Id == row.AttemptId);
@@ -267,7 +286,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 a.Id, a.UserId, null, false, null, null, null, null, null, null,
                 new ResponseAttemptProjection(
                     a.Id, a.Status, a.WorkflowStepId, a.CreatedAt, a.StartedAt, a.DeadlineAt,
-                    a.ExpiredAt, a.ReminderSentAt, minutes, closedByTeam, null));
+                    a.ExpiredAt, a.ReminderSentAt, minutes, closedByTeam, null),
+                Step: StepOfAttempt(a.WorkflowStepId));
         }).ToList();
 
         double? averageTaskSeconds = null;
