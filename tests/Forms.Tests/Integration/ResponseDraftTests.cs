@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts.Draft;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Domain.Models;
+using StackExchange.Redis;
 
 namespace Skylab.Forms.Tests.Integration;
 
@@ -69,6 +71,18 @@ public class ResponseDraftTests(FormsApiFactory api)
         await owner.PutAsJsonAsync($"/api/admin/forms/{form.Id}", request with { Schema = [NameQuestion("Adın?", "long_text")] });
 
         Assert.Equal(HttpStatusCode.OK, (await member.GetAsync($"/api/forms/responses/draft/{form.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reading_the_draft_of_a_ten_day_task_does_not_cut_its_life_to_a_week()
+    {
+        var (_, member, _, form) = await FormWithDraftAsync(NameQuestion("Adın?"), timeLimitMinutes: 10 * 24 * 60);
+
+        (await member.GetAsync($"/api/forms/responses/draft/{form.Id}")).EnsureSuccessStatusCode();
+
+        using var redis = await ConnectionMultiplexer.ConnectAsync(api.RedisEndpoint);
+        var key = redis.GetServer(redis.GetEndPoints()[0]).Keys(pattern: $"{FormCacheKeys.ResponseDraftPrefix(form.Id)}*").Single();
+        Assert.True(await redis.GetDatabase().KeyTimeToLiveAsync(key) > TimeSpan.FromDays(10));
     }
 
     private async Task<(HttpClient Owner, HttpClient Member, FormUpsertRequest Request, FormContract Form)> FormWithDraftAsync(
