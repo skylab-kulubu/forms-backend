@@ -3,6 +3,7 @@ using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Api.Extensions;
 using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Services.Forms;
 using Skylab.Forms.Application.Services.Responses;
 using Microsoft.AspNetCore.Mvc;
 using Skylab.Forms.Application.Contracts.Responses;
@@ -55,7 +56,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}", async (Guid id, IFormService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, IRespondentFormView service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.Id;
             var result = await service.GetDisplayFormByIdAsync(id, userId, ct);
@@ -63,7 +64,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/meta", async (Guid id, IFormService service, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/meta", async (Guid id, IRespondentFormView service, CancellationToken ct) =>
         {
             var result = await service.GetFormMetaByIdAsync(id, ct);
 
