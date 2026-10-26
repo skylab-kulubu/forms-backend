@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Npgsql;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -121,7 +121,7 @@ public static class InternalEndpoints
             catch (Exception ex)
             {
                 // Hata mesajı istekteki bir değeri (adres) alıntılayabilir; yalnız tür ve SQLSTATE yazılır.
-                var sqlState = (ex as PostgresException ?? ex.InnerException as PostgresException)?.SqlState ?? "yok";
+                var sqlState = StorageErrors.CodeOf(ex) ?? "yok";
                 logger.LogError("Hesap silme {RequestId} başarısız: {ExceptionType}, SQLSTATE {SqlState}", command.RequestId, ex.GetType().Name, sqlState);
 
                 context.Response.Headers.RetryAfter = "30";
