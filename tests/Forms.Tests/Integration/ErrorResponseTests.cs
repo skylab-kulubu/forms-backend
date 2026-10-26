@@ -39,15 +39,16 @@ public class ErrorResponseTests(FormsApiFactory api)
         Assert.False(string.IsNullOrEmpty(body.Message));
     }
 
-    [Fact]
-    public async Task A_request_the_server_cannot_read_keeps_its_400_instead_of_an_unexpected_500()
+    [Theory]
+    [InlineData(StatusCodes.Status400BadRequest, "İstek okunamadı.")]
+    [InlineData(StatusCodes.Status413PayloadTooLarge, "İstek gövdesi izin verilen boyutu aşıyor.")]
+    public async Task A_request_the_server_cannot_read_keeps_its_own_status_instead_of_an_unexpected_500(int status, string message)
     {
-        var response = await FailingClient(() => new BadHttpRequestException("Unexpected end of request content.", StatusCodes.Status400BadRequest))
-            .GetAsync("/api/forms/yarim-govde");
+        var response = await FailingClient(() => new BadHttpRequestException("Kestrel isteği okuyamadı.", status)).GetAsync("/api/forms/yarim-govde");
 
         var body = await response.Content.ReadFromJsonAsync<ServiceResult<object>>();
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(ServiceStatus.NotAcceptable, body!.Status);
+        Assert.Equal(status, (int)response.StatusCode);
+        Assert.Equal((ServiceStatus.NotAcceptable, message), (body!.Status, body.Message));
     }
 
     [Fact]

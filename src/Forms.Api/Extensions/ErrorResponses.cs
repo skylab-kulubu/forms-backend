@@ -27,8 +27,14 @@ public static class ErrorResponses
             }
             catch (BadHttpRequestException ex) when (!context.Response.HasStarted)
             {
-                // Gövdesi yarım kalan ya da okunamayan istek istemcinin hatasıdır: Kestrel'in vereceği durum korunur, loglanmaz.
-                await WriteAsync(context, ex.StatusCode, "bad_request", ServiceStatus.NotAcceptable, "İstek okunamadı.");
+                // Gövdesi yarım kalan, çok büyük ya da geç gelen istek istemcinin hatasıdır: Kestrel'in vereceği durum korunur,
+                // loglanmaz.
+                await WriteAsync(context, ex.StatusCode, "bad_request", ServiceStatus.NotAcceptable, ex.StatusCode switch
+                {
+                    StatusCodes.Status413PayloadTooLarge => "İstek gövdesi izin verilen boyutu aşıyor.",
+                    StatusCodes.Status408RequestTimeout => "İstek gövdesi zamanında gelmedi.",
+                    _ => "İstek okunamadı."
+                });
             }
             catch (Exception ex) when (!context.Response.HasStarted && !context.RequestAborted.IsCancellationRequested)
             {
