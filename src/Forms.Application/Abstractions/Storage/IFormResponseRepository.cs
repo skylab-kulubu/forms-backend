@@ -18,6 +18,7 @@ public interface IFormResponseRepository
 
     Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);
+    Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default);
 
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
     Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default);
@@ -27,6 +28,8 @@ public interface IFormResponseRepository
 }
 
 public sealed record FormResponseCounts(int Total, int Waiting, double? AverageTimeSpentSeconds);
+
+public sealed record ResponseContactProjection(Guid? UserId, ResponseGuest? Guest);
 
 public sealed record OverduePendingFormProjection(Guid FormId, string FormTitle, int PendingCount, IReadOnlyList<Guid> ReviewerIds);
 
