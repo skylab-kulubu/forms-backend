@@ -37,9 +37,10 @@ public sealed class FormsUnitOfWork : IFormsUnitOfWork
         return strategy.ExecuteAsync(async token =>
         {
             // EF yeniden denemede change tracker'ı geri almaz: önceki denemede kaydedilip kabul edilen değişiklik bu denemede
-            // yazılmadan kalır, geri alınan transaction'la birlikte sessizce kaybolurdu. Öyle bir deneme tekrarlanmaz.
+            // yazılmadan kalır, geri alınan transaction'la birlikte sessizce kaybolurdu. Öyle bir deneme tekrarlanmaz. Hata
+            // commit'in cevabında olduysa işlem yazılmış da olabilir; bunu bilmenin yolu yok, çağıran 500 görür.
             if (unsafeToRetry is not null)
-                throw new InvalidOperationException("Transaction kaydettiği değişikliklerden sonra düştü; güvenle yeniden denenemez.", unsafeToRetry);
+                throw new InvalidOperationException("Transaction değişikliklerini kaydettikten sonra düştü; commit edilmiş olabilir, güvenle yeniden denenemez.", unsafeToRetry);
 
             var saves = 0;
             void Count(object? sender, SavedChangesEventArgs e) => saves++;
