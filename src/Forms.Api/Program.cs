@@ -43,8 +43,12 @@ app.UseErrorResponses();
 app.UseFormsJwtAuthentication();
 app.UseAccountAccessGate();
 app.UseAuthorization();
-app.UseSwagger();
-app.UseSwaggerUI();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
