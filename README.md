@@ -123,7 +123,7 @@ Dynamic form creation and response management service.
 - Collaborator management with Owner, Editor, and Viewer roles
 - Manual review workflow (`Pending -> Approved / Declined`); a workflow step can also be sent back for changes, see [Changes requested](#changes-requested)
 - Response archiving
-- Form metrics and answer analytics
+- Form metrics and answer analytics. Each question reports `askedCount`, the answers that carry it: the form submits only the questions on screen, so a question its condition hid, or one added after an answer, is left out of that answer's count
 - Reusable component groups
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)

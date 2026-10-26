@@ -30,6 +30,7 @@ public record QuestionAnalyticsContract(
     bool Aggregatable,
     int AnsweredCount,
     int SkippedCount,
+    int AskedCount,
     List<AnswerBucketContract>? Distribution,
     NumericSummaryContract? Numeric,
     DateRangeContract? DateRange,
