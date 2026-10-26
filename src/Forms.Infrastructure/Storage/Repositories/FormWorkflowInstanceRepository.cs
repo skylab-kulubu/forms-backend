@@ -147,6 +147,9 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
         if (!string.IsNullOrEmpty(nodeKey))
             steps = steps.Where(step => step.Node.NodeKey == nodeKey);
 
+        if (request.State is { } state)
+            steps = InState(steps, state, now);
+
         var totalCount = await steps.CountAsync(ct);
 
         var ordered = finished
@@ -187,6 +190,31 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
             .ToListAsync(ct);
 
         return new PagedResult<WorkflowRunRow>(items, totalCount, page, pageSize);
+    }
+
+    private IQueryable<FormWorkflowStep> InState(IQueryable<FormWorkflowStep> steps, WorkflowRunState state, DateTime now)
+    {
+        var timers = _context.Attempts.Where(attempt => attempt.Status == FormAttemptStatus.Started && attempt.DeadlineAt > now);
+        var running = steps.Where(step => step.WorkflowInstance.Status == WorkflowInstanceStatus.Active);
+        var waiting = running.Where(step => step.ResponseId == null && !timers.Any(attempt => attempt.WorkflowStepId == step.Id));
+        var ended = steps.Where(step => step.WorkflowInstance.Status != WorkflowInstanceStatus.Active
+            && step.WorkflowInstance.Status != WorkflowInstanceStatus.Completed
+            && step.WorkflowInstance.Status != WorkflowInstanceStatus.Voided);
+
+        return state switch
+        {
+            WorkflowRunState.AwaitingReview => running.Where(step => step.ResponseId != null),
+            WorkflowRunState.TimerRunning => running.Where(step => step.ResponseId == null && timers.Any(attempt => attempt.WorkflowStepId == step.Id)),
+            WorkflowRunState.RevisionRequested => waiting.Where(step => step.Round > 1),
+            WorkflowRunState.AwaitingApplicant => waiting.Where(step => step.Round <= 1),
+            WorkflowRunState.Completed => steps.Where(step => step.WorkflowInstance.Status == WorkflowInstanceStatus.Completed),
+            WorkflowRunState.Voided => steps.Where(step => step.WorkflowInstance.Status == WorkflowInstanceStatus.Voided),
+            WorkflowRunState.Declined => ended.Where(step => step.WorkflowInstance.Outcome == WorkflowInstanceOutcome.Declined),
+            WorkflowRunState.TimedOut => ended.Where(step => step.WorkflowInstance.Outcome == WorkflowInstanceOutcome.TimedOut),
+            WorkflowRunState.Stopped => ended.Where(step => step.WorkflowInstance.Outcome != WorkflowInstanceOutcome.Declined
+                && step.WorkflowInstance.Outcome != WorkflowInstanceOutcome.TimedOut),
+            _ => steps.Where(step => false)
+        };
     }
 
     public Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default) =>
