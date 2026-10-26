@@ -74,11 +74,10 @@ public class AccountErasureTests(FormsApiFactory api)
 
         foreach (var property in AccountErasureColumns.GuidProperties(db.Model).Where(p => AccountErasureColumns.Person.Contains(AccountErasureColumns.NameOf(p))))
         {
-            var table = ((IEntityType)property.DeclaringType).GetTableName();
+            // Tablo ve sütun adı modelden gelir, parametre olamaz; kişinin kimliği parametredir.
+            var sql = $$"""SELECT count(*)::int AS "Value" FROM "{{((IEntityType)property.DeclaringType).GetTableName()}}" WHERE "{{property.GetColumnName()}}" = {0}""";
 
-            rows[AccountErasureColumns.NameOf(property)] = await db.Database
-                .SqlQueryRaw<int>($$"""SELECT count(*)::int AS "Value" FROM "{{table}}" WHERE "{{property.GetColumnName()}}" = {0}""", person)
-                .SingleAsync();
+            rows[AccountErasureColumns.NameOf(property)] = await db.Database.SqlQueryRaw<int>(sql, person).SingleAsync();
         }
 
         return rows;
