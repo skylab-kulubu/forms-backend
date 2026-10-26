@@ -21,7 +21,12 @@ public static class ErrorResponses
             }
             catch (BadHttpRequestException ex) when (!context.Response.HasStarted)
             {
-                await WriteAsync(context, ex.StatusCode, "bad_request", ServiceStatus.NotAcceptable, "İstek okunamadı.");
+                await WriteAsync(context, ex.StatusCode, "bad_request", ServiceStatus.NotAcceptable, ex.StatusCode switch
+                {
+                    StatusCodes.Status413PayloadTooLarge => "İstek gövdesi izin verilen boyutu aşıyor.",
+                    StatusCodes.Status408RequestTimeout => "İstek gövdesi zamanında gelmedi.",
+                    _ => "İstek okunamadı."
+                });
             }
             catch (Exception ex) when (!context.Response.HasStarted && !context.RequestAborted.IsCancellationRequested)
             {
