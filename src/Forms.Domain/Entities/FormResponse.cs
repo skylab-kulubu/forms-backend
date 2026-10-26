@@ -36,4 +36,11 @@ public class FormResponse
         ReviewNote = note;
         ReviewedAt = reviewedAt;
     }
+
+    public void Archive(Guid archiverId, DateTime archivedAt)
+    {
+        IsArchived = true;
+        ArchivedBy = archiverId;
+        ArchivedAt = archivedAt;
+    }
 }
