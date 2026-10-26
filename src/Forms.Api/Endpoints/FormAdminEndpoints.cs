@@ -21,6 +21,10 @@ namespace Skylab.Forms.Api.Endpoints;
 
 public static class FormAdminEndpoints
 {
+    private const string FormRoute = "AdminForm";
+    private const string ComponentGroupRoute = "AdminComponentGroup";
+    internal const string ResponseRoute = "AdminResponse";
+
     public static void MapFormAdminEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("api/admin/forms/").WithTags("FormsAdmin").RequireAuthorization();
@@ -60,7 +64,7 @@ public static class FormAdminEndpoints
 
             var result = await service.GetFormByIdAsync(id, userId, ct);
             return result.ToApiResult();
-        });
+        }).WithName(FormRoute);
 
         group.MapGet("/{id:guid}/info", async (Guid id, IFormService service, ICurrentUser user, CancellationToken ct) =>
         {
@@ -70,7 +74,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/", async ([FromBody] FormUpsertRequest request, IFormService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/", async ([FromBody] FormUpsertRequest request, IFormService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -78,7 +82,7 @@ public static class FormAdminEndpoints
 
             if (result.Status == ServiceStatus.Success && result.Data != null)
             {
-                return Results.Created($"/api/admin/forms/{result.Data.Id}", result);
+                return result.ToCreatedResult(httpContext, FormRoute, new { id = result.Data.Id });
             }
 
             return result.ToApiResult();
@@ -227,7 +231,7 @@ public static class FormAdminEndpoints
 
             var result = await service.GetResponseByIdAsync(id, userId, token, ct);
             return result.ToApiResult();
-        });
+        }).WithName(ResponseRoute);
 
         group.MapGet("/responses/{responseId:guid}/files/{mediaId:guid}", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
         {
@@ -368,7 +372,7 @@ public static class FormAdminEndpoints
 
             var result = await service.GetGroupByIdAsync(id, userId, token, ct);
             return result.ToApiResult();
-        });
+        }).WithName(ComponentGroupRoute);
 
         group.MapPost("/component-groups/{id:guid}/share", async (Guid id, IComponentGroupService service, ICurrentUser user, CancellationToken ct) =>
         {
@@ -378,19 +382,19 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/component-groups/{id:guid}/clone", async (Guid id, [FromQuery] string token, IComponentGroupService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/component-groups/{id:guid}/clone", async (Guid id, [FromQuery] string token, IComponentGroupService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
             var result = await service.CloneGroupAsync(id, userId, token, ct);
 
             if (result.Status == ServiceStatus.Success && result.Data != null)
-                return Results.Created($"/api/admin/component-groups/{result.Data.Id}", result);
+                return result.ToCreatedResult(httpContext, ComponentGroupRoute, new { id = result.Data.Id });
 
             return result.ToApiResult();
         });
 
-        group.MapPost("/component-groups", async ([FromBody] ComponentGroupUpsertRequest request, IComponentGroupService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/component-groups", async ([FromBody] ComponentGroupUpsertRequest request, IComponentGroupService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -398,7 +402,7 @@ public static class FormAdminEndpoints
 
             if (result.Status == ServiceStatus.Success && result.Data != null)
             {
-                return Results.Created($"/component-groups/api/admin/component-groups/{result.Data.Id}", result);
+                return result.ToCreatedResult(httpContext, ComponentGroupRoute, new { id = result.Data.Id });
             }
 
             return result.ToApiResult();

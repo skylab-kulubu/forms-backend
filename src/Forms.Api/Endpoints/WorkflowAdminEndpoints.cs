@@ -13,6 +13,8 @@ namespace Skylab.Forms.Api.Endpoints;
 
 public static class WorkflowAdminEndpoints
 {
+    private const string WorkflowRoute = "AdminWorkflow";
+
     public static void MapWorkflowAdminEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("api/admin/workflows").WithTags("WorkflowsAdmin").RequireAuthorization();
@@ -46,7 +48,7 @@ public static class WorkflowAdminEndpoints
 
             var result = await service.GetAsync(id, userId, ct);
             return result.ToApiResult();
-        });
+        }).WithName(WorkflowRoute);
 
         group.MapGet("/{id:guid}/versions", async (Guid id, IFormWorkflowService service, ICurrentUser user, CancellationToken ct) =>
         {
@@ -72,14 +74,14 @@ public static class WorkflowAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/", async ([FromBody] WorkflowUpsertRequest request, IFormWorkflowService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/", async ([FromBody] WorkflowUpsertRequest request, IFormWorkflowService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
             var result = await service.CreateAsync(request, userId, ct);
 
             if (result.Status == ServiceStatus.Success && result.Data != null)
-                return Results.Created($"/api/admin/workflows/{result.Data.Id}", result);
+                return result.ToCreatedResult(httpContext, WorkflowRoute, new { id = result.Data.Id });
 
             return result.ToApiResult();
         });

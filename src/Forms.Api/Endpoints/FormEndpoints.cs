@@ -83,7 +83,9 @@ public static class FormEndpoints
             var result = await service.SubmitResponseAsync(request, userId, httpContext.Connection.RemoteIpAddress, ct);
 
             if (result.Status == ServiceStatus.Success || result.Status == ServiceStatus.PendingApproval)
-                return Results.Created($"/api/forms/responses/{result.Data?.ResponseId}", result);
+                return result.Data?.ResponseId is { } responseId
+                    ? result.ToCreatedResult(httpContext, FormAdminEndpoints.ResponseRoute, new { id = responseId })
+                    : Results.Created((string?)null, result);
 
             return result.ToApiResult();
         });
