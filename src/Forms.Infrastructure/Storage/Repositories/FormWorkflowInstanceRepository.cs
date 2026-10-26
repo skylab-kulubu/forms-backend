@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 
@@ -72,6 +74,110 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
     public Task<int> CountActiveAsync(Guid workflowId, CancellationToken ct = default) =>
         _context.WorkflowInstances.AsNoTracking()
             .CountAsync(instance => instance.WorkflowId == workflowId && instance.Status == WorkflowInstanceStatus.Active, ct);
+
+    public async Task<IReadOnlyList<WorkflowOpenStepFact>> GetOpenStepsAsync(
+        IReadOnlyCollection<Guid> workflowIds,
+        DateTime now,
+        CancellationToken ct = default) =>
+        workflowIds.Count == 0
+            ? []
+            : await _context.WorkflowSteps.AsNoTracking()
+                .Where(step => step.CompletedAt == null && step.WorkflowInstance.Status == WorkflowInstanceStatus.Active)
+                .Where(step => workflowIds.Contains(step.WorkflowInstance.WorkflowId))
+                .Select(step => new WorkflowOpenStepFact(
+                    step.WorkflowInstance.WorkflowId,
+                    step.Node.NodeKey,
+                    step.Node.FormId,
+                    step.Node.RequiresManualReview,
+                    step.ResponseId != null,
+                    step.Round,
+                    _context.Attempts.Any(attempt => attempt.WorkflowStepId == step.Id
+                        && attempt.Status == FormAttemptStatus.Started
+                        && attempt.DeadlineAt > now)))
+                .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<WorkflowRunTally>> CountRunsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default) =>
+        workflowIds.Count == 0
+            ? []
+            : await _context.WorkflowInstances.AsNoTracking()
+                .Where(instance => workflowIds.Contains(instance.WorkflowId))
+                .GroupBy(instance => new { instance.WorkflowId, instance.Status, instance.Outcome })
+                .Select(group => new WorkflowRunTally(group.Key.WorkflowId, group.Key.Status, group.Key.Outcome, group.Count()))
+                .ToListAsync(ct);
+
+    public async Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
+        Guid workflowId,
+        GetWorkflowRunsRequest request,
+        DateTime now,
+        CancellationToken ct = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var finished = request.Filter == WorkflowRunFilter.Finished;
+        var nodeKey = request.NodeKey?.Trim();
+
+        var steps = _context.WorkflowSteps.AsNoTracking()
+            .Where(step => step.WorkflowInstance.WorkflowId == workflowId);
+
+        steps = finished
+            ? steps
+                .Where(step => step.WorkflowInstance.Status != WorkflowInstanceStatus.Active)
+                .Where(step => step.Id == _context.WorkflowSteps
+                    .Where(last => last.WorkflowInstanceId == step.WorkflowInstanceId)
+                    .OrderByDescending(last => last.Sequence)
+                    .ThenByDescending(last => last.Round)
+                    .ThenByDescending(last => last.CreatedAt)
+                    .Select(last => last.Id)
+                    .FirstOrDefault())
+            : steps.Where(step => step.CompletedAt == null && step.WorkflowInstance.Status == WorkflowInstanceStatus.Active);
+
+        if (request.Filter == WorkflowRunFilter.AwaitingReview)
+            steps = steps.Where(step => step.ResponseId != null);
+
+        if (!string.IsNullOrEmpty(nodeKey))
+            steps = steps.Where(step => step.Node.NodeKey == nodeKey);
+
+        var totalCount = await steps.CountAsync(ct);
+
+        var ordered = finished
+            ? steps.OrderByDescending(step => step.WorkflowInstance.CompletedAt).ThenBy(step => step.Id)
+            : steps.OrderBy(step => step.CreatedAt).ThenBy(step => step.Id);
+
+        var items = await ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(step => new WorkflowRunRow(
+                step.WorkflowInstanceId,
+                step.WorkflowInstance.UserId,
+                step.WorkflowInstance.Status,
+                step.WorkflowInstance.Outcome,
+                step.Node.NodeKey,
+                step.Node.FormId,
+                step.Sequence,
+                step.Round,
+                step.ResponseId != null,
+                step.WorkflowInstance.StartedAt,
+                step.CreatedAt,
+                _context.Attempts
+                    .Where(attempt => attempt.WorkflowStepId == step.Id && attempt.Status == FormAttemptStatus.Started && attempt.DeadlineAt > now)
+                    .Max(attempt => attempt.DeadlineAt),
+                step.WorkflowInstance.CompletedAt,
+                _context.WorkflowSteps
+                    .Where(answered => answered.WorkflowInstanceId == step.WorkflowInstanceId && answered.ResponseId != null)
+                    .OrderByDescending(answered => answered.Sequence)
+                    .ThenByDescending(answered => answered.Round)
+                    .Select(answered => answered.ResponseId)
+                    .FirstOrDefault(),
+                _context.WorkflowSteps
+                    .Where(answered => answered.WorkflowInstanceId == step.WorkflowInstanceId && answered.ResponseId != null)
+                    .OrderByDescending(answered => answered.Sequence)
+                    .ThenByDescending(answered => answered.Round)
+                    .Select(answered => (Guid?)answered.Node.FormId)
+                    .FirstOrDefault()))
+            .ToListAsync(ct);
+
+        return new PagedResult<WorkflowRunRow>(items, totalCount, page, pageSize);
+    }
 
     public Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default) =>
         _context.WorkflowSteps.AsNoTracking()

@@ -71,7 +71,8 @@ public record WorkflowSummaryContract(
     int NodeCount,
     int? PublishedVersion,
     bool HasUnpublishedChanges,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    WorkflowRunOverviewContract? Runs = null
 );
 
 public record WorkflowFormRefContract(

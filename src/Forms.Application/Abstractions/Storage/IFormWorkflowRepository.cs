@@ -16,6 +16,10 @@ public interface IFormWorkflowRepository
 
     Task<WorkflowDefinition?> GetDefinitionAsync(Guid workflowVersionId, CancellationToken ct = default);
 
+    Task<IReadOnlyDictionary<Guid, WorkflowDefinition>> GetCurrentDefinitionsAsync(
+        IReadOnlyCollection<Guid> workflowIds,
+        CancellationToken ct = default);
+
     /// <summary>
     /// Bu formların hangi akışta yer aldığı. Yayınlanmış üyelik varsa o bildirilir,
     /// yoksa taslak üyelik. Akışta yer almayan form sözlükte bulunmaz.

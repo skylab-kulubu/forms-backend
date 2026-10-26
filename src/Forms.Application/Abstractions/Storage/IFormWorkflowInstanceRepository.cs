@@ -1,3 +1,5 @@
+using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
@@ -25,6 +27,19 @@ public interface IFormWorkflowInstanceRepository
     Task<WorkflowRunSummary?> GetLastRunAsync(Guid workflowId, Guid userId, CancellationToken ct = default);
 
     Task<int> CountActiveAsync(Guid workflowId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<WorkflowOpenStepFact>> GetOpenStepsAsync(
+        IReadOnlyCollection<Guid> workflowIds,
+        DateTime now,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<WorkflowRunTally>> CountRunsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
+
+    Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
+        Guid workflowId,
+        GetWorkflowRunsRequest request,
+        DateTime now,
+        CancellationToken ct = default);
 
     /// <summary>Cevap, rotası henüz belirlenmemiş bir adıma mı bağlı?</summary>
     Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default);
@@ -70,6 +85,38 @@ public interface IFormWorkflowInstanceRepository
 }
 
 public sealed record WorkflowStepAnswers(string NodeKey, IReadOnlyList<FormResponseSchemaItem> Answers);
+
+public sealed record WorkflowOpenStepFact(
+    Guid WorkflowId,
+    string NodeKey,
+    Guid FormId,
+    bool RequiresManualReview,
+    bool HasResponse,
+    int Round,
+    bool TimerRunning);
+
+public sealed record WorkflowRunTally(
+    Guid WorkflowId,
+    WorkflowInstanceStatus Status,
+    WorkflowInstanceOutcome Outcome,
+    int Count);
+
+public sealed record WorkflowRunRow(
+    Guid InstanceId,
+    Guid UserId,
+    WorkflowInstanceStatus Status,
+    WorkflowInstanceOutcome Outcome,
+    string NodeKey,
+    Guid FormId,
+    int Sequence,
+    int Round,
+    bool HasResponse,
+    DateTime StartedAt,
+    DateTime StepStartedAt,
+    DateTime? DeadlineAt,
+    DateTime? CompletedAt,
+    Guid? LatestResponseId,
+    Guid? LatestResponseFormId);
 
 public sealed record WorkflowJourneyStepFact(
     int Sequence,

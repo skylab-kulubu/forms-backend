@@ -317,9 +317,10 @@ about where the code lives and what the rules are when you change it.
 
 | Piece | Location | Depends on |
 |-------|----------|------------|
-| Graph validation, condition evaluation, route resolution | `Forms.Domain/Workflows` | Nothing. These are pure functions over entities. |
+| Graph validation, condition evaluation, route resolution, step order | `Forms.Domain/Workflows` | Nothing. These are pure functions over entities. |
 | Orchestration: attach a response, resolve a route, open the next step | `Forms.Application/Services/Workflows/FormWorkflowRuntime.cs` | Repository ports |
 | Admin use cases: draft, validate, publish, archive | `Forms.Application/Services/Workflows/FormWorkflowService.cs` | Repository ports |
+| Tracking: counts per step, the application list | `Forms.Application/Services/Workflows/FormWorkflowRunService.cs` | Repository ports |
 | Queries and persistence | `Forms.Infrastructure/Storage/Repositories/FormWorkflow*Repository.cs` | EF Core |
 
 **Routing decisions belong to the runtime.** `FormService` and

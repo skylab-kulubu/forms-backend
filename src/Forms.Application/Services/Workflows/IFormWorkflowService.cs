@@ -61,6 +61,10 @@ public interface IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<List<WorkflowAvailableFormContract>>> GetCandidateFormsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<WorkflowValidationContract>> ValidateAsync(
         Guid workflowId,
         Guid userId,
