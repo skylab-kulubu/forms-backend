@@ -111,8 +111,9 @@ public class FormDraftService : IFormDraftService
     public async Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
         var key = FormCacheKeys.ResponseDraft(formId, userId);
+        var form = await _forms.GetByIdAsync(formId, ct);
 
-        var draft = await _cache.GetAsync<ResponseDraftContract>(key, ResponseDraftTtl, ct);
+        var draft = await _cache.GetAsync<ResponseDraftContract>(key, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
 
         if (draft != null && !HasAnswers(draft.Responses))
         {
@@ -126,7 +127,7 @@ public class FormDraftService : IFormDraftService
 
         // Bağlar okurken de taslağa göre tazelenir: aynı anda giden iki kayıttan eskisi sonra yazılmış
         // ya da taslak bağlar tutulmadan önce kaydedilmiş olabilir.
-        if (await _forms.GetByIdAsync(formId, ct) is { } form)
+        if (form is not null)
             await HoldFilesAsync(form, userId, draft, ct);
 
         return new ServiceResult<ResponseDraftContract?>(ServiceStatus.Success, Data: draft);
