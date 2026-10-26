@@ -13,6 +13,7 @@ using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Ownership;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.Ownership;
+using Skylab.Forms.Application.Services.Responses;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Enums;
@@ -138,7 +139,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/responses", async (Guid id, [AsParameters] GetResponsesRequest request, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/responses", async (Guid id, [AsParameters] GetResponsesRequest request, IResponseQueries service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -146,7 +147,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/mail-recipients", async (Guid id, IFormResponseService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/mail-recipients", async (Guid id, IResponseExports service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             httpContext.Response.Headers.CacheControl = "no-store";
 
@@ -156,7 +157,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/{id:guid}/mail-source", async (Guid id, IFormResponseService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/mail-source", async (Guid id, IResponseExports service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             httpContext.Response.Headers.CacheControl = "no-store";
 
@@ -225,7 +226,7 @@ public static class FormAdminEndpoints
             return Results.File(result.Data.Content, result.Data.ContentType, result.Data.FileName);
         });
 
-        group.MapGet("/responses/{id:guid}", async (Guid id, [FromQuery] string? token, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/responses/{id:guid}", async (Guid id, [FromQuery] string? token, IResponseQueries service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -233,7 +234,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         }).WithName(ResponseRoute);
 
-        group.MapGet("/responses/{responseId:guid}/files/{mediaId:guid}", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/responses/{responseId:guid}/files/{mediaId:guid}", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IResponseFiles service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -241,7 +242,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses/{responseId:guid}/files/{mediaId:guid}/link", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IFormResponseService service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
+        group.MapPost("/responses/{responseId:guid}/files/{mediaId:guid}/link", async (Guid responseId, Guid mediaId, [FromQuery] string? token, IResponseFiles service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
             httpContext.Response.Headers.CacheControl = "no-store";
 
@@ -251,7 +252,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses/{id:guid}/share", async (Guid id, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/responses/{id:guid}/share", async (Guid id, IResponseShareLinks service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -259,7 +260,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses/{id:guid}/revoke-token", async (Guid id, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/responses/{id:guid}/revoke-token", async (Guid id, IResponseShareLinks service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -267,7 +268,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] ResponseStatusUpdateRequest request, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPatch("/responses/{id:guid}/status", async (Guid id, [FromBody] ResponseStatusUpdateRequest request, IResponseReview service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -277,7 +278,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses/{id:guid}/archive", async (Guid id, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/responses/{id:guid}/archive", async (Guid id, IResponseReview service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
@@ -333,7 +334,7 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/responses/export", async (Guid id, IFormResponseService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/responses/export", async (Guid id, IResponseExports service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
