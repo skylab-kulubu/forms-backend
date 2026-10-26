@@ -13,15 +13,17 @@ internal sealed class ServiceAccountTokenProvider : IServiceTokenProvider
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ServiceAccountOptions _options;
     private readonly ILogger<ServiceAccountTokenProvider> _logger;
+    private readonly TimeProvider _time;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private string? _cachedToken;
     private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
 
-    public ServiceAccountTokenProvider(IHttpClientFactory httpClientFactory, IOptions<ServiceAccountOptions> options, ILogger<ServiceAccountTokenProvider> logger)
+    public ServiceAccountTokenProvider(IHttpClientFactory httpClientFactory, IOptions<ServiceAccountOptions> options, TimeProvider time, ILogger<ServiceAccountTokenProvider> logger)
     {
         _httpClientFactory = httpClientFactory;
         _options = options.Value;
+        _time = time;
         _logger = logger;
     }
 
@@ -59,7 +61,7 @@ internal sealed class ServiceAccountTokenProvider : IServiceTokenProvider
 
             _cachedToken = payload.AccessToken;
             var lifetime = TimeSpan.FromSeconds(Math.Max(payload.ExpiresIn, 5));
-            _expiresAt = DateTimeOffset.UtcNow + lifetime - RefreshSkew;
+            _expiresAt = _time.GetUtcNow() + lifetime - RefreshSkew;
 
             return _cachedToken;
         }
@@ -71,7 +73,7 @@ internal sealed class ServiceAccountTokenProvider : IServiceTokenProvider
 
     private bool TryGetCached(out string token)
     {
-        if (_cachedToken is not null && DateTimeOffset.UtcNow < _expiresAt)
+        if (_cachedToken is not null && _time.GetUtcNow() < _expiresAt)
         {
             token = _cachedToken;
             return true;

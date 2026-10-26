@@ -11,7 +11,7 @@ namespace Skylab.Forms.Infrastructure.Mail;
 /// Maili outbox'a yazar; bir yeniden başlatma ya da yavaş bir mail sağlayıcısı onu kaybettirmez. Kendi DbContext'ini
 /// kullanır: çağıranın kaydedilmemiş değişikliklerini erkenden yazmaz.
 /// </summary>
-public sealed class OutboxMailDispatcher(IServiceScopeFactory scopeFactory, ILogger<OutboxMailDispatcher> logger) : IMailDispatcher
+public sealed class OutboxMailDispatcher(IServiceScopeFactory scopeFactory, TimeProvider time, ILogger<OutboxMailDispatcher> logger) : IMailDispatcher
 {
     public async Task<bool> EnqueueAsync(EmailMessage message, CancellationToken ct = default)
     {
@@ -20,7 +20,7 @@ public sealed class OutboxMailDispatcher(IServiceScopeFactory scopeFactory, ILog
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
 
-            db.Outbox.Add(OutboxMessage.Of(OutboxTypes.Mail, message, DateTime.UtcNow));
+            db.Outbox.Add(OutboxMessage.Of(OutboxTypes.Mail, message, time.GetUtcNow().UtcDateTime));
             await db.SaveChangesAsync(ct);
 
             return true;

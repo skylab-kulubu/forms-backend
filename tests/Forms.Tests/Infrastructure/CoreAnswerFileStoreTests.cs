@@ -24,7 +24,7 @@ public class CoreAnswerFileStoreTests
     {
         var handler = new StubHandler(status, body);
 
-        return (new CoreAnswerFileStore(new HttpClient(handler) { BaseAddress = new Uri("http://core.test") }, NullLogger<CoreAnswerFileStore>.Instance), handler);
+        return (new CoreAnswerFileStore(new HttpClient(handler) { BaseAddress = new Uri("http://core.test") }, TimeProvider.System, NullLogger<CoreAnswerFileStore>.Instance), handler);
     }
 
     [Theory]

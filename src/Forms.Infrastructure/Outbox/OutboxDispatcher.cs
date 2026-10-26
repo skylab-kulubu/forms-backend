@@ -12,7 +12,7 @@ namespace Skylab.Forms.Infrastructure.Outbox;
 /// Outbox'taki mesajları türlerinin işleyicisine verir. Teslim edilemeyen mesaj artan aralıklarla yeniden denenir ve
 /// işleyicisinin vazgeçme süresi dolunca bırakılır.
 /// </summary>
-public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<OutboxDispatcher> logger)
+public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, IDistributedLock locks, TimeProvider time, ILogger<OutboxDispatcher> logger)
     : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 50;
@@ -36,7 +36,7 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopeFactory, IDistrib
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
         var handlers = scope.ServiceProvider.GetServices<IOutboxHandler>().ToDictionary(handler => handler.Type);
-        var now = DateTime.UtcNow;
+        var now = time.GetUtcNow().UtcDateTime;
         var dropped = new Dictionary<string, int>();
 
         var due = await db.Outbox

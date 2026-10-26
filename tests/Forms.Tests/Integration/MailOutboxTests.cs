@@ -22,7 +22,7 @@ public class MailOutboxTests(FormsApiFactory api)
     [Fact]
     public async Task A_queued_mail_waits_in_the_outbox_until_it_is_delivered()
     {
-        var dispatcher = new OutboxMailDispatcher(api.Services.GetRequiredService<IServiceScopeFactory>(), NullLogger<OutboxMailDispatcher>.Instance);
+        var dispatcher = new OutboxMailDispatcher(api.Services.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, NullLogger<OutboxMailDispatcher>.Instance);
         var recipient = $"{Guid.NewGuid():N}@forms.test";
 
         Assert.True(await dispatcher.EnqueueAsync(new EmailMessage("forms.form-copy", recipient, "Ayşe Yılmaz", new() { ["formTitle"] = "Başvuru" })));
