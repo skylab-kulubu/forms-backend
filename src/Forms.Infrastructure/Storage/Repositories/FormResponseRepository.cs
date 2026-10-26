@@ -291,10 +291,17 @@ public sealed class FormResponseRepository : IFormResponseRepository
     }
 
     public async Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default) =>
-        await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
-            .OrderBy(r => r.SubmittedAt)
+        await NonArchivedOf(formId).ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default) =>
+        await NonArchivedOf(formId)
+            .Select(r => new ResponseContactProjection(r.UserId, r.Guest))
             .ToListAsync(ct);
+
+    private IQueryable<FormResponse> NonArchivedOf(Guid formId) =>
+        _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
+            .OrderBy(r => r.SubmittedAt);
 
     public async Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default)
     {

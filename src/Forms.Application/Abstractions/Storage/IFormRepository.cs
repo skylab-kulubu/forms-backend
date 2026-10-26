@@ -8,6 +8,7 @@ namespace Skylab.Forms.Application.Abstractions.Storage;
 public interface IFormRepository
 {
     Task<Form?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<string?> GetTitleAsync(Guid id, CancellationToken ct = default);
     Task<Form?> GetWithCollaboratorsAsync(Guid id, CancellationToken ct = default);
     Task<Form?> GetWithDetailsAsync(Guid id, CancellationToken ct = default);
     /// <summary>Kişinin formdaki rolü; iş birlikçi değilse None. Kararı FormAccess verir.</summary>

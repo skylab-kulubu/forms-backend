@@ -19,6 +19,12 @@ public sealed class FormRepository : IFormRepository
     public Task<Form?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
 
+    public Task<string?> GetTitleAsync(Guid id, CancellationToken ct = default) =>
+        _context.Forms.AsNoTracking()
+            .Where(f => f.Id == id)
+            .Select(f => (string?)f.Title)
+            .FirstOrDefaultAsync(ct);
+
     public Task<Form?> GetWithCollaboratorsAsync(Guid id, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking()
             .Include(f => f.Collaborators)

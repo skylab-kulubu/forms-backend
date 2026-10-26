@@ -588,7 +588,7 @@ public class FormResponseService : IFormResponseService
         if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormMailRecipientsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
-        var responses = await _responses.GetNonArchivedByFormAsync(formId, cancellationToken);
+        var responses = await _responses.GetNonArchivedContactsAsync(formId, cancellationToken);
         var userIds = responses.Where(r => r.UserId.HasValue).Select(r => r.UserId!.Value).Distinct().ToList();
         var users = (await _userService.GetUsersAsync(userIds, cancellationToken)).ToDictionary(u => u.Id);
         var recipients = new List<FormMailRecipientContract>();
@@ -944,9 +944,7 @@ public class FormResponseService : IFormResponseService
         if (target.FormId is not { } formId)
             return new ResponseWorkflowRouteContract(EndsFlow: true, FormId: null, FormTitle: null);
 
-        var form = await _forms.GetByIdAsync(formId, cancellationToken);
-
-        return new ResponseWorkflowRouteContract(EndsFlow: false, formId, form?.Title);
+        return new ResponseWorkflowRouteContract(EndsFlow: false, formId, await _forms.GetTitleAsync(formId, cancellationToken));
     }
 
     private static string GenerateToken() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
