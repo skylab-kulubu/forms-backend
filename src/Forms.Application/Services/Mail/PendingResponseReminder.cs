@@ -37,10 +37,8 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
             .Where(u => u.Email is not null)
             .ToDictionary(u => u.Id);
 
-        // Kimse bulunamadıysa (kişi dizini kapalı ya da ulaşılamıyor) hiçbir şey gitmez; damgalamak hatırlatmaları sonsuza dek düşürürdü.
-        if (reviewers.Count == 0) return;
-
         var queued = true;
+        var reminded = new HashSet<Guid>();
         foreach (var (reviewerId, forms) in byReviewer)
         {
             if (!reviewers.TryGetValue(reviewerId, out var reviewer)) continue;
@@ -57,10 +55,12 @@ public sealed class PendingResponseReminder(IFormResponseRepository responses, I
             };
 
             queued &= await mail.EnqueueAsync(new EmailMessage(options.PendingReminderTemplateKey, reviewer.Email!, MailNames.Full(reviewer), variables), ct);
+            reminded.UnionWith(forms.Select(form => form.FormId));
         }
 
         // Hatırlatma bir kez gider; bir mail kuyruğa yazılamadıysa cevaplar damgalanmaz ki sonraki tur yeniden denesin.
-        // Yazılabilmiş olanlar o turda bir kez daha gidebilir: kaybolan hatırlatmadan iyidir.
-        if (queued) await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, ct);
+        // Yazılabilmiş olanlar o turda bir kez daha gidebilir: kaybolan hatırlatmadan iyidir. İnceleyeni bulunamayan
+        // formun (kişi dizini kapalı, kişi silinmiş) cevapları da damgalanmaz: o form hatırlatılmadı.
+        if (queued && reminded.Count > 0) await responses.MarkOverduePendingRemindedAsync(cutoff, DateTime.UtcNow, reminded, ct);
     }
 }

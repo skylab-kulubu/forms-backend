@@ -53,6 +53,29 @@ public class MailOutboxTests(FormsApiFactory api)
     }
 
     [Fact]
+    public async Task A_form_whose_reviewers_were_not_found_stays_due_for_its_reminder()
+    {
+        var known = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var unknown = api.ClientFor(Guid.NewGuid());
+        var remindedForm = await known.CreateFormAsync(Api.NewForm("Kulüp başvurusu", Api.Question("name")) with { RequiresManualReview = true });
+        var unremindedForm = await unknown.CreateFormAsync(Api.NewForm("Gönüllü başvurusu", Api.Question("name")) with { RequiresManualReview = true });
+        var applicant = api.ClientFor(api.Users.Add("Mehmet Kaya").Id);
+        var reminded = (await (await applicant.SubmitAsync(remindedForm.Id, ("name", "Mehmet"))).DataAsync<ResponseSubmitResult>()).ResponseId!.Value;
+        var unreminded = (await (await applicant.SubmitAsync(unremindedForm.Id, ("name", "Mehmet"))).DataAsync<ResponseSubmitResult>()).ResponseId!.Value;
+
+        using var scope = api.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
+        await db.Responses.Where(r => r.Id == reminded || r.Id == unreminded)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.SubmittedAt, DateTime.UtcNow.AddDays(-3)));
+
+        await RemindAsync();
+
+        var sentAt = await db.Responses.AsNoTracking().Where(r => r.Id == reminded || r.Id == unreminded).ToDictionaryAsync(r => r.Id, r => r.PendingReminderSentAt);
+        Assert.NotNull(sentAt[reminded]);
+        Assert.Null(sentAt[unreminded]);
+    }
+
+    [Fact]
     public async Task Erasing_a_person_drops_the_mails_and_response_events_waiting_for_them()
     {
         var person = Guid.NewGuid();
