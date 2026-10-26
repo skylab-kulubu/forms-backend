@@ -128,6 +128,7 @@ Dynamic form creation and response management service.
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
+- Timed forms: one attempt per person with a deadline the team can extend. An answer is accepted until two minutes after the deadline, so the page's own submission at the deadline arrives in time; opening the form, saving a draft, sending the answer and the expiry worker all apply that one rule, and only after it does the attempt close
 - Redis-backed form and response drafts
 - Response and component-group sharing tokens
 - XLSX response export
