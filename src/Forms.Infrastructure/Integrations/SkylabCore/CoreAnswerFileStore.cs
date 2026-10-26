@@ -19,10 +19,12 @@ internal sealed class CoreAnswerFileStore : IAnswerFileStore
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<CoreAnswerFileStore> _logger;
+    private readonly TimeProvider _time;
 
-    public CoreAnswerFileStore(HttpClient httpClient, ILogger<CoreAnswerFileStore> logger)
+    public CoreAnswerFileStore(HttpClient httpClient, TimeProvider time, ILogger<CoreAnswerFileStore> logger)
     {
         _httpClient = httpClient;
+        _time = time;
         _logger = logger;
     }
 
@@ -243,11 +245,11 @@ internal sealed class CoreAnswerFileStore : IAnswerFileStore
         }
     }
 
-    private static int? RetryAfterOf(HttpResponseMessage response)
+    private int? RetryAfterOf(HttpResponseMessage response)
     {
         var retryAfter = response.Headers.RetryAfter;
         if (retryAfter?.Delta is { } delta) return (int)Math.Ceiling(delta.TotalSeconds);
-        if (retryAfter?.Date is { } date) return Math.Max(0, (int)Math.Ceiling((date - DateTimeOffset.UtcNow).TotalSeconds));
+        if (retryAfter?.Date is { } date) return Math.Max(0, (int)Math.Ceiling((date - _time.GetUtcNow()).TotalSeconds));
         return null;
     }
 

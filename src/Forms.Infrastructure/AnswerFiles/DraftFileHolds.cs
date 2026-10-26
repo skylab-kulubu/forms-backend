@@ -10,15 +10,17 @@ public sealed class DraftFileHolds : IDraftFileHolds
     private const int Unlinking = (int)AnswerFileLinkState.Unlinking;
 
     private readonly FormsDbContext _context;
+    private readonly TimeProvider _time;
 
-    public DraftFileHolds(FormsDbContext context)
+    public DraftFileHolds(FormsDbContext context, TimeProvider time)
     {
         _context = context;
+        _time = time;
     }
 
     public async Task HoldAsync(Guid formId, Guid userId, IReadOnlyCollection<Guid> mediaIds, CancellationToken ct = default)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var held = mediaIds.Distinct().ToArray();
 
         if (held.Length > 0)
@@ -42,7 +44,7 @@ public sealed class DraftFileHolds : IDraftFileHolds
     }
 
     public Task ReleaseFormAsync(Guid formId, CancellationToken ct = default) =>
-        ReleaseAsync(_context.AnswerFileLinks.Where(l => l.FormId == formId && l.ResponseId == null), DateTime.UtcNow, ct);
+        ReleaseAsync(_context.AnswerFileLinks.Where(l => l.FormId == formId && l.ResponseId == null), _time.GetUtcNow().UtcDateTime, ct);
 
     private static Task<int> ReleaseAsync(IQueryable<AnswerFileLink> links, DateTime now, CancellationToken ct) =>
         links

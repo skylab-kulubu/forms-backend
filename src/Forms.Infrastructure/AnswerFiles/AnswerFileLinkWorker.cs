@@ -14,13 +14,14 @@ namespace Skylab.Forms.Infrastructure.AnswerFiles;
 /// vermeden gider. Core aynı bağı yeniden istemeye var olanla cevap verdiği için yarıda kalan adım
 /// güvenle yeniden denenir.
 /// </summary>
-public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<AnswerFileLinkWorker> logger)
+public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, TimeProvider time, ILogger<AnswerFileLinkWorker> logger)
     : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 20;
     private static readonly TimeSpan DraftCheckInterval = TimeSpan.FromDays(1);
 
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+    private readonly TimeProvider _time = time;
     private readonly ILogger<AnswerFileLinkWorker> _logger = logger;
 
     protected override string LockKey => "forms:answer-file-links:lock";
@@ -38,7 +39,7 @@ public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistribute
         var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
         var files = scope.ServiceProvider.GetRequiredService<IAnswerFileStore>();
         var drafts = scope.ServiceProvider.GetRequiredService<IFormDraftService>();
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         var due = await db.AnswerFileLinks.AsNoTracking()
             .Where(l => l.NextAttemptAt <= now)
@@ -99,7 +100,7 @@ public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistribute
         var attach = await files.HoldAsync(link.MediaId, link.Holder(), link.UserId, ct);
         if (attach is { Outcome: FileStoreOutcome.Ok, HoldId: { } attachmentId })
         {
-            DateTime? nextCheck = link.ResponseId is null ? DateTime.UtcNow + DraftCheckInterval : null;
+            DateTime? nextCheck = link.ResponseId is null ? _time.GetUtcNow().UtcDateTime + DraftCheckInterval : null;
 
             // Bu arada kaldırılmak üzere işaretlendiyse durumu korunur; kimlik yine yazılır ki bağ kaldırılabilsin.
             await db.AnswerFileLinks
@@ -124,7 +125,7 @@ public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistribute
         await RetryAsync(db, link, ct);
     }
 
-    private static async Task UnlinkAsync(FormsDbContext db, IAnswerFileStore files, AnswerFileLink link, CancellationToken ct)
+    private async Task UnlinkAsync(FormsDbContext db, IAnswerFileStore files, AnswerFileLink link, CancellationToken ct)
     {
         if (link.AttachmentId is { } attachmentId && !await files.ReleaseAsync(link.MediaId, attachmentId, ct))
         {
@@ -135,13 +136,13 @@ public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistribute
         await DropAsync(db, link, ct);
     }
 
-    private static async Task CheckDraftAsync(FormsDbContext db, IFormDraftService drafts, AnswerFileLink link, CancellationToken ct)
+    private async Task CheckDraftAsync(FormsDbContext db, IFormDraftService drafts, AnswerFileLink link, CancellationToken ct)
     {
         var row = db.AnswerFileLinks.Where(l => l.Id == link.Id && l.State == AnswerFileLinkState.Linked);
 
         if (link.ResponseId is null && !await drafts.HoldsFileAsync(link.FormId, link.UserId, link.MediaId, ct))
         {
-            var now = DateTime.UtcNow;
+            var now = _time.GetUtcNow().UtcDateTime;
             await row.ExecuteUpdateAsync(s => s
                 .SetProperty(l => l.State, AnswerFileLinkState.Unlinking)
                 .SetProperty(l => l.Attempts, 0)
@@ -149,7 +150,7 @@ public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistribute
             return;
         }
 
-        DateTime? nextCheck = link.ResponseId is null ? DateTime.UtcNow + DraftCheckInterval : null;
+        DateTime? nextCheck = link.ResponseId is null ? _time.GetUtcNow().UtcDateTime + DraftCheckInterval : null;
         await row.ExecuteUpdateAsync(s => s.SetProperty(l => l.NextAttemptAt, nextCheck), ct);
     }
 
@@ -157,10 +158,10 @@ public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistribute
     private static Task DropAsync(FormsDbContext db, AnswerFileLink link, CancellationToken ct) =>
         db.AnswerFileLinks.Where(l => l.Id == link.Id && l.State == link.State).ExecuteDeleteAsync(ct);
 
-    private static Task RetryAsync(FormsDbContext db, AnswerFileLink link, CancellationToken ct)
+    private Task RetryAsync(FormsDbContext db, AnswerFileLink link, CancellationToken ct)
     {
         var attempts = link.Attempts + 1;
-        var next = DateTime.UtcNow + RetryBackoff.After(attempts);
+        var next = _time.GetUtcNow().UtcDateTime + RetryBackoff.After(attempts);
 
         return db.AnswerFileLinks
             .Where(l => l.Id == link.Id && l.State == link.State)

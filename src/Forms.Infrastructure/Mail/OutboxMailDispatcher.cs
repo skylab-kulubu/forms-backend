@@ -7,7 +7,7 @@ using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Infrastructure.Mail;
 
-public sealed class OutboxMailDispatcher(IServiceScopeFactory scopeFactory, ILogger<OutboxMailDispatcher> logger) : IMailDispatcher
+public sealed class OutboxMailDispatcher(IServiceScopeFactory scopeFactory, TimeProvider time, ILogger<OutboxMailDispatcher> logger) : IMailDispatcher
 {
     public async Task<bool> EnqueueAsync(EmailMessage message, CancellationToken ct = default)
     {
@@ -16,7 +16,7 @@ public sealed class OutboxMailDispatcher(IServiceScopeFactory scopeFactory, ILog
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
 
-            db.Outbox.Add(OutboxMessage.Of(OutboxTypes.Mail, message, DateTime.UtcNow));
+            db.Outbox.Add(OutboxMessage.Of(OutboxTypes.Mail, message, time.GetUtcNow().UtcDateTime));
             await db.SaveChangesAsync(ct);
 
             return true;

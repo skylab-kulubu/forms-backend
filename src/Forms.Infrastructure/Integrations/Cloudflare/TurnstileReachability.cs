@@ -1,6 +1,6 @@
 namespace Skylab.Forms.Infrastructure.Integrations.Cloudflare;
 
-internal sealed class TurnstileReachability
+internal sealed class TurnstileReachability(TimeProvider time)
 {
     private static readonly TimeSpan ReachableFor = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan UnreachableFor = TimeSpan.FromSeconds(15);
@@ -17,7 +17,7 @@ internal sealed class TurnstileReachability
         {
             lock (_gate)
             {
-                return DateTime.UtcNow < _validUntil ? _reachable : null;
+                return time.GetUtcNow().UtcDateTime < _validUntil ? _reachable : null;
             }
         }
     }
@@ -27,7 +27,7 @@ internal sealed class TurnstileReachability
         lock (_gate)
         {
             _reachable = reachable;
-            _validUntil = DateTime.UtcNow + (reachable ? ReachableFor : UnreachableFor);
+            _validUntil = time.GetUtcNow().UtcDateTime + (reachable ? ReachableFor : UnreachableFor);
         }
     }
 }

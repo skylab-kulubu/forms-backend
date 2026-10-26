@@ -198,7 +198,7 @@ public class FormAttemptService : IFormAttemptService
         attempt.ResponseId = responseId;
         attempt.DraftSnapshot = null;
 
-        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Submitted });
+        _attempts.Add(new FormAttemptEvent { AttemptId = attempt.Id, Type = FormAttemptEventType.Submitted, CreatedAt = _time.GetUtcNow().UtcDateTime });
     }
 
     public async Task<ServiceResult<FormAttemptDetailContract>> ExtendAsync(Guid attemptId, Guid actorId, AttemptExtendRequest request, CancellationToken ct = default)

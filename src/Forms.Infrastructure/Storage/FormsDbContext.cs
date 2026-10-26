@@ -8,8 +8,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Skylab.Forms.Infrastructure.Storage;
 
-public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContext(options)
+public class FormsDbContext(DbContextOptions<FormsDbContext> options, TimeProvider? time = null) : DbContext(options)
 {
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
     public DbSet<Form> Forms { get; set; }
     public DbSet<FormCollaborator> Collaborators { get; set; }
     public DbSet<FormResponse> Responses { get; set; }
@@ -32,9 +34,10 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
-        SetTimestamps();
-        PublishResponseChanges();
-        await QueueAnswerFileLinksAsync(cancellationToken);
+        var now = _time.GetUtcNow().UtcDateTime;
+        SetTimestamps(now);
+        PublishResponseChanges(now);
+        await QueueAnswerFileLinksAsync(now, cancellationToken);
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -43,9 +46,8 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
     /// cevabın bağları kaldırılmak üzere işaretlenir. Misafir dosyalarını GuestUploadService kayıttan önce
     /// kendisi bağlar.
     /// </summary>
-    private async Task QueueAnswerFileLinksAsync(CancellationToken ct)
+    private async Task QueueAnswerFileLinksAsync(DateTime now, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
         var responses = ChangeTracker.Entries<FormResponse>().ToList();
 
         // Kayıt başarısız olup yeniden denenirse eklenen cevap hâlâ Added görünür; aynı bağ iki kez eklenmesin.
@@ -72,10 +74,8 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
         }
     }
 
-    private void PublishResponseChanges()
+    private void PublishResponseChanges(DateTime now)
     {
-        var now = DateTime.UtcNow;
-
         var pending = ChangeTracker.Entries<OutboxMessage>()
             .Where(e => e.State == EntityState.Added)
             .Select(e => e.Entity.Source)
@@ -90,14 +90,12 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options) : DbContex
             .ToList());
     }
 
-    private void SetTimestamps()
+    private void SetTimestamps(DateTime now)
     {
         var entries = ChangeTracker.Entries<BaseEntity>().Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
 
         foreach (var entry in entries)
         {
-            var now = DateTime.UtcNow;
-
             if (entry.State == EntityState.Added)
             {
                 entry.Entity.CreatedAt = now;

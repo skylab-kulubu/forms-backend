@@ -6,7 +6,7 @@ using Skylab.Forms.Infrastructure.Scheduling;
 
 namespace Skylab.Forms.Infrastructure.Attempts;
 
-public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, ILogger<FormAttemptExpiryWorker> logger)
+public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, TimeProvider time, ILogger<FormAttemptExpiryWorker> logger)
     : ScheduledWorker(locks, logger)
 {
     private const int BatchSize = 100;
@@ -25,7 +25,7 @@ public class FormAttemptExpiryWorker(IServiceScopeFactory scopeFactory, IDistrib
         using (var scope = _scopeFactory.CreateScope())
         {
             var attempts = scope.ServiceProvider.GetRequiredService<IFormAttemptService>();
-            due = await attempts.GetDueAsync(DateTime.UtcNow, BatchSize, ct);
+            due = await attempts.GetDueAsync(time.GetUtcNow().UtcDateTime, BatchSize, ct);
         }
 
         foreach (var attemptId in due)

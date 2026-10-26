@@ -15,10 +15,12 @@ public sealed class RedisGuestUploadStore : IGuestUploadStore
 
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<RedisGuestUploadStore> _logger;
+    private readonly TimeProvider _time;
 
-    public RedisGuestUploadStore(IConnectionMultiplexer redis, ILogger<RedisGuestUploadStore> logger)
+    public RedisGuestUploadStore(IConnectionMultiplexer redis, TimeProvider time, ILogger<RedisGuestUploadStore> logger)
     {
         _redis = redis;
+        _time = time;
         _logger = logger;
     }
 
@@ -47,7 +49,7 @@ public sealed class RedisGuestUploadStore : IGuestUploadStore
 
     private async Task SetAsync<T>(string operation, string key, T value, DateTime expiresAt, CancellationToken ct)
     {
-        var lifetime = expiresAt - DateTime.UtcNow;
+        var lifetime = expiresAt - _time.GetUtcNow().UtcDateTime;
         var json = JsonSerializer.Serialize(value, Json);
 
         await RunAsync(operation, database => database.StringSetAsync(key, json, lifetime > MinimumLifetime ? lifetime : MinimumLifetime), ct);

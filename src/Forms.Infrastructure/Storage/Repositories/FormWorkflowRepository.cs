@@ -12,10 +12,12 @@ namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 public sealed class FormWorkflowRepository : IFormWorkflowRepository
 {
     private readonly FormsDbContext _context;
+    private readonly TimeProvider _time;
 
-    public FormWorkflowRepository(FormsDbContext context)
+    public FormWorkflowRepository(FormsDbContext context, TimeProvider time)
     {
         _context = context;
+        _time = time;
     }
 
     // Bir formun yayındaki tek bir akışta yer alması publish sırasında güvence
@@ -135,7 +137,7 @@ public sealed class FormWorkflowRepository : IFormWorkflowRepository
             .ToList();
 
         var lockedByNode = await FindLockedQuestionsAsync(publishedVersionIds, ct);
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         return chosen.ToDictionary(
             entry => entry.Key,

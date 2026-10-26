@@ -55,7 +55,7 @@ public static class InternalEndpoints
         var group = routes.MapGroup("internal/v1").ExcludeFromDescription();
 
         // Core'un hesap silme komutu (core docs/account-erasure-command.md).
-        group.MapPut("/account-erasures/{requestId}", async (string requestId, HttpContext context, IAccountErasureService service, ILoggerFactory loggerFactory, CancellationToken ct) =>
+        group.MapPut("/account-erasures/{requestId}", async (string requestId, HttpContext context, IAccountErasureService service, TimeProvider time, ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("Skylab.Forms.Api.AccountErasure");
             context.Response.Headers.CacheControl = "no-store";
@@ -113,7 +113,7 @@ public static class InternalEndpoints
                 {
                     request_id = command.RequestId,
                     status = "completed",
-                    completed_at = DateTime.UtcNow,
+                    completed_at = time.GetUtcNow().UtcDateTime,
                     counts
                 });
             }

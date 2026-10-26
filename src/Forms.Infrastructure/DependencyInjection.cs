@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skylab.Forms.Application.Abstractions;
@@ -27,6 +28,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.TryAddSingleton(TimeProvider.System);
+
         services.AddOptions<StorageOptions>()
             .Configure<IConfiguration>((storage, configuration) =>
             {
