@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace Skylab.Forms.Domain.Models;
 
 /// <summary>
@@ -9,9 +7,6 @@ namespace Skylab.Forms.Domain.Models;
 /// </summary>
 public class ResponseGuest
 {
-    /// <summary>Form sayfasındaki notla aynı kural: forms-frontend FormDisplayer.jsx EMAIL_PATTERN.</summary>
-    private const string EmailPattern = @"^[^\s@]+@[^\s@]+\.[^\s@]+$";
-
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
@@ -39,7 +34,7 @@ public class ResponseGuest
         var lastName = AnswerTo("lastName");
         var email = AnswerTo("email");
 
-        if (firstName is null || lastName is null || email is null || !email.Contains('@'))
+        if (firstName is null || lastName is null || !EmailAddress.IsValid(email))
             return null;
 
         return new ResponseGuest { FirstName = firstName, LastName = lastName, Email = email.ToLowerInvariant() };
@@ -54,8 +49,7 @@ public class ResponseGuest
         var field = schema.FirstOrDefault(field => IdentityOf(field) == "email");
         var email = field is null ? null : answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer?.Trim();
 
-        // Uzunluk sınırı regex'ten önce gelmeli: uzun girdide desen karesel geri izler. Form sayfasındaki not da aynı sınırı uygular.
-        return email is { Length: <= 254 } && Regex.IsMatch(email, EmailPattern) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
+        return EmailAddress.IsValid(email) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
     }
 
     private static string? IdentityOf(FormSchemaItem field) =>
