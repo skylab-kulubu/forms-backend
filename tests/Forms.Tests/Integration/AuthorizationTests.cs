@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Collaborators;
 using Skylab.Forms.Application.Contracts.Responses;
+using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Enums;
 
 namespace Skylab.Forms.Tests.Integration;
@@ -62,6 +63,21 @@ public class AuthorizationTests(FormsApiFactory api)
         var reviewed = await admin.PatchAsJsonAsync($"/api/admin/forms/responses/{responseId}/status", new { newStatus = FormResponseStatus.Approved });
 
         Assert.Equal((HttpStatusCode.OK, HttpStatusCode.Forbidden), (read.StatusCode, reviewed.StatusCode));
+    }
+
+    [Fact]
+    public async Task A_platform_admin_reads_a_workflow_it_may_not_edit()
+    {
+        var owner = api.ClientFor(api.Users.Add("Ayşe Yılmaz").Id);
+        var workflowId = await owner.CreateWorkflowAsync("Başvuru akışı");
+        var admin = api.ClientFor(Guid.NewGuid(), "skyforms:*");
+
+        var asOwner = await (await owner.GetAsync($"/api/admin/workflows/{workflowId}")).DataAsync<WorkflowContract>();
+        var asAdmin = await (await admin.GetAsync($"/api/admin/workflows/{workflowId}")).DataAsync<WorkflowContract>();
+        var renamed = await admin.PutAsJsonAsync($"/api/admin/workflows/{workflowId}", new WorkflowUpsertRequest("Değişti", null, false));
+
+        Assert.Equal((true, false), (asOwner.CanEdit, asAdmin.CanEdit));
+        Assert.Equal(HttpStatusCode.Forbidden, renamed.StatusCode);
     }
 
     [Fact]
