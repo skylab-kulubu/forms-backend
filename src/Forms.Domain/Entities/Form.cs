@@ -6,6 +6,8 @@ namespace Skylab.Forms.Domain.Entities;
 
 public class Form : BaseEntity
 {
+    public const int TitleMaxLength = 100;
+
     public string Title { get; set; } = "Yeni Form";
     public string? Description { get; set; }
     public List<FormSchemaItem> Schema { get; set; } = new();
@@ -13,11 +15,6 @@ public class Form : BaseEntity
     public bool AllowAnonymousResponses { get; set; } = false;
     public bool AllowMultipleResponses { get; set; } = false;
     public bool RequiresManualReview { get; set; } = false;
-    /// <summary>
-    /// Eski bagli form akisindan kalan alan. Artik hicbir yerde okunmuyor; akislara
-    /// donusum sonrasi bir surumluk geri donus penceresi icin kolonla birlikte
-    /// duruyor ve bir sonraki surumde kaldirilacak.
-    /// </summary>
     public Guid? LinkedFormId { get; set; }
     public Form? LinkedForm { get; set; }
     public FormTask? Task { get; set; }
@@ -27,6 +24,17 @@ public class Form : BaseEntity
     public bool HasTimeLimit => TimeLimitMinutes is > 0;
 
     public bool HasClosedAt(DateTime now) => ClosesAt is { } closesAt && now >= closesAt;
+
+    public FormAvailability AvailabilityAt(DateTime now) =>
+        Status != FormStatus.Open ? FormAvailability.Closed
+        : !HasTimeLimit && HasClosedAt(now) ? FormAvailability.ClosesAtPassed
+        : FormAvailability.Open;
+
+    public CollaboratorRole RoleOf(Guid userId) =>
+        Collaborators.FirstOrDefault(collaborator => collaborator.UserId == userId)?.Role ?? CollaboratorRole.None;
+
+    public bool Allows(Guid userId, bool isPlatformAdmin, FormAction action) =>
+        FormAccess.Allows(RoleOf(userId), isPlatformAdmin, action);
 
     // Navigation
     public ICollection<FormCollaborator> Collaborators { get; set; } = new List<FormCollaborator>();

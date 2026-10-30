@@ -1,46 +1,48 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.GuestUploads;
 using Skylab.Forms.Application.Mail;
 using Skylab.Forms.Application.ShortLinks;
 using Skylab.Forms.Infrastructure.AnswerFiles;
 using Skylab.Forms.Infrastructure.Attempts;
 using Skylab.Forms.Infrastructure.Auth;
-using Skylab.Forms.Infrastructure.AccountAccess;
 using Skylab.Forms.Infrastructure.Caching;
 using Skylab.Forms.Infrastructure.Exports;
 using Skylab.Forms.Infrastructure.GuestUploads;
+using Skylab.Forms.Infrastructure.Integrations;
 using Skylab.Forms.Infrastructure.Mail;
-using Skylab.Forms.Infrastructure.ResponseNotifications;
+using Skylab.Forms.Infrastructure.Outbox;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
-using Skylab.Forms.Infrastructure.Turnstile;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
-        services.AddAccountAccessGate(configuration);
+        services.TryAddSingleton(TimeProvider.System);
 
-        var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING")
-            ?? configuration.GetConnectionString("Forms")
-            ?? throw new InvalidOperationException("Forms database connection string is not configured.");
+        services.AddOptions<StorageOptions>()
+            .Configure<IConfiguration>((storage, configuration) =>
+            {
+                storage.Database = configuration.GetConnectionString("Forms") ?? "";
+                storage.Redis = configuration["Redis:ConnectionString"] ?? "";
+            })
+            .Validate(storage => storage.Database.Length > 0, "ConnectionStrings:Forms must hold the PostgreSQL connection string.")
+            .Validate(storage => storage.Redis.Length > 0, "Redis:ConnectionString must hold the Redis connection string.")
+            .ValidateOnStart();
 
-        var redisConnection = Environment.GetEnvironmentVariable("Redis__ConnectionString")
-            ?? configuration["Redis:ConnectionString"]
-            ?? "localhost:6379,defaultDatabase=1";
-
-        services.AddDbContext<FormsDbContext>(options =>
+        services.AddDbContext<FormsDbContext>((provider, options) =>
         {
-            options.UseNpgsql(connectionString, sqlOptions =>
+            options.UseNpgsql(provider.GetRequiredService<IOptions<StorageOptions>>().Value.Database, sqlOptions =>
             {
                 sqlOptions.EnableRetryOnFailure(
                     maxRetryCount: 5,
@@ -59,77 +61,66 @@ public static class DependencyInjection
         services.AddScoped<IAccountErasureRepository, AccountErasureRepository>();
         services.AddScoped<IFormsUnitOfWork, FormsUnitOfWork>();
 
-        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
+        services.AddSingleton<IConnectionMultiplexer>(provider =>
+            ConnectionMultiplexer.Connect(provider.GetRequiredService<IOptions<StorageOptions>>().Value.Redis));
         services.AddSingleton<ICacheService, RedisCacheService>();
+        services.AddSingleton<IDistributedLock, RedisDistributedLock>();
         services.AddScoped<IExcelService, ExcelService>();
 
         services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUserService, JwtCurrentUserService>();
+        services.AddScoped<ICurrentUser, HttpCurrentUser>();
 
-        services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
-        services.AddHttpClient("keycloak");
-        services.AddSingleton<IServiceTokenProvider, KeycloakServiceTokenProvider>();
-        services.AddTransient<ServiceTokenHandler>();
-
-        services.AddHttpClient<IExternalUserService, ExternalUserService>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-
-        services.AddHttpClient<ICoreShortLinks, CoreShortLinks>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-            client.Timeout = TimeSpan.FromSeconds(10);
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-
-        services.AddHttpClient(ResponseNotificationWorker.HttpClientName, client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-            client.Timeout = TimeSpan.FromSeconds(10);
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
-        services.AddHostedService<ResponseNotificationWorker>();
-
-        services.Configure<ShortLinkOptions>(configuration.GetSection(ShortLinkOptions.SectionName));
+        services.AddOptions<ShortLinkOptions>().BindConfiguration(ShortLinkOptions.SectionName);
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<ShortLinkOptions>>().Value);
 
-        var turnstileOptions = TurnstileOptions.FromConfiguration(configuration);
-        var guestUploadSettings = GuestUploadSettings.FromConfiguration(configuration, turnstileOptions.IsEnabled);
-        services.AddSingleton(turnstileOptions);
-        services.AddSingleton<TurnstileReachability>();
-        services.AddSingleton(guestUploadSettings);
-        services.AddSingleton(guestUploadSettings.Options);
+        services.AddOptions<GuestUploadOptions>()
+            .BindConfiguration(GuestUploadOptions.SectionName)
+            .Validate(guests => guests.Mode.Trim().ToLowerInvariant() is "on" or "off", "GuestUploads:Mode must be exactly 'off' or 'on'.")
+            .Validate(guests => guests.IpSubmitsPerMinute is >= 1 and <= 100_000, "GuestUploads:IpSubmitsPerMinute must be between 1 and 100000.")
+            .Validate(guests => guests.FormSubmitsPerMinute is >= 1 and <= 100_000, "GuestUploads:FormSubmitsPerMinute must be between 1 and 100000.")
+            .ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<GuestUploadOptions>>().Value);
         services.AddSingleton<IGuestUploadStore, RedisGuestUploadStore>();
-        services.AddHostedService<GuestUploadStartupLog>();
 
-        services.AddHttpClient<ITurnstileVerifier, CloudflareTurnstileVerifier>(client =>
-        {
-            client.BaseAddress = new Uri("https://challenges.cloudflare.com");
-            client.Timeout = TimeSpan.FromSeconds(5);
-        });
-
-        services.AddHttpClient<ICoreMedia, CoreMediaClient>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:Users:BaseUrl"] ?? "http://core:8080");
-            client.Timeout = TimeSpan.FromSeconds(60);
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
         services.AddScoped<IDraftFileHolds, DraftFileHolds>();
         services.AddHostedService<AnswerFileLinkWorker>();
+        services.AddHostedService<OutboxDispatcher>();
 
-        services.AddHttpClient<ISkyMailService, SkyMailClient>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["Services:SkyMail:BaseUrl"] ?? "http://skymail:3000/v1/");
-        }).AddHttpMessageHandler<ServiceTokenHandler>();
+        services.AddSingleton<IMailDispatcher, OutboxMailDispatcher>();
+        services.AddTransient<IOutboxHandler, MailOutboxHandler>();
 
-        services.AddSingleton<ChannelMailDispatcher>();
-        services.AddSingleton<IMailDispatcher>(sp => sp.GetRequiredService<ChannelMailDispatcher>());
-        services.AddHostedService<MailWorker>();
-
-        services.Configure<FormMailOptions>(configuration.GetSection(FormMailOptions.SectionName));
+        services.AddOptions<FormMailOptions>()
+            .BindConfiguration(FormMailOptions.SectionName)
+            .Validate(
+                mail => mail.ReminderThresholdHours >= 1 && mail.ReminderScanIntervalMinutes >= 1 && mail.GuestCopyDailyLimit >= 1,
+                "FormMail:ReminderThresholdHours, ReminderScanIntervalMinutes and GuestCopyDailyLimit must be at least 1.")
+            .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<FormMailOptions>>().Value);
         services.AddHostedService<PendingResponseReminderWorker>();
         services.AddHostedService<FormAttemptExpiryWorker>();
 
         return services;
+    }
+
+    public static void LogIntegrationState(this IServiceProvider services, ILogger logger)
+    {
+        foreach (var notice in services.GetServices<IntegrationNotice>())
+            logger.Log(notice.Level, "{Notice}", notice.Message);
+
+        var guestUploads = services.GetRequiredService<GuestUploadOptions>().Enabled;
+        var humanCheck = services.GetRequiredService<IHumanVerifier>().IsEnabled;
+        var fileStore = services.GetRequiredService<IAnswerFileStore>().IsConfigured;
+
+        if (guestUploads && !humanCheck)
+            logger.LogWarning("GuestUploads:Mode on ama insan doğrulaması kapalı; misafir dosya yükleme kapalı kalıyor");
+
+        if (guestUploads && !fileStore)
+            logger.LogWarning("GuestUploads:Mode on ama dosya deposu yok; misafir dosya yükleme kapalı kalıyor");
+
+        logger.LogInformation(
+            "İnsan doğrulaması {HumanCheckState}, misafir dosya yükleme {GuestUploadState}",
+            humanCheck ? "on" : "off",
+            guestUploads && humanCheck && fileStore ? "on" : "off");
     }
 
     public static async Task ApplyDatabaseMigrationsAsync(

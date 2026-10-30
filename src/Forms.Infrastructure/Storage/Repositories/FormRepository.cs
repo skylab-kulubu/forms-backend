@@ -19,41 +19,30 @@ public sealed class FormRepository : IFormRepository
     public Task<Form?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
 
+    public Task<string?> GetTitleAsync(Guid id, CancellationToken ct = default) =>
+        _context.Forms.AsNoTracking()
+            .Where(f => f.Id == id)
+            .Select(f => (string?)f.Title)
+            .FirstOrDefaultAsync(ct);
+
     public Task<Form?> GetWithCollaboratorsAsync(Guid id, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking()
             .Include(f => f.Collaborators)
             .FirstOrDefaultAsync(f => f.Id == id, ct);
 
-    public Task<Form?> GetWithDetailsAsync(Guid id, CancellationToken ct = default) =>
-        _context.Forms.AsNoTracking()
-            .Include(f => f.Collaborators)
-            .FirstOrDefaultAsync(f => f.Id == id, ct);
-
-    public Task<bool> IsUserCollaboratorAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
-        _context.Collaborators.AsNoTracking()
-            .AnyAsync(c => c.FormId == formId && c.UserId == userId && c.Role != CollaboratorRole.None, ct);
+    public async Task<CollaboratorRole> GetRoleAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
+        await _context.Collaborators.AsNoTracking()
+            .Where(c => c.FormId == formId && c.UserId == userId)
+            .Select(c => (CollaboratorRole?)c.Role)
+            .FirstOrDefaultAsync(ct) ?? CollaboratorRole.None;
 
     public Task<bool> ExistsAsync(Guid formId, CancellationToken ct = default) =>
         _context.Forms.AsNoTracking().AnyAsync(f => f.Id == formId, ct);
-
-    public Task<bool> IsFormOpenAsync(Guid formId, CancellationToken ct = default) =>
-        _context.Forms.AsNoTracking().AnyAsync(f => f.Id == formId && f.Status == FormStatus.Open, ct);
 
     public Task<Form?> GetForEditWithCollaboratorsAsync(Guid id, CancellationToken ct = default) =>
         _context.Forms
             .Include(f => f.Collaborators)
             .FirstOrDefaultAsync(f => f.Id == id, ct);
-
-    public Task<Form?> GetForEditWithDetailsAsync(Guid id, CancellationToken ct = default) =>
-        _context.Forms
-            .Include(f => f.Collaborators)
-            .FirstOrDefaultAsync(f => f.Id == id, ct);
-
-    public Task<Form?> GetForEditOwnedByAsync(Guid id, Guid ownerId, CancellationToken ct = default) =>
-        _context.Forms
-            .Where(f => f.Id == id)
-            .Where(f => f.Collaborators.Any(c => c.UserId == ownerId && c.Role == CollaboratorRole.Owner))
-            .FirstOrDefaultAsync(ct);
 
     public Task<List<Form>> GetForEditOwnedWithCollaboratorsAsync(IReadOnlyCollection<Guid> ids, Guid ownerId, CancellationToken ct = default) =>
         _context.Forms
@@ -83,9 +72,11 @@ public sealed class FormRepository : IFormRepository
 
         var totalCount = await query.CountAsync(ct);
 
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+
         var forms = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(f => new FormSummaryContract(
                 f.Id,
                 f.Title,
@@ -100,7 +91,7 @@ public sealed class FormRepository : IFormRepository
             ))
             .ToListAsync(ct);
 
-        return new PagedResult<FormSummaryContract>(forms, totalCount, request.Page, request.PageSize);
+        return new PagedResult<FormSummaryContract>(forms, totalCount, page, pageSize);
     }
 
     private IQueryable<Form> ApplyUserFormsSorting(IQueryable<Form> query, string? sortBy, string? sortDirection, Guid userId)
@@ -190,9 +181,11 @@ public sealed class FormRepository : IFormRepository
 
         var totalCount = await query.CountAsync(ct);
 
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+
         var items = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(f => new FormAllSummaryProjection(
                 f.Id,
                 f.Title,
@@ -207,7 +200,7 @@ public sealed class FormRepository : IFormRepository
             ))
             .ToListAsync(ct);
 
-        return new PagedResult<FormAllSummaryProjection>(items, totalCount, request.Page, request.PageSize);
+        return new PagedResult<FormAllSummaryProjection>(items, totalCount, page, pageSize);
     }
 
     public void Add(Form form) => _context.Forms.Add(form);

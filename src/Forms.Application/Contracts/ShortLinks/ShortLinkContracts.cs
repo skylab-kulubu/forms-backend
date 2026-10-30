@@ -2,7 +2,6 @@ using Skylab.Forms.Application.Contracts.Identity;
 
 namespace Skylab.Forms.Application.Contracts.ShortLinks;
 
-/// <param name="EventName">Link bir etkinliğe bağlıysa etkinliğin adı; ad o zaman yalnız etkinlik panelinden değişir.</param>
 public record FormShortLinkContract(
     Guid Id,
     string Alias,
@@ -11,7 +10,9 @@ public record FormShortLinkContract(
     bool ManagedByEvent,
     string? EventName,
     UserContract? CreatedBy,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    bool ManagedExternally = false,
+    string? ManagerLabel = null
 );
 
 public record ShortLinkRenameRequest(string? Alias);

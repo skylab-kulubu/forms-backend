@@ -104,9 +104,9 @@ public static class GuestUploadRules
 
     private static bool IsHidden(char character) =>
         char.IsControl(character)
-        || character is >= '‪' and <= '‮'
-        || character is >= '⁦' and <= '⁩'
-        || character is '‎' or '‏' or '؜';
+        || character is >= '\u202A' and <= '\u202E'
+        || character is >= '\u2066' and <= '\u2069'
+        || character is '\u200E' or '\u200F' or '\u061C';
 
     private static string? ReadText(FormSchemaItem item, string key) =>
         Read(item, key) switch

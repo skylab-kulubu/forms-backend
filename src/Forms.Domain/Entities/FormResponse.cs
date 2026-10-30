@@ -23,6 +23,8 @@ public class FormResponse
     public DateTime? ReviewedAt { get; set; }
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? PendingReminderSentAt { get; set; }
+
+    public bool IsSingleResponse { get; set; }
     public ResponseAttribution? Attribution { get; set; }
     public ResponseGuest? Guest { get; set; }
 
@@ -35,5 +37,12 @@ public class FormResponse
         ReviewedBy = reviewerId;
         ReviewNote = note;
         ReviewedAt = reviewedAt;
+    }
+
+    public void Archive(Guid archiverId, DateTime archivedAt)
+    {
+        IsArchived = true;
+        ArchivedBy = archiverId;
+        ArchivedAt = archivedAt;
     }
 }

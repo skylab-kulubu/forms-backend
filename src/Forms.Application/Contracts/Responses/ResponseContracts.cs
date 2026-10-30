@@ -80,7 +80,7 @@ public record ResponseWorkflowStepContract(
     DateTime? ReviewedAt = null
 );
 
-public record ResponseMetaContract(string FormTitle, UserContract? SharedBy);
+public record ResponseMetaContract(string FormTitle, PublicUserContract? SharedBy);
 
 /// <param name="ResponseId">Cevap kaydedilmediyse null: reddedilen gönderimlerde böyledir.</param>
 /// <param name="LinkedFormId">Legacy bağlı form akışının hedefi; akış motorunda null.</param>
@@ -115,8 +115,11 @@ public record ResponseSummaryContract(
     DateTime? ArchivedAt,
     int? TimeSpent = null,
     ResponseAttemptSummaryContract? Attempt = null,
-    ResponseGuest? Guest = null
+    ResponseGuest? Guest = null,
+    ResponseSummaryWorkflowContract? Workflow = null
 );
+
+public record ResponseSummaryWorkflowContract(int Stage, int Round);
 
 public record ResponseAttemptSummaryContract(
     Guid Id,

@@ -15,6 +15,7 @@ public record WorkflowContract(
     WorkflowIntake Intake,
     int ActiveRunCount,
     UserContract Owner,
+    bool CanEdit,
     WorkflowVersionContract? Draft,
     WorkflowVersionContract? Published,
     /// <summary>Taslağın son doğrulama sonucu; ayrıca /validate çağırmaya gerek yok.</summary>

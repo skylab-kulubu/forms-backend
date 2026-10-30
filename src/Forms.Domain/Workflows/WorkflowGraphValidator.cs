@@ -316,7 +316,9 @@ public static class WorkflowGraphValidator
 
         // Referans verilen adım her rotada kaynaktan önce gelmiyorsa, bazı
         // başvurularda o cevap hiç oluşmamış olur ve koşul sessizce düşerdi.
-        if (ruleNode.Id != sourceNode.Id && !graph.Dominators[sourceNode.Id].Contains(ruleNode.Id))
+        if (ruleNode.Id != sourceNode.Id
+            && graph.Dominators.TryGetValue(sourceNode.Id, out var dominators)
+            && !dominators.Contains(ruleNode.Id))
         {
             errors.Add(new WorkflowValidationError(
                 "conditionNodeNotGuaranteed",

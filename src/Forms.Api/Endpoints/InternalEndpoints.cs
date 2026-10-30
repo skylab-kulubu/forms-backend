@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Npgsql;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.AccountErasure;
 using Skylab.Forms.Application.Services.AccountErasure;
 using Skylab.Forms.Domain.Common;
-using Skylab.Forms.Infrastructure.AccountAccess;
+using Skylab.Forms.Infrastructure.Auth;
+using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Api.Endpoints;
 
@@ -55,7 +55,7 @@ public static class InternalEndpoints
         var group = routes.MapGroup("internal/v1").ExcludeFromDescription();
 
         // Core'un hesap silme komutu (core docs/account-erasure-command.md).
-        group.MapPut("/account-erasures/{requestId}", async (string requestId, HttpContext context, IAccountErasureService service, ICurrentUserService userService, ILoggerFactory loggerFactory, CancellationToken ct) =>
+        group.MapPut("/account-erasures/{requestId}", async (string requestId, HttpContext context, IAccountErasureService service, TimeProvider time, ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("Skylab.Forms.Api.AccountErasure");
             context.Response.Headers.CacheControl = "no-store";
@@ -68,7 +68,7 @@ public static class InternalEndpoints
 
             // Token JwtBearer zincirinde doğrulandı (imza, issuer, süre, aud ∋ forms).
             if (context.User.FindFirst("azp")?.Value != "core-erasure" ||
-                !await userService.HasRoleAsync("skyforms:account:erase", "forms", ct))
+                !FormsPermissions.Has(context.User, FormsPermissions.AccountErasure))
                 return Problem(StatusCodes.Status403Forbidden, "erasure_forbidden");
 
             var command = await ReadErasureCommandAsync(context.Request, requestId, ct);
@@ -77,7 +77,7 @@ public static class InternalEndpoints
 
             // Ele geçirilmiş bir çağıran, silme istememiş birinin verisini sildiremesin: core kişiyi önce engeller,
             // Forms engeli kendisi okur. Kapı yalnız enforce modunda kayıtlıdır; engel okunamıyorsa iş yapılmaz.
-            var gate = context.RequestServices.GetService<AccountAccessGate>();
+            var gate = context.RequestServices.GetService<IAccountAccessPolicy>();
             if (gate is null)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel kapısı kapalı", command.RequestId);
@@ -85,7 +85,9 @@ public static class InternalEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, "subject_block_unverifiable");
             }
 
-            var decision = await gate.CheckSubjectAsync(command.SubjectId.ToString(), ct);
+            var decision = context.User.FindFirst("iss")?.Value is { Length: > 0 } issuer
+                ? await gate.CheckAsync(issuer, command.SubjectId.ToString(), ct)
+                : AccountAccessDecision.Unavailable;
             if (decision == AccountAccessDecision.Unavailable)
             {
                 logger.LogWarning("Hesap silme {RequestId} yapılmadı: engel okunamadı", command.RequestId);
@@ -111,14 +113,14 @@ public static class InternalEndpoints
                 {
                     request_id = command.RequestId,
                     status = "completed",
-                    completed_at = DateTime.UtcNow,
+                    completed_at = time.GetUtcNow().UtcDateTime,
                     counts
                 });
             }
             catch (Exception ex)
             {
                 // Hata mesajı istekteki bir değeri (adres) alıntılayabilir; yalnız tür ve SQLSTATE yazılır.
-                var sqlState = (ex as PostgresException ?? ex.InnerException as PostgresException)?.SqlState ?? "yok";
+                var sqlState = StorageErrors.CodeOf(ex) ?? "yok";
                 logger.LogError("Hesap silme {RequestId} başarısız: {ExceptionType}, SQLSTATE {SqlState}", command.RequestId, ex.GetType().Name, sqlState);
 
                 context.Response.Headers.RetryAfter = "30";

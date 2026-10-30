@@ -41,7 +41,7 @@ The repository contains one service and one bounded context: **Forms**. The form
 src/
 ├── Forms.Domain/                          # Entities, enums, domain models and rules
 ├── Forms.Application/                     # Use cases, contracts, validators and ports
-├── Forms.Infrastructure/                  # EF Core, Redis, HTTP clients, mail, Excel, workers
+├── Forms.Infrastructure/                  # EF Core, Redis, outbox, Excel, workers, Integrations/
 ├── Forms.Api/                             # Minimal API endpoints and composition root
 └── Forms.sln
 ```
@@ -58,8 +58,8 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 - **Domain** - Forms entities, enums, domain models, and domain behavior. It has no project or framework dependency.
 - **Application** - Use-case services, repository/external-service abstractions, request and response contracts, validators, result types, and orchestration. It depends only on Domain.
-- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, identity clients, SkyMail integration, Excel generation, and background workers. It implements Application ports.
-- **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition.
+- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, Excel generation, and background workers. It implements Application ports. Each external provider has its own folder under `Integrations/` (`SkylabCore`, `SkyMail`, `Cloudflare`, `Oidc`) whose adapters are internal; only its `AddXxx` registration is public.
+- **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition: `Program.cs` plugs each provider in with its `AddXxx`.
 
 ### Key Patterns
 
@@ -73,32 +73,32 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 ## Account access gate
 
-Forms reads the permanent denylist of blocked accounts that core writes (core's `docs/account-access-gate.md`). In `enforce` mode every request carrying a validated token is checked before the endpoint runs; anonymous requests are never checked. The gate opens its own connection to the dedicated access Redis, never to the form cache.
+Forms reads the permanent denylist of blocked accounts that core writes (core's `docs/account-access-gate.md`). The pipeline and the erasure endpoint ask it through the `IAccountAccessPolicy` port; only the SKY LAB adapter knows core's Redis contract, and with the gate `off` no policy is registered. In `enforce` mode every request carrying a validated token is checked before the endpoint runs; anonymous requests are never checked. The gate opens its own connection to the dedicated access Redis, never to the form cache.
 
-`ACCOUNT_ACCESS_GATE_MODE` accepts `off` or `enforce`; `enforce` requires:
+`AccountAccessGate:Mode` (Compose: `ACCOUNT_ACCESS_GATE_MODE`) is `off` or `enforce` and has no default, so a deployment turns the gate off on purpose; Compose sets `off` when the variable is missing. `enforce` requires:
 
-| Variable | Meaning |
-|---|---|
-| `ACCOUNT_ACCESS_REDIS_ENDPOINT` | One `host:port`, not a Redis connection string |
-| `ACCOUNT_ACCESS_REDIS_USERNAME` | Read-only gate ACL user |
-| `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
-| `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
-| `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
-| `ACCOUNT_ACCESS_REDIS_CA_CERT_FILE` | Absolute path to the mounted private CA certificate |
-| `ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE` | Absolute path to the mounted Forms client certificate |
-| `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE` | Absolute path to the mounted Forms client private key |
-| `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
-| `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
+| Setting | Compose variable | Meaning |
+|---|---|---|
+| `AccountAccessGate:Endpoint` | `ACCOUNT_ACCESS_REDIS_ENDPOINT` | One `host:port`, not a Redis connection string |
+| `AccountAccessGate:Username` | `ACCOUNT_ACCESS_REDIS_USERNAME` | Read-only gate ACL user |
+| `AccountAccessGate:Password` | `ACCOUNT_ACCESS_REDIS_PASSWORD` | Read-only gate ACL password |
+| `AccountAccessGate:Database` | `ACCOUNT_ACCESS_REDIS_DATABASE` | Dedicated gate database, identical across services |
+| `AccountAccessGate:Tls` | `ACCOUNT_ACCESS_REDIS_TLS` | Explicit `true` in production; `false` is for local integration tests |
+| `AccountAccessGate:CaCertificateFile` | `ACCOUNT_ACCESS_REDIS_CA_CERT_FILE` | Absolute path to the mounted private CA certificate |
+| `AccountAccessGate:ClientCertificateFile` | `ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE` | Absolute path to the mounted Forms client certificate |
+| `AccountAccessGate:ClientKeyFile` | `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE` | Absolute path to the mounted Forms client private key |
+| `AccountAccessGate:OperationTimeoutMilliseconds` | `ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS` | Bounded operation deadline, default `200` (range 50–2000) |
+| `AccountAccessGate:RetryAfterSeconds` | `ACCOUNT_ACCESS_GATE_RETRY_AFTER_SECONDS` | Bounded unavailable retry hint, default `1` (range 1–30) |
 
 The mTLS files are required when TLS is on; mount them read-only and never put key contents in an environment variable.
 
-A blocked subject gets `401`. A missing contract, malformed marker, timeout, or Redis failure gets `503` with `Retry-After`, without reaching the endpoint. `GET /health/live` never touches Redis; `GET /health/ready` reports `503` until the gate contract reads back.
+A marker is looked up as `sha256(iss + NUL + sub)` with the `iss` of the validated token itself, so moving `Authentication:Issuer` to a new realm keeps the gate working. A blocked subject gets `401`. A missing contract, malformed marker, timeout, or Redis failure gets `503` with `Retry-After`, without reaching the endpoint. `GET /health/live` never touches Redis; `GET /health/ready` reports `503` until the gate contract reads back.
 
 ## Account erasure
 
 Core sends its account erasure command to `PUT /internal/v1/account-erasures/{request_id}` (core's [`docs/account-erasure-command.md`](https://github.com/skylab-kulubu/core-backend/blob/main/docs/account-erasure-command.md), Forms in §10). The route is for core on the internal Docker network: a request that came through Traefik (`X-Forwarded-*`, `Forwarded`, `X-Real-Ip`) gets `404` before the token is read, and the token must carry `azp` `core-erasure` and the `skyforms:account:erase` role in `resource_access.forms.roles`. It is not in Swagger.
 
-- The person must be blocked in the account access Redis, otherwise `409 subject_not_blocked`. An unreadable gate gets `503` (`Retry-After: 30`); `ACCOUNT_ACCESS_GATE_MODE=off` gets `503` (`Retry-After: 300`).
+- The person must be blocked in the account access Redis, otherwise `409 subject_not_blocked`. An unreadable gate gets `503` (`Retry-After: 30`); a gate set to `off` gets `503` (`Retry-After: 300`).
 - The work commits in one transaction and runs on a server-side 90-second budget, not on the request. It is idempotent, so there is no receipt or lock: a repeat answers `200` with zero counts.
 - Logs carry the request id, a fixed code and the counts, never the subject or an address.
 
@@ -106,8 +106,8 @@ What changes, deleted forms and archived templates included:
 
 - The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay. The team's note on an application of theirs that was voided is emptied too.
 - Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts and answer file links are deleted; active workflow runs are terminated.
-- The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending core notification loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
-- Pending core notifications of the person's own responses are deleted, and a response owned by `Silinmiş kullanıcı` is never reported to core again.
+- The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending response event in the outbox loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
+- Pending response events of the person's own responses are deleted from the outbox, and the core adapter never reports a response owned by `Silinmiş kullanıcı` again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
 
 ## Forms Capabilities
@@ -123,16 +123,17 @@ Dynamic form creation and response management service.
 - Collaborator management with Owner, Editor, and Viewer roles
 - Manual review workflow (`Pending -> Approved / Declined`); a workflow step can also be sent back for changes, see [Changes requested](#changes-requested)
 - Response archiving
-- Form metrics and answer analytics
+- Form metrics and answer analytics. Each question reports `askedCount`, the answers that carry it: the form submits only the questions on screen, so a question its condition hid, or one added after an answer, is left out of that answer's count
 - Reusable component groups
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
+- Timed forms: one attempt per person with a deadline the team can extend. An answer is accepted until two minutes after the deadline, so the page's own submission at the deadline arrives in time; opening the form, saving a draft, sending the answer and the expiry worker all apply that one rule, and only after it does the attempt close
 - Redis-backed form and response drafts
 - Response and component-group sharing tokens
 - XLSX response export
-- Mail notifications and pending-response reminders
-- Response notifications to core: each new response and each status change is queued in `ResponseNotifications` in the same transaction and posted to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. Undelivered notifications are retried with backoff for seven days
+- Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
+- Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days. With core off no adapter takes it; it waits the same seven days, so a setting missing from one deployment loses nothing once it is fixed
 
 **Database Models:**
 
@@ -148,7 +149,7 @@ Dynamic form creation and response management service.
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
-| `ResponseNotifications` | Response notifications waiting for core; a row is deleted once core accepts it |
+| `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core, written in the change's own transaction, and mails; a row is deleted once delivered |
 
 ## Form Workflows
 
@@ -254,9 +255,9 @@ A reviewer may send a step under review back to the applicant instead of approvi
 
 Two read-only endpoints show the team where applications stand. Both answer to the workflow owner and to service administrators.
 
-`GET /api/admin/workflows/{id}/runs/overview` counts applications. `steps` follows the current version (the published one, else the draft) in **flow order**: by `depth`, the longest route from the start, then in the order the routes reach each step. Every step counts the running applications waiting on it (`count`) and splits them into `awaitingReview`, `awaitingApplicant`, `timerRunning` and `revisionRequested`. A step that only an older version has but that still holds running applications comes last with `isRemoved: true`, so the counts always add up to `activeRunCount`. `finished` counts ended applications by result: `completed`, `declined`, `timedOut`, `voided` and `stopped`. Each row of the workflow list carries the same overview as `runs`.
+`GET /api/admin/workflows/{id}/runs/overview` counts applications. `steps` follows the current version (the published one, else the draft) in **flow order**: by `depth`, the longest route from the start, then in the order the routes reach each step. Every step counts the running applications waiting on it (`count`) and splits them into `awaitingReview`, `awaitingApplicant`, `timerRunning` and `revisionRequested`. A step that only an older version has but that still holds running applications comes last with `isRemoved: true`, so the counts always add up to `activeRunCount`. `finished` counts ended applications by result: `completed`, `declined`, `timedOut`, `voided` and `stopped`. Each step carries its own `finished` with the applications that ended on it, split the same way, so it matches the finished list filtered to that step. `routes` counts the routes applications took, one row per `sourceNodeKey`, `trigger` and `targetNodeKey`, which is `null` for a route that ended the workflow. Routes are matched across versions by step key, and only a step that closed on a route adds to them: a trigger with no routes, a request for changes, an archive or a void closes a step without one. Each row of the workflow list carries the same overview as `runs`.
 
-`GET /api/admin/workflows/{id}/runs` lists applications, 20 per page by default and at most 100. `Filter` is `0` for running applications (the default), `1` for those waiting for review and `2` for finished ones; `NodeKey` keeps the applications at that step, which for a finished application is the step it ended on. Running applications come oldest step first, so whoever has waited longest leads; finished ones come most recent first. A row carries the applicant, `state`, the step (`nodeKey`, `formId`, `formTitle`, `sequence`, `round`), `startedAt`, `stepStartedAt`, `deadlineAt` while a timer runs, `completedAt`, and `latestResponse` (`id`, `formId`), the newest answer of the application.
+`GET /api/admin/workflows/{id}/runs` lists applications, 20 per page by default and at most 100. `Filter` is `0` for running applications (the default), `1` for those waiting for review and `2` for finished ones; `NodeKey` keeps the applications at that step, which for a finished application is the step it ended on. Running applications come oldest step first, so whoever has waited longest leads; finished ones come most recent first. `State` keeps the applications in one state of the table below, the same `state` their rows carry, so a client can list who waits for review at a step without paging through the rest. A row carries the applicant, `state`, the step (`nodeKey`, `formId`, `formTitle`, `sequence`, `round`), `startedAt`, `stepStartedAt`, `deadlineAt` while a timer runs, `completedAt`, and `latestResponse` (`id`, `formId`), the newest answer of the application.
 
 | `state` | Meaning |
 |---------|---------|
@@ -337,7 +338,7 @@ Displaying or submitting a refused form returns `410` with `reason`, `stage`, an
 
 The start form checks in a fixed order: steps the user may not open yet, then how a finished application ended, then intake, and only then shows the form. A user who may run the workflow once therefore still sees their outcome after it closes; one who may run it again gets the form with `lastRun` while intake is open (see [Application journey](#application-journey)). Someone whose application the team voided gets the form even while new applications are closed (see [Voided applications](#voided-applications)).
 
-Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change.
+Closing writes nothing to the applications and does not stop review, so answers already waiting can still be approved or declined. An applicant whose step is under review keeps seeing it as under review and is stopped only when the next form would open. Reopening the workflow lets every application continue from the step it reached. Archiving closes a workflow for good: its intake can no longer change, and unlike closing it writes to the applications. One waiting for its applicant to fill a form ends without a result (the run overview shows it as stopped) and the published version's step forms close, so an old link to a later step no longer opens as a standalone form; a timed attempt of such an application closes without a provisional response when its time runs out. One waiting for review stays open: the answer can still be approved or declined, the decision is mailed to the applicant, and the application ends with that decision instead of moving on. Changes can no longer be requested in an archived workflow. Archiving changes the version of every running application first, so a decision racing it gets `409` instead of opening a next step.
 
 ### What the database enforces
 
@@ -351,13 +352,15 @@ These are constraints rather than checks in code, so a race cannot get past them
 | One `Published` and one `Draft` version per workflow | Ambiguity about which definition is live |
 | Unique `(version, source node, trigger, priority)` | Two routes tied at the same priority |
 | One node per form and one start node per version | An answer that belongs to no single step |
-| `xmin` on the application | A lost update when two requests advance the same run |
+| `xmin` on the application, touched by every write to its steps | Two concurrent submissions of one step both saving an answer, and a lost update when two requests advance the same run |
+
+The request that loses such a race gets `409` with the usual envelope instead of a `500`.
 
 > **Order matters when saving.** Closing a step and opening the next one are two saves inside one transaction, because a single save would let the provider write the insert before the update and trip the one-open-step index. The same applies to archiving a published version before promoting a draft.
 
 ### Publishing
 
-`POST /api/admin/workflows/{id}/publish` validates before it promotes anything. A draft that does not validate leaves the live version untouched and returns every finding at once, and a draft may be saved in any state so the editor can work on an unfinished graph.
+`POST /api/admin/workflows/{id}/publish` validates before it promotes anything. A draft that does not validate leaves the live version untouched and returns every finding at once, and a draft may be saved unfinished so the editor can work on it. Saving still refuses what the database would reject: a missing, duplicated or over 64-character step key, one form in two steps, an unknown trigger, and two routes of a trigger tied at one priority.
 
 Publishing refuses a definition that has no start node or more than one, contains a cycle, has a route longer than three forms, leaves a node unreachable, points a route at a node that does not exist, mixes a trigger with the wrong review setting, leaves a conditional group without a default route, ties two routes at one priority, or reads a question the form does not have.
 
@@ -384,7 +387,7 @@ A signed-in respondent's browser uploads a file answer to core itself, as `answe
 
 Forms keeps each link in `AnswerFileLinks` with core's attachment id, which removing the link needs. `AnswerFileLinkWorker` applies them every 10 seconds and retries a failure with a growing delay of up to an hour, so a core outage delays a link but loses none; a file that was linked once stays in core for 30 days after its last link goes. A file core no longer has, one uploaded without a purpose (`legacy`), someone else's, or one the scan rejected is not linked.
 
-On submit Forms reads each file answer from core and refuses one that is not the respondent's `answer_file` (`fileExpired`), whose type or size the question does not allow (`fileTypeNotAllowed`, `fileTooLarge`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). Signed-in respondents can upload PDF, JPEG, PNG and DOCX of at most 50 MiB, narrowed by the question's `acceptedFiles` and `maxSize`; for an image, which core re-encodes, the size checked is the stored one. A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
+On submit Forms refuses a file answer that is not a file id (`fileExpired`), reads each file answer from core and refuses one that is not the respondent's `answer_file` or a legacy file someone else uploaded (`fileExpired`), whose type or size the question does not allow (`fileTypeNotAllowed`, `fileTooLarge`), that is still scanning (`fileScanning`, `409`) or that the scan rejected (`fileRejected`). Signed-in respondents can upload PDF, JPEG, PNG and DOCX of at most 50 MiB, narrowed by the question's `acceptedFiles` and `maxSize`; for an image, which core re-encodes, the size checked is the stored one. A `legacy` file, uploaded before answer files were private, is accepted as before and not linked.
 
 ## Guest uploads and Turnstile
 
@@ -402,7 +405,7 @@ Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTI
 
 ### Flow
 
-1. **Session.** `POST /api/forms/{id}/guest-uploads/sessions` with `{ "turnstileToken": "..." }` returns `{ sessionId, expiresAt }`. A session belongs to one form and lives `FORMS_GUEST_UPLOAD_SESSION_MINUTES`.
+1. **Session.** `POST /api/forms/{id}/guest-uploads/sessions` with `{ "turnstileToken": "..." }` returns `{ sessionId, expiresAt }`. A session belongs to one form and lives six hours.
 2. **Upload.** `POST /api/forms/{id}/guest-uploads` as `multipart/form-data` with `questionId` and `file`, the session in the `X-Guest-Upload-Session` header. Forms checks the question, the size and type, and the counters, uploads the file to core and answers with the media `id` and `status: "scanning"`.
 3. **Scan.** `GET /api/forms/{id}/guest-uploads/{mediaId}` with the same header answers `status` `scanning`, `ready`, `rejected` (with `scanResult`) or `missing` (core no longer has the file).
 4. **Submit.** The answer to a file question is the media id. `POST /api/forms/responses` carries `turnstileToken` and, when it has file answers, `guestUploadSession`. Forms accepts a file only when the session holds it for that question and core reports it clean and unattached. It links the files to the new response id in core **before** saving; if the save fails, it removes those links again, and after a successful save the session forgets the files.
@@ -414,10 +417,10 @@ Guest uploads are **active** only when `FORMS_GUEST_UPLOADS=on` **and** `TURNSTI
 | File size | 50 MiB, or the question's `maxSize` when that is smaller |
 | File types | PDF, JPEG and PNG, narrowed by the question's `acceptedFiles`. Core checks the content again |
 | Request body | 52 MiB, larger bodies get `413` |
-| Files per session | `FORMS_GUEST_UPLOAD_SESSION_MAX_FILES` (10) |
-| Sessions per client address and minute | `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` (30) |
-| Files per client address and minute | `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` (60) |
-| Guest files per form and minute | `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` (200) |
+| Files per session | 10 |
+| Sessions per client address and minute | 30 |
+| Files per client address and minute | 60, also counted before the request body is read, per instance, so a flood is refused without reading its files |
+| Guest files per form and minute | 200 |
 
 The counters run on clock minutes, so `retryAfterSeconds` is at most 60. Short windows let a burst through (an event where everyone uploads at once from one network) and keep anyone over a limit waiting seconds, not an hour. Sessions are counted **before** Turnstile is asked, so a flood of session requests never reaches Cloudflare. A client address counts as itself for IPv4 and as its `/64` for IPv6, and is kept only as a hash. Every guest upload is also charged to the Forms service account's budget in core (100 uploads per 10 minutes and 2 GiB a day by default, shared by all guests; at 50 MiB a file that is about 40 files a day); a refusal there reaches the guest as `tooManyUploads` with core's `retryAfterSeconds`.
 
@@ -427,11 +430,11 @@ Every guest answer is counted per client address and per form, with or without f
 
 | Limit | Verified answer | Answer accepted without verification |
 |-------|-----------------|--------------------------------------|
-| Per client address and minute | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` (300) | `FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE` (20) |
-| Per form and minute | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` (1000) | `FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE` (60) |
-| All forms per minute | none | `FORMS_GUEST_UNVERIFIED_PER_MINUTE` (300) |
+| Per client address and minute | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` (300) | 20 |
+| Per form and minute | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` (1000) | 60 |
+| All forms per minute | none | 300 |
 
-The verified limits are wide because an event's check-in form can get a few hundred answers within a minute from one network. An answer accepted without verification (see [Failure behavior](#failure-behavior)) is counted again against the tight limits, because during an outage nothing else stops a script. Over a limit, the answer is refused with `429` `tooManySubmissions` and `retryAfterSeconds`; the frontend waits and sends it again by itself.
+The verified limits are wide because an event's check-in form can get a few hundred answers within a minute from one network, and they are the only limits a deployment sets; raise them for such an evening. The other limits are constants in `GuestRateLimits`. An answer accepted without verification (see [Failure behavior](#failure-behavior)) is counted again against the tight limits, because during an outage nothing else stops a script. Over a limit, the answer is refused with `429` `tooManySubmissions` and `retryAfterSeconds`; the frontend waits and sends it again by itself.
 
 When Redis cannot be reached, verified answers skip the counters, so a Redis outage does not lose answers, and unverified answers are refused with `503` `submitUnavailable`, because nothing would bound them.
 
@@ -490,7 +493,7 @@ Both follow the rule for viewing the response: a collaborator, `skyforms:*`, or 
 
 ### Client address
 
-`UseForwardedHeaders` runs first in the pipeline and takes `X-Forwarded-For` only from `TRUSTED_PROXY_RANGES`. Production sits behind Traefik on a private overlay network that rewrites the header to a single entry. The address feeds only the counters and Turnstile's `remoteip`; nothing is authorized by it.
+`UseForwardedHeaders` runs first in the pipeline and takes `X-Forwarded-For` only from `ForwardedHeaders:TrustedProxyRanges` (Compose: `TRUSTED_PROXY_RANGES`). Production sits behind Traefik on a private overlay network that rewrites the header to a single entry. The address feeds only the counters and Turnstile's `remoteip`; nothing is authorized by it.
 
 ### Rollout
 
@@ -519,11 +522,13 @@ Secret keys go to Forms (`TURNSTILE_SECRET_KEY`):
 | `2x0000000000000000000000000000000AA` | Always fails |
 | `3x0000000000000000000000000000000AA` | Fails as an already spent token |
 
-Test tokens come back with host name `localhost` and action `test`, so with a test secret Forms skips the host name and action checks and logs a warning at startup. **A test secret must never reach production**: `1x0000000000000000000000000000000AA` accepts any dummy token. Outside the `Development` environment Forms therefore refuses to start with a test secret unless `TURNSTILE_ALLOW_TEST_SECRET=true` is set.
+Test tokens come back with host name `localhost` and action `test`, so with a test secret Forms skips the host name and action checks and logs a warning at startup. **A test secret must never reach production**: `1x0000000000000000000000000000000AA` accepts any dummy token. Outside the `Development` environment Forms therefore refuses to start with a test secret unless `Integrations:Turnstile:AllowTestSecret` is `true`.
 
 > **Invisible mode:** Cloudflare enables the invisible widget only on the condition that the site's privacy policy references the [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/). Add that reference before the frontend switches to an invisible site key.
 
 ## API Endpoints
+
+Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the values they used. Form titles, template titles and workflow names hold at most 100 characters and may not be blank.
 
 ### Forms - Public
 
@@ -540,8 +545,8 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `POST` | `/api/forms/responses/draft` | Save an authenticated user's response draft and keep its file answers linked in core (see [Signed-in answer files](#signed-in-answer-files)); a draft whose answers are all blank (empty text, list or object, `false`) deletes the stored one instead |
 | `GET` | `/api/forms/responses/draft/{formId}` | Get an authenticated user's response draft with its `savedAt`; a stored draft with only blank answers is deleted and answers 404 |
 | `DELETE` | `/api/forms/responses/draft/{formId}` | Delete an authenticated user's response draft |
-| `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata |
-| `GET` | `/api/forms/responses/{id}/meta` | Get shared response metadata |
+| `GET` | `/api/forms/component-groups/{id}/meta` | Get shared component-group metadata; `sharedBy` carries the owner's id, name and photo, never the address |
+| `GET` | `/api/forms/responses/{id}/meta` | Get shared response metadata; `sharedBy` carries the sharer's id, name and photo, never the address |
 
 ### Forms - Admin
 
@@ -552,16 +557,17 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
-| `PUT` | `/api/admin/forms/{id}` | Update a form |
+| `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
-| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them |
-| `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel |
-| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics |
+| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them. A row of a workflow step, answered or still a timed attempt, carries `workflow` with the step's `stage` and the submission's `round` |
+| `GET` | `/api/admin/forms/{id}/responses/{responseId}/page` | The `page` of the list that holds a response, read with the list's own filters, order and page size, so a client that opens a response directly can show its neighbours; `404` when the filters leave it out |
+| `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
+| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish |
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
 | `GET` | `/api/admin/forms/responses/{id}` | Get one response |
@@ -579,18 +585,18 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 | `GET` | `/api/admin/workflows` | List the current user's workflows, paged; accepts `Page`, `PageSize`, `Search`, `SortDirection`, and `ShowArchived`, which must be `true` for archived workflows to appear; each row carries `runs`, see [Tracking applications](#tracking-applications) |
 | `GET` | `/api/admin/workflows/orphaned` | List workflows left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the same parameters |
 | `POST` | `/api/admin/workflows` | Create a workflow with an empty draft |
-| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions and the number of running applications (`activeRunCount`) |
+| `GET` | `/api/admin/workflows/{id}` | Get the workflow with its draft and published versions, the number of running applications (`activeRunCount`), and `canEdit`, which is `true` only for the owner: a service administrator may read a workflow but not change it |
 | `PUT` | `/api/admin/workflows/{id}` | Update name, description, and repeat-run setting |
 | `PUT` | `/api/admin/workflows/{id}/intake` | Set the intake (`0` open, `1` closed to new applications, `2` closed) from a body such as `{ "intake": 1 }` |
-| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole; each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
+| `PUT` | `/api/admin/workflows/{id}/definition` | Replace the draft graph as a whole, refusing what the database would reject (see [Publishing](#publishing)); each node may carry an optional canvas `position` `{ x, y }` that is stored and echoed back untouched, and an optional `requiresManualReview` that falls back to the form's own setting; a graph identical to the published version removes the draft instead of storing a copy |
 | `GET` | `/api/admin/workflows/{id}/available-forms` | Forms usable as steps, with their review setting and a reason when they are not eligible |
 | `GET` | `/api/admin/workflows/available-forms` | The same list before a workflow exists, judged as for a new workflow that runs once, so a client can pick the steps first and create the workflow with them |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
-| `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step and finished ones by result, see [Tracking applications](#tracking-applications) |
-| `GET` | `/api/admin/workflows/{id}/runs` | List applications, paged; accepts `Page`, `PageSize`, `Filter` (`0` running, `1` waiting for review, `2` finished), and `NodeKey` |
-| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good, which stops running applications; a service administrator may archive one left to `Silinmiş kullanıcı` |
+| `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step, finished ones by result and by the step they ended on, and the routes taken, see [Tracking applications](#tracking-applications) |
+| `GET` | `/api/admin/workflows/{id}/runs` | List applications, paged; accepts `Page`, `PageSize`, `Filter` (`0` running, `1` waiting for review, `2` finished), `NodeKey`, and `State` |
+| `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good: applications waiting for their applicant stop, step forms close, answers awaiting review stay reviewable (see [Intake](#intake)); a service administrator may archive one left to `Silinmiş kullanıcı` |
 | `POST` | `/api/admin/workflows/{id}/transfer` | Transfer ownership together with the step forms, see [Ownership transfer](#ownership-transfer) |
 | `POST` | `/api/admin/workflows/runs/{instanceId}/void` | Void an application so the person can start over, see [Voided applications](#voided-applications) |
 
@@ -611,19 +617,27 @@ Test tokens come back with host name `localhost` and action `test`, so with a te
 ## Authentication & Authorization
 
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
-- **Current user:** The user ID and realm/client roles come from the validated token. Client roles are read from `forms` and the legacy `dotnet` client.
-- **External user data:** User details are fetched from core (`Services:Users:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
-- **Service authentication:** SkyMail and core calls use a Keycloak client-credentials token. On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
-- **Authorization:** Role-based rules are enforced in the Application services:
-  - **Owner** - Full control and collaborator management
-  - **Editor** - Edit forms and manage responses
-  - **Viewer** - Read-only access
+- **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts, both looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
+- **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
+- **External user data:** User details are fetched from core (`Integrations:SkylabCore:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
+- **Service authentication:** SkyMail and core calls use a client-credentials token of the service account in `Authentication:ServiceAccount` (a Keycloak client at SKY LAB). On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
+- **Authorization:** What each form role may do is decided in one place, `FormAccess` in the Domain; services ask it instead of comparing roles themselves:
+
+| Action | Viewer | Editor | Owner | Service administrator without a role |
+|---|---|---|---|---|
+| See the form, its answers, files, analytics, exports, mail audience and short link | ✓ | ✓ | ✓ | ✓ |
+| Decide on answers: approve, decline, ask for changes, archive, share; extend, accept or close timed attempts | ✓ | ✓ | ✓ | |
+| Open the form in the editor, manage its short link | | ✓ | ✓ | ✓ |
+| Edit the form, void a workflow application | | ✓ | ✓ | |
+| Delete the form | | | ✓ | |
+
+A **Viewer** is a response viewer: they handle answers but never change the form. A workflow's owner may also void its applications.
 
 ## Ownership transfer
 
 The owner of a form, component group or workflow hands it to another user with `POST …/{id}/transfer` and a body such as `{ "userId": "…" }`. A service administrator (`skyforms:*`) can do the same only for items left to `Silinmiş kullanıcı` by an erased account, never for an active user's items; the `…/orphaned` lists show them.
 
-- The new owner must be an active core user. On a form the previous owner stays as an editor; a `Silinmiş kullanıcı` owner row is removed.
+- The new owner must be an active core user. When the user directory cannot be read (core down or not configured) the transfer answers `503` instead of saying the person does not exist. On a form the previous owner stays as an editor; a `Silinmiş kullanıcı` owner row is removed.
 - A form that is a step of a workflow that is not archived moves only with its workflow (`409`). Transferring a workflow also moves the previous owner's step forms of every version, because publishing requires the workflow owner to own its step forms.
 - A component group's share link is revoked, so it never shows the new owner as the one who shared it.
 - When nobody takes over a workflow left to `Silinmiş kullanıcı`, a service administrator may archive it.
@@ -650,11 +664,26 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Edit `.env` before starting Docker. The local `.env` file is ignored by Git.
+Edit `.env` before starting Docker. The local `.env` file is ignored by Git. Fill in `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`: Compose connects core and SkyMail, and Forms does not start without the service account it calls them with.
 
 ### Running Locally
 
-Provide `CONNECTION_STRING`, `Redis__ConnectionString`, and any required integration configuration through environment variables or an ignored `src/Forms.Api/appsettings.Development.json`.
+The code has no SKY LAB defaults, so a local run needs its settings, in environment variables or in the ignored `src/Forms.Api/appsettings.Development.json`. The minimum, with core and SkyMail off:
+
+```json
+{
+  "ConnectionStrings": { "Forms": "Host=localhost;Port=5432;Database=forms_db;Username=forms;Password=postgres" },
+  "Redis": { "ConnectionString": "localhost:6379,defaultDatabase=1" },
+  "Cors": { "AllowedOrigin": "http://localhost:3000" },
+  "Authentication": {
+    "Issuer": "https://e.yildizskylab.com/realms/e-skylab-sandbox",
+    "Roles": { "Clients": [ "forms", "dotnet" ], "PlatformAdmin": "skyforms:*", "AccountErasure": "skyforms:account:erase" }
+  },
+  "AccountAccessGate": { "Mode": "off" }
+}
+```
+
+To reach core and SkyMail, add `Integrations:SkylabCore:BaseUrl`, `ShortLinks:FormsPublicUrl`, `Integrations:SkyMail:BaseUrl`, the `FormMail` template keys and `Authentication:ServiceAccount`; see [Configuration](#configuration).
 
 ```bash
 # Restore dependencies
@@ -667,7 +696,7 @@ dotnet build src/Forms.sln
 dotnet run --project src/Forms.Api
 ```
 
-Database migrations run automatically on startup. Swagger UI is available at the application's `/swagger` path.
+Database migrations run automatically on startup. In the `Development` environment (the `dotnet run` profiles set it), Swagger UI is available at the application's `/swagger` path; other environments do not serve it.
 
 ### Docker Compose
 
@@ -685,43 +714,40 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 
 ## Configuration
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `CONNECTION_STRING` | PostgreSQL connection string for local/non-Compose execution | Yes |
-| `Redis__ConnectionString` | Redis connection string (logical DB 1 on the shared instance) | No, defaults to `localhost:6379,defaultDatabase=1` |
-| `Authentication__Issuer` (Compose: `AUTH_ISSUER`) | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | No, defaults to `https://e.yildizskylab.com/realms/e-skylab` |
-| `Authentication__Audience` (Compose: `AUTH_AUDIENCE`) | Incoming-token audience | No, defaults to `forms` |
-| `Services__Users__BaseUrl` / `CORE_URL` | Core API Compose DNS URL (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`; guest files under `/v1/media` need `media:attach`) | No, defaults to `http://core:8080` |
-| `Services__SkyMail__BaseUrl` / `SKYMAIL_URL` | SkyMail Compose DNS URL | No, defaults to `http://skymail:3000/v1/` |
-| `ALLOWED_ORIGIN` | CORS allowed origin | No, defaults to `http://localhost:3000` |
-| `KEYCLOAK_TOKEN_URL` | Keycloak token endpoint used by Compose | For SkyMail and core calls |
-| `KEYCLOAK_CLIENT_ID` | Keycloak service client ID | For SkyMail and core calls |
-| `KEYCLOAK_CLIENT_SECRET` | Keycloak service client secret | For SkyMail and core calls |
-| `FORMMAIL_FORM_COPY_TEMPLATE_KEY` | Submitted-form copy template: SkyMail template key; empty turns the mail off. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | No, defaults to `forms.form-copy` |
-| `FORMMAIL_STATUS_CHANGED_TEMPLATE_KEY` | Review status template: SkyMail template key; empty turns the mail off | No, defaults to `forms.status-changed` |
-| `FORMMAIL_PENDING_REMINDER_TEMPLATE_KEY` | Pending response reminder template: SkyMail template key; empty turns the mail off | No, defaults to `forms.pending-reminder` |
-| `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_KEY` | Timed task updates (reminder, extension, expiry, accept, close): SkyMail template key; empty turns these mails off and the team's remind action is refused | No, defaults to `forms.attempt-update` |
-| `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on` (anything else stops startup). Active only together with `TURNSTILE_SECRET_KEY`, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, defaults to `off` |
-| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest submissions are not verified and guest uploads stay off | No |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. An entry with a scheme or port stops startup | No |
-| `FORMS_GUEST_UPLOAD_SESSION_MINUTES` | Guest upload session lifetime in minutes, from 10 to 1440 | No, defaults to `360` |
-| `FORMS_GUEST_UPLOAD_SESSION_MAX_FILES` | Files one guest upload session may upload, from 1 to 100 | No, defaults to `10` |
-| `FORMS_GUEST_UPLOAD_IP_SESSIONS_PER_MINUTE` | Guest upload sessions one client address may open per minute, from 1 to 10000 | No, defaults to `30` |
-| `FORMS_GUEST_UPLOAD_IP_FILES_PER_MINUTE` | Guest files one client address may upload per minute, from 1 to 10000 | No, defaults to `60` |
-| `FORMS_GUEST_UPLOAD_FORM_FILES_PER_MINUTE` | Guest files one form may receive per minute, from 1 to 100000 | No, defaults to `200` |
-| `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, defaults to `300` |
-| `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, defaults to `1000` |
-| `FORMS_GUEST_UNVERIFIED_IP_PER_MINUTE` | Guest answers accepted without verification from one client address per minute, from 1 to 100000 | No, defaults to `20` |
-| `FORMS_GUEST_UNVERIFIED_FORM_PER_MINUTE` | Guest answers accepted without verification for one form per minute, from 1 to 100000 | No, defaults to `60` |
-| `FORMS_GUEST_UNVERIFIED_PER_MINUTE` | Guest answers accepted without verification across all forms per minute, from 1 to 1000000 | No, defaults to `300` |
-| `TURNSTILE_ALLOW_TEST_SECRET` | `true` lets a Cloudflare test secret run outside `Development` | No |
-| `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; an invalid entry stops startup | No, defaults to `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
+Forms reads every setting through .NET configuration: `appsettings.json`, then environment variables, where `__` separates the levels of a key (`Authentication__Issuer` sets `Authentication:Issuer`). Each section is bound to an options class and checked when the service starts, before migrations run, so a missing or invalid value stops startup with the key's name. The code holds no SKY LAB address or name: `docker-compose.yml` holds SKY LAB's values and translates the short variables a deployment sets into these keys.
 
-The guest upload, Turnstile and proxy settings read the environment variable first and then the configuration key: `GuestUploads:Mode`, `GuestUploads:SessionMinutes`, `GuestUploads:SessionMaxFiles`, `GuestUploads:IpSessionsPerHour`, `GuestUploads:IpFilesPerHour`, `GuestUploads:FormFilesPerHour`, `Turnstile:SecretKey`, `Turnstile:AllowedHostnames` and `ForwardedHeaders:TrustedProxyRanges`. A number outside its range stops startup even while guest uploads are off.
+A provider whose address is not set is off, and Forms logs at startup what that turns off. Without core there are no people's names, answer files or short links; without SkyMail there is no mail; without a Turnstile secret guest answers are not checked and guest uploads stay off. Forms, its answers and workflows work either way.
+
+| Setting | Compose variable | Description | Required |
+|---|---|---|---|
+| `ConnectionStrings:Forms` | `FORMS_DB_PASSWORD` | PostgreSQL connection string; Compose builds it for `postgres:5432` | Yes |
+| `Redis:ConnectionString` | | Redis connection string; Compose uses logical DB 1 on the shared instance | Yes |
+| `Authentication:Issuer` | `AUTH_ISSUER` | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | Yes; Compose defaults to the production realm |
+| `Authentication:Audience` | `AUTH_AUDIENCE` | Incoming-token audience | `appsettings.json` sets `forms` |
+| `Authentication:Roles:Clients`, `:PlatformAdmin`, `:AccountErasure` | | Provider roles that grant Forms permissions, see [Authentication & Authorization](#authentication--authorization) | No, then nobody holds a permission; Compose sets SKY LAB's roles |
+| `Authentication:ServiceAccount:TokenUrl`, `:ClientId`, `:ClientSecret` | `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Client-credentials account for calls to core and SkyMail; `:Scope` defaults to `openid` | While core or SkyMail is set |
+| `Cors:AllowedOrigin` | `ALLOWED_ORIGIN` | Origin of the frontend, like `https://forms.example.org`, without a path; empty allows no cross-origin call | No |
+| `ForwardedHeaders:TrustedProxyRanges` | `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; empty trusts none | No; Compose trusts `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
+| `AccountAccessGate:*` | `ACCOUNT_ACCESS_*` | See [Account access gate](#account-access-gate) | `Mode` is |
+| `Integrations:SkylabCore:BaseUrl` | `CORE_URL` | Core API (`GET /v1/users/:id`, Bearer `aud=core` + `users:read`; guest files under `/v1/media` need `media:attach`) | No, core is off; Compose uses `http://core:8080` |
+| `ShortLinks:FormsPublicUrl` | `FORMS_PUBLIC_URL` | Public address of the forms site; a form's short link points to `{FormsPublicUrl}/{formId}` | While core is set; Compose uses `https://forms.yildizskylab.com` |
+| `Integrations:SkyMail:BaseUrl` | `SKYMAIL_URL` | SkyMail API | No, mail is off; Compose uses `http://skymail:3000/v1/` |
+| `FormMail:FormCopyTemplateKey` | `FORMMAIL_FORM_COPY_TEMPLATE_KEY` | Submitted-form copy: SkyMail template key; empty turns the mail off. A guest's unverified address gets one copy per form and at most `FormMail:GuestCopyDailyLimit` (default 3) a day, counting `+tag` and Gmail dot variants as one inbox | No; Compose uses `forms.form-copy` |
+| `FormMail:StatusChangedTemplateKey` | `FORMMAIL_STATUS_CHANGED_TEMPLATE_KEY` | Review status mail; empty turns it off | No; Compose uses `forms.status-changed` |
+| `FormMail:PendingReminderTemplateKey` | `FORMMAIL_PENDING_REMINDER_TEMPLATE_KEY` | Pending response reminder; empty turns it off | No; Compose uses `forms.pending-reminder` |
+| `FormMail:AttemptUpdateTemplateKey` | `FORMMAIL_ATTEMPT_UPDATE_TEMPLATE_KEY` | Timed task updates (reminder, extension, expiry, accept, close); empty turns them off and the team's remind action is refused | No; Compose uses `forms.attempt-update` |
+| `Integrations:Turnstile:SecretKey` | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret. Empty turns Turnstile off: guest answers are not checked and guest uploads stay off | No |
+| `Integrations:Turnstile:AllowedHostnames` | `TURNSTILE_ALLOWED_HOSTNAMES` | Comma-separated host names a Turnstile token must come from; empty skips the check. While a secret is set, an entry with a scheme or port stops startup | No |
+| `Integrations:Turnstile:AllowTestSecret` | | `true` lets a Cloudflare test secret run outside `Development` | No |
+| `GuestUploads:Mode` | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on`. Active only together with a Turnstile secret, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, `off` |
+| `GuestUploads:IpSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, `300` |
+| `GuestUploads:FormSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, `1000` |
+
+FormMail template keys without a mail provider stop startup, since the mails they name could never be sent.
 
 Database access uses an automatic retry strategy with five retries and a maximum ten-second delay.
 
-Token validation fails closed when the issuer's discovery document or JWKS cannot be loaded, so the container must reach `${Authentication__Issuer}/.well-known/openid-configuration`.
+Token validation fails closed when the issuer's discovery document or JWKS cannot be loaded, so the container must reach `${Authentication:Issuer}/.well-known/openid-configuration`.
 
 ## Database Migrations
 
@@ -730,6 +756,8 @@ dotnet ef migrations add MigrationName \
   --project src/Forms.Infrastructure \
   --startup-project src/Forms.Api
 ```
+
+Adding a migration needs no settings: `dotnet ef` builds the DbContext from `DesignTimeFormsDbContextFactory` without opening a database. The service applies pending migrations itself at startup.
 
 ## Validation
 

@@ -1,4 +1,5 @@
 using Skylab.Forms.Application.Contracts.Identity;
+using Skylab.Forms.Domain.Enums;
 
 namespace Skylab.Forms.Application.Contracts.Workflows;
 
@@ -19,7 +20,8 @@ public record WorkflowRunOverviewContract(
     int ActiveRunCount,
     int AwaitingReviewCount,
     List<WorkflowRunStepContract> Steps,
-    WorkflowRunFinishedContract Finished
+    WorkflowRunFinishedContract Finished,
+    List<WorkflowRunRouteContract> Routes
 );
 
 public record WorkflowRunStepContract(
@@ -34,7 +36,8 @@ public record WorkflowRunStepContract(
     int AwaitingReview,
     int AwaitingApplicant,
     int TimerRunning,
-    int RevisionRequested
+    int RevisionRequested,
+    WorkflowRunFinishedContract Finished
 );
 
 public record WorkflowRunFinishedContract(
@@ -43,6 +46,13 @@ public record WorkflowRunFinishedContract(
     int TimedOut,
     int Voided,
     int Stopped
+);
+
+public record WorkflowRunRouteContract(
+    string SourceNodeKey,
+    WorkflowTransitionTrigger Trigger,
+    string? TargetNodeKey,
+    int Count
 );
 
 public record WorkflowRunContract(

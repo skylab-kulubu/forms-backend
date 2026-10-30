@@ -64,7 +64,15 @@ public class FormResponseConfiguration : IEntityTypeConfiguration<FormResponse>
 
         builder.HasOne(fr => fr.Form).WithMany(f => f.Responses).HasForeignKey(fr => fr.FormId).OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasIndex(fr => fr.FormId);
+
+        builder.HasIndex(fr => new { fr.FormId, fr.UserId })
+            .IsUnique()
+            .HasFilter("\"IsSingleResponse\" AND NOT \"IsArchived\"")
+            .HasDatabaseName("IX_Responses_SingleResponse");
+
         builder.HasQueryFilter(fr => fr.Form.Status != FormStatus.Deleted);
 
+        builder.Property<uint>("xmin").IsRowVersion();
     }
 }

@@ -32,16 +32,36 @@ public sealed class FormsUnitOfWork : IFormsUnitOfWork
         // Bağlantı yeniden deneme ile yapılandırıldığı için kullanıcı tarafından
         // başlatılan transaction execution strategy üzerinden açılmak zorunda.
         var strategy = _context.Database.CreateExecutionStrategy();
+        Exception? unsafeToRetry = null;
 
         return strategy.ExecuteAsync(async token =>
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync(token);
+            if (unsafeToRetry is not null)
+                throw new InvalidOperationException("Transaction değişikliklerini kaydettikten sonra düştü; commit edilmiş olabilir, güvenle yeniden denenemez.", unsafeToRetry);
 
-            var result = await operation(token);
+            var saves = 0;
+            void Count(object? sender, SavedChangesEventArgs e) => saves++;
+            _context.SavedChanges += Count;
 
-            await transaction.CommitAsync(token);
+            try
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync(token);
 
-            return result;
+                var result = await operation(token);
+
+                await transaction.CommitAsync(token);
+
+                return result;
+            }
+            catch (Exception ex) when (saves > 0)
+            {
+                unsafeToRetry = ex;
+                throw;
+            }
+            finally
+            {
+                _context.SavedChanges -= Count;
+            }
         }, ct);
     }
 }

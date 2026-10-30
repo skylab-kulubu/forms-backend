@@ -16,30 +16,33 @@ public class FormWorkflowService : IFormWorkflowService
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormsUnitOfWork _uow;
-    private readonly IExternalUserService _userService;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly IUserDirectory _userService;
+    private readonly ICurrentUser _currentUser;
     private readonly IFormWorkflowRuntime _runtime;
     private readonly IFormMailNotifier _mailNotifier;
     private readonly IFormWorkflowRunService _runs;
+    private readonly TimeProvider _time;
 
     public FormWorkflowService(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
         IFormsUnitOfWork uow,
-        IExternalUserService userService,
-        ICurrentUserService currentUserService,
+        IUserDirectory userService,
+        ICurrentUser currentUser,
         IFormWorkflowRuntime runtime,
         IFormMailNotifier mailNotifier,
-        IFormWorkflowRunService runs)
+        IFormWorkflowRunService runs,
+        TimeProvider time)
     {
         _workflows = workflows;
         _instances = instances;
         _uow = uow;
         _userService = userService;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _runtime = runtime;
         _mailNotifier = mailNotifier;
         _runs = runs;
+        _time = time;
     }
 
     public async Task<ServiceResult<WorkflowContract>> CreateAsync(
@@ -47,8 +50,8 @@ public class FormWorkflowService : IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akış adı boş olamaz.");
+        if (NameError(request.Name) is { } error)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: error);
 
         var workflow = new FormWorkflow
         {
@@ -64,7 +67,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<WorkflowContract>> UpdateAsync(
@@ -77,8 +80,8 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow is null) return NotFound<WorkflowContract>();
         if (workflow.OwnerUserId != userId) return NotOwner<WorkflowContract>();
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akış adı boş olamaz.");
+        if (NameError(request.Name) is { } error)
+            return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: error);
 
         if (request.AllowMultipleRuns && !workflow.AllowMultipleRuns && await HasTimedStepAsync(workflowId, cancellationToken))
             return new ServiceResult<WorkflowContract>(ServiceStatus.NotAcceptable, Message: "Akışta kişisel süreli bir form var; tekrar başlatma açılamaz.");
@@ -89,7 +92,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<WorkflowContract>> UpdateIntakeScheduleAsync(
@@ -109,7 +112,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     private async Task<bool> HasTimedStepAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -149,7 +152,7 @@ public class FormWorkflowService : IFormWorkflowService
 
         await _uow.SaveChangesAsync(cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<WorkflowContract>> GetAsync(
@@ -160,10 +163,10 @@ public class FormWorkflowService : IFormWorkflowService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<WorkflowContract>();
 
-        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken))
+        if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return NotOwner<WorkflowContract>();
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<PagedResult<WorkflowSummaryContract>>> GetOwnedAsync(
@@ -211,7 +214,7 @@ public class FormWorkflowService : IFormWorkflowService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return NotFound<List<WorkflowVersionSummaryContract>>();
 
-        if (workflow.OwnerUserId != userId && !await IsPlatformAdminAsync(cancellationToken))
+        if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return NotOwner<List<WorkflowVersionSummaryContract>>();
 
         var versions = await _workflows.GetVersionsAsync(workflowId, cancellationToken);
@@ -282,7 +285,7 @@ public class FormWorkflowService : IFormWorkflowService
                 await _uow.SaveChangesAsync(cancellationToken);
             }
 
-            return await BuildContractAsync(workflow, cancellationToken);
+            return await BuildContractAsync(workflow, userId, cancellationToken);
         }
 
         if (isNewDraft) _workflows.Add(draft);
@@ -304,7 +307,7 @@ public class FormWorkflowService : IFormWorkflowService
             return true;
         }, cancellationToken);
 
-        return await BuildContractAsync(workflow, cancellationToken);
+        return await BuildContractAsync(workflow, userId, cancellationToken);
     }
 
     public async Task<ServiceResult<List<WorkflowAvailableFormContract>>> GetAvailableFormsAsync(
@@ -443,7 +446,7 @@ public class FormWorkflowService : IFormWorkflowService
             }
 
             draft.Status = WorkflowStatus.Published;
-            draft.PublishedAt = DateTime.UtcNow;
+            draft.PublishedAt = _time.GetUtcNow().UtcDateTime;
             workflow.Status = WorkflowStatus.Published;
 
             await _uow.SaveChangesAsync(token);
@@ -466,15 +469,23 @@ public class FormWorkflowService : IFormWorkflowService
         if (workflow is null) return NotFound<bool>();
 
         // Silinmiş kullanıcıya kalan akışı devralan olmazsa platform admini arşivleyebilir.
-        var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && await IsPlatformAdminAsync(cancellationToken);
+        var adminMayArchive = workflow.OwnerUserId == DeletedUser.Id && _currentUser.IsPlatformAdmin;
         if (workflow.OwnerUserId != userId && !adminMayArchive) return NotOwner<bool>();
 
-        workflow.Status = WorkflowStatus.Archived;
-        workflow.Intake = WorkflowIntake.Closed;
+        var now = _time.GetUtcNow().UtcDateTime;
 
-        await _uow.SaveChangesAsync(cancellationToken);
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            await _instances.TouchActiveRunsAsync(workflow.Id, now, token);
 
-        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular durduruldu.");
+            await _instances.StopRunsAwaitingApplicantAsync(workflow.Id, now, token);
+            await _workflows.CloseStepFormsAsync(workflow.Id, now, token);
+            await _workflows.ArchiveAsync(workflow.Id, now, token);
+
+            return true;
+        }, cancellationToken);
+
+        return new ServiceResult<bool>(ServiceStatus.Success, true, "Akış arşivlendi; devam eden başvurular durduruldu ve adım formları kapatıldı.");
     }
 
     /// <summary>
@@ -536,13 +547,16 @@ public class FormWorkflowService : IFormWorkflowService
     {
         var nodes = new List<FormWorkflowNode>();
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenForms = new HashSet<Guid>();
 
         foreach (var node in request.Nodes)
         {
             var key = node.NodeKey?.Trim() ?? string.Empty;
 
             if (key.Length == 0) return ([], [], "Her adımın bir anahtarı olmalıdır.");
+            if (key.Length > WorkflowLimits.MaxNodeKeyLength) return ([], [], $"Adım anahtarı en fazla {WorkflowLimits.MaxNodeKeyLength} karakter olabilir.");
             if (!seenKeys.Add(key)) return ([], [], $"'{key}' adım anahtarı birden fazla kez kullanılmış.");
+            if (!seenForms.Add(node.FormId)) return ([], [], "Aynı form akışta birden fazla adımda kullanılamaz.");
 
             nodes.Add(new FormWorkflowNode
             {
@@ -559,11 +573,18 @@ public class FormWorkflowService : IFormWorkflowService
 
         var nodesByKey = nodes.ToDictionary(node => node.NodeKey, StringComparer.OrdinalIgnoreCase);
         var transitions = new List<FormWorkflowTransition>();
+        var priorities = new HashSet<(Guid, WorkflowTransitionTrigger, int)>();
 
         foreach (var transition in request.Transitions)
         {
             if (!nodesByKey.TryGetValue(transition.SourceNodeKey?.Trim() ?? string.Empty, out var source))
                 return ([], [], $"'{transition.SourceNodeKey}' adımı akışta bulunmuyor.");
+
+            if (!Enum.IsDefined(transition.Trigger))
+                return ([], [], $"'{source.NodeKey}' adımına bilinmeyen bir tetikle yönlendirme gönderildi.");
+
+            if (!priorities.Add((source.Id, transition.Trigger, transition.Priority)))
+                return ([], [], $"'{source.NodeKey}' adımında aynı tetik için iki yönlendirme aynı önceliği paylaşıyor.");
 
             FormWorkflowNode? target = null;
             var targetKey = transition.TargetNodeKey?.Trim();
@@ -621,7 +642,7 @@ public class FormWorkflowService : IFormWorkflowService
 
     private sealed record TransitionShape(string Source, string? Target, WorkflowTransitionTrigger Trigger, int Priority, string Condition);
 
-    private async Task<ServiceResult<WorkflowContract>> BuildContractAsync(FormWorkflow workflow, CancellationToken cancellationToken)
+    private async Task<ServiceResult<WorkflowContract>> BuildContractAsync(FormWorkflow workflow, Guid userId, CancellationToken cancellationToken)
     {
         var draft = await _workflows.GetVersionAsync(workflow.Id, WorkflowStatus.Draft, cancellationToken);
         var published = await _workflows.GetVersionAsync(workflow.Id, WorkflowStatus.Published, cancellationToken);
@@ -654,6 +675,7 @@ public class FormWorkflowService : IFormWorkflowService
             workflow.Intake,
             await _instances.CountActiveAsync(workflow.Id, cancellationToken),
             owner,
+            workflow.OwnerUserId == userId,
             ToVersionContract(draft, headers),
             ToVersionContract(published, headers),
             validation,
@@ -720,7 +742,11 @@ public class FormWorkflowService : IFormWorkflowService
         if (note?.Length > FormWorkflowInstance.VoidNoteMaxLength)
             return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: $"Not en fazla {FormWorkflowInstance.VoidNoteMaxLength} karakter olabilir.");
 
-        if (!await _instances.CanManageRunAsync(instanceId, userId, cancellationToken))
+        var access = await _instances.GetRunAccessAsync(instanceId, userId, cancellationToken);
+        var allowed = access is { IsWorkflowOwner: true }
+            || access?.StepFormRoles.Any(role => FormAccess.Allows(role, _currentUser.IsPlatformAdmin, FormAction.VoidApplication)) == true;
+
+        if (!allowed)
             return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu başvuruyu yeniden açma yetkiniz yok.");
 
         var voided = await _runtime.VoidAsync(instanceId, userId, note, cancellationToken);
@@ -735,10 +761,12 @@ public class FormWorkflowService : IFormWorkflowService
             voided.Data.WasActive ? "Başvuru baştan başlatıldı." : "Adaya yeniden başvuru hakkı verildi.");
     }
 
-    private Task<bool> IsPlatformAdminAsync(CancellationToken cancellationToken) =>
-        _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken);
-
     private static ServiceResult<T> NotFound<T>() => new(ServiceStatus.NotFound, Message: "Akış bulunamadı.");
 
     private static ServiceResult<T> NotOwner<T>() => new(ServiceStatus.NotAuthorized, Message: "Bu akış üzerinde yetkiniz yok.");
+
+    private static string? NameError(string? name) =>
+        string.IsNullOrWhiteSpace(name) ? "Akış adı boş olamaz."
+        : name.Trim().Length > FormWorkflow.NameMaxLength ? $"Akış adı en fazla {FormWorkflow.NameMaxLength} karakter olabilir."
+        : null;
 }

@@ -69,13 +69,20 @@ src/
 ├── Forms.Domain/                          # Entities, enums, domain models and rules
 │   └── Workflows/                         # Graph validation, condition and route resolution
 ├── Forms.Infrastructure/                  # Technical adapters and persistence
-│   ├── Auth/                              # Current-user, external-user, Keycloak adapters
+│   ├── Auth/                              # Current user and Forms permissions
 │   ├── Caching/                           # Redis implementation
 │   ├── Exports/                           # ClosedXML implementation
-│   ├── Mail/                              # SkyMail client, queue, and background workers
+│   ├── Integrations/                      # One folder per external provider, each with its AddXxx
+│   │   ├── SkylabCore/                    # People, answer files, short links, account gate
+│   │   ├── SkyMail/                       # Mail and mail audiences
+│   │   ├── Cloudflare/                    # Turnstile bot check
+│   │   └── Oidc/                          # Provider roles, service account token
+│   ├── Mail/                              # Mail outbox dispatch and the reminder worker
 │   ├── Migrations/                        # EF Core migrations
+│   ├── Outbox/                            # Messages delivered after the change that caused them, one dispatcher
+│   ├── Scheduling/                        # Base for periodic workers and the retry backoff
 │   ├── Storage/                           # DbContext, configurations, repositories
-│   └── DependencyInjection.cs             # Infrastructure registration
+│   └── DependencyInjection.cs             # Registration of Forms' own infrastructure
 └── Forms.sln
 ```
 
@@ -210,7 +217,7 @@ public sealed class FormDocumentService : IFormDocumentService
 }
 ```
 
-Register the implementation in `src/Forms.Infrastructure/DependencyInjection.cs`.
+Register the implementation in `src/Forms.Infrastructure/DependencyInjection.cs`. An adapter for an external provider goes under `Integrations/<Provider>/` instead: it is `internal`, keeps the provider's wire types private, and is registered by that provider's `AddXxx`, which `Program.cs` calls. A second provider for the same port is a new folder, not a change to the first.
 
 ### Step 7 - Update Persistence
 
@@ -255,16 +262,15 @@ Keep endpoints transport-focused:
 ```csharp
 group.MapPut("/{id:guid}", async (
     Guid id,
-    FormUpsertRequest request,
-    IFormService service,
-    ICurrentUserService currentUser,
-    CancellationToken cancellationToken) =>
+    [FromBody] FormUpsertRequest request,
+    IFormAuthoring service,
+    ICurrentUser user,
+    CancellationToken ct) =>
 {
-    var userId = await currentUser.GetUserIdAsync(cancellationToken);
-    if (userId is null)
-        return ServiceStatus.Unauthorized.ToApiResult();
+    // The admin route group requires a signed-in user, so the id is always there.
+    var userId = user.SignedInId();
 
-    var result = await service.UpdateFormAsync(id, request, userId.Value, cancellationToken);
+    var result = await service.UpdateFormAsync(id, request, userId, ct);
     return result.ToApiResult();
 });
 ```
@@ -274,7 +280,7 @@ Do not place business rules or direct DbContext access in endpoint files.
 ### Step 9 - Register Services
 
 - Register use-case services in `Forms.Application/DependencyInjection.cs`.
-- Register adapters, repositories, clients, and workers in `Forms.Infrastructure/DependencyInjection.cs`.
+- Register repositories, workers and Forms' own adapters in `Forms.Infrastructure/DependencyInjection.cs`, and a provider's adapters in its `Integrations/<Provider>/` registration.
 - Avoid growing `Forms.Api/Program.cs` with individual service registrations.
 
 ### Step 10 - Validate
@@ -323,8 +329,8 @@ about where the code lives and what the rules are when you change it.
 | Tracking: counts per step, the application list | `Forms.Application/Services/Workflows/FormWorkflowRunService.cs` | Repository ports |
 | Queries and persistence | `Forms.Infrastructure/Storage/Repositories/FormWorkflow*Repository.cs` | EF Core |
 
-**Routing decisions belong to the runtime.** `FormService` and
-`FormResponseService` ask it what to do and map the answer onto their contracts;
+**Routing decisions belong to the runtime.** `RespondentFormView` and
+`ResponseSubmission` ask it what to do and map the answer onto their contracts;
 neither decides a route itself. When the runtime reports `NotInWorkflow`, the
 caller falls back to the standalone form path.
 
@@ -377,8 +383,8 @@ caller falls back to the standalone form path.
 | Entity | PascalCase, singular | `Form`, `FormResponse` |
 | Request contract | PascalCase + `Request` suffix | `FormUpsertRequest` |
 | Response/read contract | PascalCase + `Contract` suffix | `FormContract` |
-| Service interface | `I` + PascalCase + `Service` | `IFormService` |
-| Service implementation | PascalCase + `Service` | `FormService` |
+| Application service | PascalCase, named for its job | `FormAuthoring`, `ResponseQueries` |
+| Service interface | `I` + the service name | `IFormAuthoring` |
 | Endpoint groups | kebab-case, plural | `/api/admin/forms` |
 
 ### Key Rules
@@ -388,7 +394,7 @@ caller falls back to the standalone form path.
 - Soft delete is preferred where historical Forms data must be retained.
 - JSONB is used for flexible form and response schema data.
 - Entity configurations belong in separate `IEntityTypeConfiguration<T>` classes.
-- Authorization rules belong in Application services, using `ICurrentUserService` where required.
+- Authorization rules belong in Application services: they ask `FormAccess` (Domain) with the role from the form and `ICurrentUser.IsPlatformAdmin`.
 - Admin endpoints live under `/api/admin/forms` and `/api/admin/workflows`; public endpoints live under `/api/forms`.
 - Never swallow `OperationCanceledException`.
 - Do not expose Infrastructure response models through Application contracts.

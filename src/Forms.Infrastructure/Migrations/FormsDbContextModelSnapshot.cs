@@ -266,6 +266,9 @@ namespace Forms.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsSingleResponse")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("PendingReminderSentAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -294,11 +297,22 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("FormId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("FormId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Responses_SingleResponse")
+                        .HasFilter("\"IsSingleResponse\" AND NOT \"IsArchived\"");
 
                     b.HasIndex("Status", "IsArchived", "PendingReminderSentAt");
 
@@ -639,7 +653,7 @@ namespace Forms.Infrastructure.Migrations
                     b.ToTable("AnswerFileLinks", (string)null);
                 });
 
-            modelBuilder.Entity("Skylab.Forms.Infrastructure.ResponseNotifications.ResponseNotification", b =>
+            modelBuilder.Entity("Skylab.Forms.Infrastructure.Outbox.OutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -651,9 +665,6 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("FormId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime>("NextAttemptAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -661,11 +672,16 @@ namespace Forms.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("NextAttemptAt");
 
-                    b.ToTable("ResponseNotifications", (string)null);
+                    b.ToTable("OutboxMessages", (string)null);
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.Form", b =>

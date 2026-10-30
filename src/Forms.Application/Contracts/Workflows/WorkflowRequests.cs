@@ -30,7 +30,8 @@ public record GetWorkflowRunsRequest(
     int Page = 1,
     int PageSize = 20,
     WorkflowRunFilter Filter = WorkflowRunFilter.Active,
-    string? NodeKey = null
+    string? NodeKey = null,
+    WorkflowRunState? State = null
 );
 
 /// <param name="Intake">Boş gelen istek reddedilir; eksik bir alan akışı sessizce yeniden açmasın.</param>

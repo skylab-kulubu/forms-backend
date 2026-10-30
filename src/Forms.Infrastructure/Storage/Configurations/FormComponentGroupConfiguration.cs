@@ -15,7 +15,7 @@ public class FormComponentGroupConfiguration : IEntityTypeConfiguration<Componen
 
         builder.HasKey(cg => cg.Id);
 
-        builder.Property(cg => cg.Title).IsRequired().HasMaxLength(100);
+        builder.Property(cg => cg.Title).IsRequired().HasMaxLength(ComponentGroup.TitleMaxLength);
         builder.Property(cg => cg.ArchivedAt).IsRequired(false);
         builder.Property(cg => cg.ArchivedBy).IsRequired(false);
 

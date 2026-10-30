@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Skylab.Forms.Application.Common;
@@ -16,16 +15,15 @@ namespace Skylab.Forms.Application.Services;
 
 public class FormMailNotifier : IFormMailNotifier
 {
-    private static readonly CultureInfo Culture = new("tr-TR");
     private static readonly TimeSpan GuestCopyWindow = TimeSpan.FromDays(1);
 
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
     private readonly IMailDispatcher _dispatcher;
     private readonly FormMailOptions _options;
     private readonly IFormResponseRepository _responses;
     private readonly ICacheService _cache;
 
-    public FormMailNotifier(IExternalUserService userService, IMailDispatcher dispatcher, FormMailOptions options, IFormResponseRepository responses, ICacheService cache)
+    public FormMailNotifier(IUserDirectory userService, IMailDispatcher dispatcher, FormMailOptions options, IFormResponseRepository responses, ICacheService cache)
     {
         _userService = userService;
         _dispatcher = dispatcher;
@@ -53,11 +51,11 @@ public class FormMailNotifier : IFormMailNotifier
         var variables = new Dictionary<string, object>(MailNames.Of(recipient))
         {
             ["formTitle"] = form.Title,
-            ["submittedAt"] = ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["submittedAt"] = ClubTime.ToLocal(response.SubmittedAt).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture),
             ["answers"] = answers
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.FormCopyTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        await _dispatcher.EnqueueAsync(new EmailMessage(_options.FormCopyTemplateKey, recipient.Email, MailNames.Full(recipient), variables), ct);
     }
 
     public async Task NotifyStatusChangedAsync(Form form, FormResponse response, Guid? nextFormId = null, CancellationToken ct = default)
@@ -85,7 +83,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (response.ReviewedAt.HasValue)
-            variables["reviewedAt"] = ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["reviewedAt"] = ClubTime.ToLocal(response.ReviewedAt.Value).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture);
 
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
@@ -93,7 +91,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (response.ReturnedQuestionIds is { Count: > 0 } flagged)
             variables["questionCount"] = flagged.Count;
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        await _dispatcher.EnqueueAsync(new EmailMessage(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables), ct);
     }
 
     public async Task NotifyRunReopenedAsync(WorkflowRunVoided voided, CancellationToken ct = default)
@@ -108,11 +106,11 @@ public class FormMailNotifier : IFormMailNotifier
             ["formTitle"] = voided.WorkflowName,
             ["status"] = "reopened",
             ["reviewNote"] = voided.Note ?? string.Empty,
-            ["reviewedAt"] = ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", Culture),
+            ["reviewedAt"] = ClubTime.ToLocal(voided.VoidedAt).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture),
             ["nextFormId"] = voided.StartFormId.ToString()
         };
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        await _dispatcher.EnqueueAsync(new EmailMessage(_options.StatusChangedTemplateKey, recipient.Email, MailNames.Full(recipient), variables), ct);
     }
 
     public bool CanNotifyAttempts => !string.IsNullOrEmpty(_options.AttemptUpdateTemplateKey);
@@ -132,7 +130,7 @@ public class FormMailNotifier : IFormMailNotifier
         };
 
         if (deadlineAt.HasValue)
-            variables["deadlineAt"] = ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", Culture);
+            variables["deadlineAt"] = ClubTime.ToLocal(deadlineAt.Value).ToString("dd MMMM yyyy, HH:mm", ClubTime.Culture);
 
         if (minutes.HasValue)
         {
@@ -143,7 +141,7 @@ public class FormMailNotifier : IFormMailNotifier
         if (nextFormId.HasValue)
             variables["nextFormId"] = nextFormId.Value.ToString();
 
-        _dispatcher.Enqueue(new SingleMailRequest(_options.AttemptUpdateTemplateKey, recipient.Email, MailNames.Full(recipient), variables));
+        await _dispatcher.EnqueueAsync(new EmailMessage(_options.AttemptUpdateTemplateKey, recipient.Email, MailNames.Full(recipient), variables), ct);
     }
 
     /// <summary>Misafirin hesabı yok; mail formda yazdığı adrese gider.</summary>
@@ -191,22 +189,5 @@ public class FormMailNotifier : IFormMailNotifier
 
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{local}@{domain}")));
         return $"mail:guest-copies:{hash}";
-    }
-
-    private static readonly TimeZoneInfo Istanbul = ResolveIstanbul();
-
-    private static DateTime ToLocal(DateTime utc) =>
-        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), Istanbul);
-
-    private static TimeZoneInfo ResolveIstanbul()
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul");
-        }
-        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
-            return TimeZoneInfo.CreateCustomTimeZone("Europe/Istanbul", TimeSpan.FromHours(3), "Türkiye", "Türkiye");
-        }
     }
 }

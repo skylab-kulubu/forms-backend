@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.GuestUploads;
+using Skylab.Forms.Infrastructure.Caching;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure.GuestUploads;
@@ -12,27 +13,19 @@ public sealed class RedisGuestUploadStore : IGuestUploadStore
     private static readonly TimeSpan MinimumLifetime = TimeSpan.FromSeconds(1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private const string IncrementScript = """
-        local count = redis.call('INCR', KEYS[1])
-        if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
-        return count
-        """;
-
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<RedisGuestUploadStore> _logger;
+    private readonly TimeProvider _time;
 
-    public RedisGuestUploadStore(IConnectionMultiplexer redis, ILogger<RedisGuestUploadStore> logger)
+    public RedisGuestUploadStore(IConnectionMultiplexer redis, TimeProvider time, ILogger<RedisGuestUploadStore> logger)
     {
         _redis = redis;
+        _time = time;
         _logger = logger;
     }
 
-    public async Task<long> CountAsync(string key, TimeSpan window, CancellationToken ct = default)
-    {
-        var milliseconds = Math.Max(1L, (long)window.TotalMilliseconds);
-        var count = await RunAsync("count", database => database.ScriptEvaluateAsync(IncrementScript, [key], [milliseconds]), ct);
-        return (long)count;
-    }
+    public Task<long> CountAsync(string key, TimeSpan window, CancellationToken ct = default) =>
+        RunAsync("count", database => RedisCounter.IncrementAsync(database, key, window), ct);
 
     public Task SaveSessionAsync(GuestUploadSession session, CancellationToken ct = default) =>
         SetAsync("save-session", GuestUploadKeys.Session(session.Id), session, session.ExpiresAt, ct);
@@ -56,7 +49,7 @@ public sealed class RedisGuestUploadStore : IGuestUploadStore
 
     private async Task SetAsync<T>(string operation, string key, T value, DateTime expiresAt, CancellationToken ct)
     {
-        var lifetime = expiresAt - DateTime.UtcNow;
+        var lifetime = expiresAt - _time.GetUtcNow().UtcDateTime;
         var json = JsonSerializer.Serialize(value, Json);
 
         await RunAsync(operation, database => database.StringSetAsync(key, json, lifetime > MinimumLifetime ? lifetime : MinimumLifetime), ct);

@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
@@ -18,18 +19,23 @@ public class ComponentGroupService : IComponentGroupService
     private readonly IComponentGroupRepository _groups;
     private readonly IFormsUnitOfWork _uow;
     private readonly ICacheService _cache;
-    private readonly IExternalUserService _userService;
+    private readonly IUserDirectory _userService;
+    private readonly TimeProvider _time;
 
-    public ComponentGroupService(IComponentGroupRepository groups, IFormsUnitOfWork uow, ICacheService cache, IExternalUserService userService)
+    public ComponentGroupService(IComponentGroupRepository groups, IFormsUnitOfWork uow, ICacheService cache, IUserDirectory userService, TimeProvider time)
     {
         _groups = groups;
         _uow = uow;
         _cache = cache;
         _userService = userService;
+        _time = time;
     }
 
     public async Task<ServiceResult<ComponentGroupContract>> CreateGroupAsync(ComponentGroupUpsertRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
+        if (TitleError(request.Title) is { } error)
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAcceptable, Message: error);
+
         var newGroup = new ComponentGroup
         {
             Id = Guid.NewGuid(),
@@ -54,6 +60,9 @@ public class ComponentGroupService : IComponentGroupService
 
         if (existingGroup.OwnedBy != userId)
             return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAuthorized, Message: "Bu şablonu düzenleme yetkiniz yok.");
+
+        if (TitleError(request.Title) is { } error)
+            return new ServiceResult<ComponentGroupContract>(ServiceStatus.NotAcceptable, Message: error);
 
         existingGroup.Title = request.Title;
         existingGroup.Description = request.Description;
@@ -99,7 +108,7 @@ public class ComponentGroupService : IComponentGroupService
 
         await RevokeShareTokenAsync(id, cancellationToken);
 
-        group.ArchivedAt = DateTime.UtcNow;
+        group.ArchivedAt = _time.GetUtcNow().UtcDateTime;
         group.ArchivedBy = userId;
         await _uow.SaveChangesAsync(cancellationToken);
 
@@ -119,7 +128,7 @@ public class ComponentGroupService : IComponentGroupService
         var existingToken = await _cache.GetAsync<string>(GroupKeyPrefix + groupId, ct: cancellationToken);
         var token = existingToken ?? GenerateToken();
 
-        var expiresAt = DateTime.UtcNow.Add(ShareTokenLifetime);
+        var expiresAt = _time.GetUtcNow().UtcDateTime.Add(ShareTokenLifetime);
 
         await _cache.SetAsync(TokenKeyPrefix + token, groupId, ShareTokenLifetime, cancellationToken);
         await _cache.SetAsync(GroupKeyPrefix + groupId, token, ShareTokenLifetime, cancellationToken);
@@ -141,7 +150,7 @@ public class ComponentGroupService : IComponentGroupService
 
         return new ServiceResult<ComponentGroupMetaContract>(
             ServiceStatus.Success,
-            Data: new ComponentGroupMetaContract(group.Title, group.Description, sharedBy)
+            Data: new ComponentGroupMetaContract(group.Title, group.Description, PublicUserContract.From(sharedBy))
         );
     }
 
@@ -188,12 +197,13 @@ public class ComponentGroupService : IComponentGroupService
         await _cache.RemoveAsync(GroupKeyPrefix + groupId, cancellationToken);
     }
 
-    private static string GenerateToken()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-    }
+    private static string GenerateToken() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 
     private static ComponentGroupContract MapToContract(ComponentGroup group, UserContract? sharedBy = null) =>
         new(group.Id, group.Title, group.Description, group.Schema, sharedBy);
+
+    private static string? TitleError(string? title) =>
+        string.IsNullOrWhiteSpace(title) ? "Şablon adı boş olamaz."
+        : title.Length > ComponentGroup.TitleMaxLength ? $"Şablon adı en fazla {ComponentGroup.TitleMaxLength} karakter olabilir."
+        : null;
 }

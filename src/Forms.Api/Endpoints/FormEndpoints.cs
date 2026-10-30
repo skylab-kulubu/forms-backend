@@ -1,7 +1,10 @@
+using Skylab.Forms.Api.Auth;
 using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Api.Extensions;
 using Skylab.Forms.Application.Common;
+using Skylab.Forms.Application.Services.Forms;
+using Skylab.Forms.Application.Services.Responses;
 using Microsoft.AspNetCore.Mvc;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.Draft;
@@ -23,7 +26,7 @@ public static class FormEndpoints
         group.MapGet("/guest-uploads", (IGuestUploadService service) =>
             new ServiceResult<GuestUploadsContract?>(ServiceStatus.Success, service.Capability).ToApiResult());
 
-        group.MapGet("/turnstile", async (ITurnstileVerifier verifier, CancellationToken ct) =>
+        group.MapGet("/turnstile", async (IHumanVerifier verifier, CancellationToken ct) =>
         {
             var status = new TurnstileStatusContract(verifier.IsEnabled, verifier.IsEnabled && await verifier.IsReachableAsync(ct));
             return new ServiceResult<TurnstileStatusContract>(ServiceStatus.Success, status).ToApiResult();
@@ -44,6 +47,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         })
         .DisableAntiforgery()
+        .RequireRateLimiting(GuestUploadRateLimit.Policy)
         .WithMetadata(new RequestSizeLimitAttribute(GuestUploadRequestLimit));
 
         group.MapGet("/{id:guid}/guest-uploads/{mediaId:guid}", async (Guid id, Guid mediaId, [FromHeader(Name = GuestUploadSessionHeader)] string? sessionId, IGuestUploadService service, CancellationToken ct) =>
@@ -52,67 +56,65 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}", async (Guid id, IFormService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, IRespondentFormView service, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             var result = await service.GetDisplayFormByIdAsync(id, userId, ct);
 
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/meta", async (Guid id, IFormService service, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/meta", async (Guid id, IRespondentFormView service, CancellationToken ct) =>
         {
             var result = await service.GetFormMetaByIdAsync(id, ct);
 
             return result.ToApiResult();
         });
 
-        group.MapPost("/{id:guid}/attempt", async (Guid id, IFormAttemptService service, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/attempt", async (Guid id, IFormAttemptService service, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult("Görevi başlatmak için giriş yapmalısınız.");
+            var userId = user.SignedInId();
 
-            var result = await service.StartAsync(id, userId.Value, ct);
+            var result = await service.StartAsync(id, userId, ct);
             return result.ToApiResult();
-        });
+        }).RequireAuthorization();
 
-        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IFormResponseService service, ICurrentUserService userService, HttpContext httpContext, CancellationToken ct) =>
+        group.MapPost("/responses", async ([FromBody] ResponseSubmitRequest request, IResponseSubmission service, ICurrentUser user, HttpContext httpContext, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
+            var userId = user.Id;
             var result = await service.SubmitResponseAsync(request, userId, httpContext.Connection.RemoteIpAddress, ct);
 
             if (result.Status == ServiceStatus.Success || result.Status == ServiceStatus.PendingApproval)
-                return Results.Created($"/api/forms/responses/{result.Data?.ResponseId}", result);
+                return result.Data?.ResponseId is { } responseId
+                    ? result.ToCreatedResult(httpContext, FormAdminEndpoints.ResponseRoute, new { id = responseId })
+                    : Results.Created((string?)null, result);
 
             return result.ToApiResult();
         });
 
-        group.MapPost("/responses/draft", async ([FromBody] ResponseDraftRequest request, IFormDraftService draftService, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapPost("/responses/draft", async ([FromBody] ResponseDraftRequest request, IFormDraftService draftService, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult();
+            var userId = user.SignedInId();
 
-            var result = await draftService.SaveResponseDraftAsync(request.FormId, userId.Value, request, ct);
+            var result = await draftService.SaveResponseDraftAsync(request.FormId, userId, request, ct);
             return result.ToApiResult();
-        });
+        }).RequireAuthorization();
 
-        group.MapGet("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapGet("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult();
+            var userId = user.SignedInId();
 
-            var result = await draftService.GetResponseDraftAsync(formId, userId.Value, ct);
+            var result = await draftService.GetResponseDraftAsync(formId, userId, ct);
             return result.ToApiResult();
-        });
+        }).RequireAuthorization();
 
-        group.MapDelete("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUserService userService, CancellationToken ct) =>
+        group.MapDelete("/responses/draft/{formId:guid}", async (Guid formId, IFormDraftService draftService, ICurrentUser user, CancellationToken ct) =>
         {
-            var userId = await userService.GetUserIdAsync(ct);
-            if (userId == null) return ServiceStatus.Unauthorized.ToApiResult();
+            var userId = user.SignedInId();
 
-            var result = await draftService.DeleteResponseDraftAsync(formId, userId.Value, ct);
+            var result = await draftService.DeleteResponseDraftAsync(formId, userId, ct);
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
-        });
+        }).RequireAuthorization();
 
         group.MapGet("/component-groups/{id:guid}/meta", async (Guid id, [FromQuery] string token, IComponentGroupService service, CancellationToken ct) =>
         {
@@ -120,7 +122,7 @@ public static class FormEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/responses/{id:guid}/meta", async (Guid id, [FromQuery] string token, IFormResponseService service, CancellationToken ct) =>
+        group.MapGet("/responses/{id:guid}/meta", async (Guid id, [FromQuery] string token, IResponseShareLinks service, CancellationToken ct) =>
         {
             var result = await service.GetResponseMetaAsync(id, token, ct);
             return result.ToApiResult();

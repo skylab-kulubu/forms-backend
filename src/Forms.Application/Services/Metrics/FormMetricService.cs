@@ -4,6 +4,7 @@ using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts.Metrics;
+using Skylab.Forms.Domain.Entities;
 
 namespace Skylab.Forms.Application.Services;
 
@@ -20,17 +21,19 @@ public class FormMetricService : IFormMetricService
 
     private readonly IFormRepository _forms;
     private readonly IFormMetricsRepository _metrics;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly ICurrentUser _currentUser;
     private readonly ICacheService _cache;
-    private readonly ICoreShortLinks _links;
+    private readonly IShortLinkProvider _links;
+    private readonly TimeProvider _time;
 
-    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUserService currentUserService, ICacheService cache, ICoreShortLinks links)
+    public FormMetricService(IFormRepository forms, IFormMetricsRepository metrics, ICurrentUser currentUser, ICacheService cache, IShortLinkProvider links, TimeProvider time)
     {
         _forms = forms;
         _metrics = metrics;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
         _cache = cache;
         _links = links;
+        _time = time;
     }
 
     public async Task<ServiceResult<FormAnswerAnalyticsContract>> GetAnswerAnalyticsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
@@ -38,8 +41,7 @@ public class FormMetricService : IFormMetricService
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken)
-            && !await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken))
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
         var cacheKey = FormCacheKeys.Analytics(formId);
@@ -52,7 +54,7 @@ public class FormMetricService : IFormMetricService
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
         var responses = await _metrics.GetNonArchivedResponseDataAsync(formId, cancellationToken);
-        var analytics = AnswerAnalyticsBuilder.Build(form, responses);
+        var analytics = AnswerAnalyticsBuilder.Build(form, responses, _time.GetUtcNow().UtcDateTime);
 
         await _cache.TrySetAsync(cacheKey, analytics, AnalyticsCacheTtl, cancellationToken);
 
@@ -64,18 +66,16 @@ public class FormMetricService : IFormMetricService
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var isAuthorized = await _forms.IsUserCollaboratorAsync(formId, userId, cancellationToken);
-        if (!isAuthorized && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, cancellationToken), _currentUser.IsPlatformAdmin, FormAction.ViewResponses))
             return new ServiceResult<FormMetricsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun metriklerini görüntüleme yetkiniz yok.");
 
+        var utcNow = _time.GetUtcNow().UtcDateTime;
         var basicStats = await _metrics.GetFormBasicStatsAsync(formId, cancellationToken);
-        var channels = await BuildChannelsAsync(formId, cancellationToken);
+        var channels = await BuildChannelsAsync(formId, utcNow, cancellationToken);
 
-        var emptyDailyTrend = Enumerable.Range(0, 7).Select(offset =>
-        {
-            var targetDate = DateTime.UtcNow.AddDays(-6 + offset).Date;
-            return new TrendItemContract($"d-{offset}", targetDate.ToString("ddd"), 0);
-        }).ToList();
+        var now = ClubTime.ToLocal(utcNow);
+        var firstDay = now.Date.AddDays(-6);
+        var firstHour = now.Date.AddHours(now.Hour - 23);
 
         if (basicStats == null)
         {
@@ -88,41 +88,27 @@ public class FormMetricService : IFormMetricService
                 DailyTrendPercentage: 0,
                 HourlyTrendPercentage: 0,
                 SourceBreakdown: new SourceBreakdownContract(0, 0),
-                DailyTrend: emptyDailyTrend,
+                DailyTrend: DailyTrend(firstDay, []),
                 HourlyTrend: new List<TrendItemContract>(),
                 Channels: channels
             );
             return new ServiceResult<FormMetricsContract>(ServiceStatus.Success, Data: emptyMetrics);
         }
 
-        var now = DateTime.UtcNow;
-        var sevenDaysAgo = now.AddDays(-7).Date;
-        var dailyData = await _metrics.GetDailyResponseCountsAsync(formId, sevenDaysAgo, cancellationToken);
+        var submitted = (await _metrics.GetSubmittedTimesAsync(formId, ClubTime.ToUtc(firstDay), cancellationToken))
+            .Select(ClubTime.ToLocal)
+            .ToList();
 
-        var dailyTrend = Enumerable.Range(0, 7).Select(offset =>
-        {
-            var targetDate = sevenDaysAgo.AddDays(offset + 1);
-            var data = dailyData.FirstOrDefault(d => d.Date == targetDate.Date);
-
-            return new TrendItemContract(
-                $"d-{offset}",
-                targetDate.ToString("ddd"),
-                data?.Count ?? 0
-            );
-        }).ToList();
-
-        var twentyFourHoursAgo = now.AddHours(-24);
-        var hourlyDataRaw = await _metrics.GetHourlyResponseCountsAsync(formId, twentyFourHoursAgo, cancellationToken);
+        var dailyTrend = DailyTrend(firstDay, submitted);
 
         var hourlyTrend = Enumerable.Range(0, 24).Select(offset =>
         {
-            var targetDateTime = twentyFourHoursAgo.AddHours(offset + 1);
-            var data = hourlyDataRaw.FirstOrDefault(d => d.Date == targetDateTime.Date && d.Hour == targetDateTime.Hour);
+            var hour = firstHour.AddHours(offset);
 
             return new TrendItemContract(
-                $"h-{targetDateTime.Hour}",
-                targetDateTime.ToString("HH:00"),
-                data?.Count ?? 0
+                $"h-{hour.Hour}",
+                hour.ToString("HH:00", ClubTime.Culture),
+                submitted.Count(at => at >= hour && at < hour.AddHours(1))
             );
         }).ToList();
 
@@ -143,13 +129,20 @@ public class FormMetricService : IFormMetricService
         return new ServiceResult<FormMetricsContract>(ServiceStatus.Success, Data: result);
     }
 
+    private static List<TrendItemContract> DailyTrend(DateTime firstDay, IReadOnlyCollection<DateTime> submitted) =>
+        Enumerable.Range(0, 7).Select(offset =>
+        {
+            var day = firstDay.AddDays(offset);
+            return new TrendItemContract($"d-{offset}", day.ToString("ddd", ClubTime.Culture), submitted.Count(at => at.Date == day));
+        }).ToList();
+
     /// <summary>
     /// Kanal başına yanıt (forms) ve tıklama (core) sayısı. Etiketsiz satırın kaynağı null ve
     /// sonda durur; core'a ulaşılamazsa tıklamalar null döner, yanıtlar yine gelir.
     /// </summary>
-    private async Task<List<ChannelMetricContract>> BuildChannelsAsync(Guid formId, CancellationToken cancellationToken)
+    private async Task<List<ChannelMetricContract>> BuildChannelsAsync(Guid formId, DateTime now, CancellationToken cancellationToken)
     {
-        var since = DateTime.UtcNow.AddDays(-ChannelWindowDays);
+        var since = now.AddDays(-ChannelWindowDays);
         var responses = await _metrics.GetResponseSourceCountsAsync(formId, since, cancellationToken);
         var stats = await GetLinkStatsAsync(formId, cancellationToken);
 
@@ -180,10 +173,10 @@ public class FormMetricService : IFormMetricService
             .ToList();
     }
 
-    private async Task<CoreLinkStats?> GetLinkStatsAsync(Guid formId, CancellationToken cancellationToken)
+    private async Task<ShortLinkStats?> GetLinkStatsAsync(Guid formId, CancellationToken cancellationToken)
     {
         var cacheKey = FormCacheKeys.LinkStats(formId);
-        var cached = await _cache.TryGetAsync<CoreLinkStats>(cacheKey, cancellationToken);
+        var cached = await _cache.TryGetAsync<ShortLinkStats>(cacheKey, cancellationToken);
         if (cached != null) return cached;
 
         var stats = await _links.GetStatsAsync(formId, cancellationToken);
@@ -197,15 +190,15 @@ public class FormMetricService : IFormMetricService
         var totalResponses = await _metrics.GetTotalResponsesCountAsync(cancellationToken);
         var pendingResponses = await _metrics.GetPendingNonArchivedResponsesCountAsync(cancellationToken);
 
-        var today = DateTime.UtcNow.Date;
+        var today = ClubTime.ToLocal(_time.GetUtcNow().UtcDateTime).Date;
         var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
         var currentWeekStart = today.AddDays(-1 * diff).Date;
 
         var weeksToFetch = 8;
         var startDate = currentWeekStart.AddDays(-(weeksToFetch - 1) * 7);
 
-        var formDates = await _metrics.GetFormCreatedDatesAsync(startDate, cancellationToken);
-        var responseDates = await _metrics.GetResponseSubmittedDatesAsync(startDate, cancellationToken);
+        var formDates = (await _metrics.GetFormCreatedDatesAsync(ClubTime.ToUtc(startDate), cancellationToken)).Select(ClubTime.ToLocal).ToList();
+        var responseDates = (await _metrics.GetResponseSubmittedDatesAsync(ClubTime.ToUtc(startDate), cancellationToken)).Select(ClubTime.ToLocal).ToList();
 
         var formsWeeklyTrend = new List<TrendItemContract>();
         var responsesWeeklyTrend = new List<TrendItemContract>();
@@ -215,7 +208,7 @@ public class FormMetricService : IFormMetricService
             var weekStart = currentWeekStart.AddDays(-i * 7);
             var weekEnd = weekStart.AddDays(7);
 
-            var weekLabel = $"{weekStart:dd MMM}";
+            var weekLabel = weekStart.ToString("dd MMM", ClubTime.Culture);
 
             var formCount = formDates.Count(d => d >= weekStart && d < weekEnd);
             var responseCount = responseDates.Count(d => d >= weekStart && d < weekEnd);

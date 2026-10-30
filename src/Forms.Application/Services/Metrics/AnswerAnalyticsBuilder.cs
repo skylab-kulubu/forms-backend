@@ -26,7 +26,7 @@ public static class AnswerAnalyticsBuilder
         ["repeater"] = AnalyticsKind.Repeater,
     };
 
-    public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyList<List<FormResponseSchemaItem>> responses)
+    public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyList<List<FormResponseSchemaItem>> responses, DateTime generatedAt)
     {
         var total = responses.Count;
 
@@ -52,7 +52,7 @@ public static class AnswerAnalyticsBuilder
 
         var questions = form.Schema.Select(schemaItem => BuildQuestion(schemaItem, answersById, embeddedTextById, total)).ToList();
 
-        return new FormAnswerAnalyticsContract(form.Id, total, DateTime.UtcNow, questions);
+        return new FormAnswerAnalyticsContract(form.Id, total, generatedAt, questions);
     }
 
     private static QuestionAnalyticsContract BuildQuestion(
@@ -68,6 +68,7 @@ public static class AnswerAnalyticsBuilder
         var answered = raw.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a!.Trim()).ToList();
         var answeredCount = answered.Count;
         var skippedCount = total - answeredCount;
+        var askedCount = raw.Count;
 
         List<AnswerBucketContract>? distribution = null;
         NumericSummaryContract? numeric = null;
@@ -109,7 +110,7 @@ public static class AnswerAnalyticsBuilder
 
         return new QuestionAnalyticsContract(
             schemaItem.Id, text, schemaItem.Type ?? "", kind, aggregatable,
-            answeredCount, skippedCount, distribution, numeric, dateRange, rows);
+            answeredCount, skippedCount, askedCount, distribution, numeric, dateRange, rows);
     }
 
     private static string ResolveQuestionText(FormSchemaItem schemaItem, Dictionary<string, string> embeddedTextById)

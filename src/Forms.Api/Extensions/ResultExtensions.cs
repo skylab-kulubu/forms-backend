@@ -19,6 +19,7 @@ public static class ResultExtensions
             ServiceStatus.Conflict => (409, "Bu kayıt başka bir yerde kullanılıyor."),
             ServiceStatus.NotAvailable => (410, "Kayıt artık mevcut değil."),
             ServiceStatus.TooManyRequests => (429, "Çok fazla istek gönderildi. Biraz sonra tekrar deneyin."),
+            ServiceStatus.UnexpectedError => (500, "Beklenmeyen bir hata oluştu. Biraz sonra tekrar deneyin."),
             ServiceStatus.ServiceUnavailable => (503, "Bağlı servis şu an yanıt vermiyor."),
             ServiceStatus.Unauthorized => (401, "Giriş yapmalısınız."),
             ServiceStatus.NotAuthorized => (403, "Bu işlem için yetkiniz yok."),
@@ -32,6 +33,9 @@ public static class ResultExtensions
 
         return Results.Json(body, statusCode: statusCode);
     }
+
+    public static IResult ToCreatedResult<T>(this ServiceResult<T> result, HttpContext context, string routeName, object routeValues) =>
+        Results.Created(context.RequestServices.GetRequiredService<LinkGenerator>().GetPathByName(context, routeName, routeValues), result);
 
     public static IResult ToApiResult(this ServiceStatus status, string? message = null)
     {

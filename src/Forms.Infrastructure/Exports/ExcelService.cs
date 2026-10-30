@@ -1,46 +1,57 @@
 using Skylab.Forms.Application.Abstractions;
 using ClosedXML.Excel;
-using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Exports;
 
 namespace Skylab.Forms.Infrastructure.Exports;
 
 public class ExcelService : IExcelService
 {
-    public ServiceResult<byte[]> GenerateExcel(ExcelExportRequest request)
+    private const int MaxSheetNameLength = 31;
+    private const int MaxCellLength = 32_767;
+    private const string FallbackSheetName = "Yanıtlar";
+    private static readonly char[] ForbiddenSheetNameCharacters = [':', '\\', '/', '?', '*', '[', ']'];
+
+    public byte[] GenerateExcel(ExcelExportRequest request)
     {
-        try
+        using var workbook = new XLWorkbook();
+
+        var worksheet = workbook.Worksheets.Add(SheetName(request.SheetName));
+
+        for (int i = 0; i < request.Headers.Count; i++)
         {
-            using var workbook = new XLWorkbook();
-
-            var sheetName = string.IsNullOrWhiteSpace(request.SheetName) ? "Skylab_Excel_Dosyasi" : request.SheetName;
-            var worksheet = workbook.Worksheets.Add(sheetName);
-
-            for (int i = 0; i < request.Headers.Count; i++)
-            {
-                var cell = worksheet.Cell(1, i + 1);
-                cell.Value = request.Headers[i];
-                cell.Style.Font.Bold = true;
-            }
-
-            for (int r = 0; r < request.Rows.Count; r++)
-            {
-                for (int c = 0; c < request.Rows[r].Count; c++)
-                {
-                    worksheet.Cell(r + 2, c + 1).Value = request.Rows[r][c];
-                }
-            }
-
-            worksheet.Columns().AdjustToContents();
-
-            using var stream = new MemoryStream();
-            workbook.SaveAs(stream);
-
-            return new ServiceResult<byte[]>(ServiceStatus.Success, Data: stream.ToArray());
+            var cell = worksheet.Cell(1, i + 1);
+            cell.Value = request.Headers[i];
+            cell.Style.Font.Bold = true;
         }
-        catch (Exception ex)
+
+        for (int r = 0; r < request.Rows.Count; r++)
         {
-            return new ServiceResult<byte[]>(ServiceStatus.NotAcceptable, Message: $"Excel dosyası oluşturulamadı: {ex.Message}");
+            for (int c = 0; c < request.Rows[r].Count; c++)
+            {
+                worksheet.Cell(r + 2, c + 1).Value = CellText(request.Rows[r][c]);
+            }
         }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+
+        return stream.ToArray();
     }
+
+    private static string SheetName(string? title)
+    {
+        var name = string.Concat((title ?? string.Empty).Select(ch => ForbiddenSheetNameCharacters.Contains(ch) ? '-' : ch)).Trim().Trim('\'');
+
+        if (name.Length > MaxSheetNameLength) name = Cut(name, MaxSheetNameLength).TrimEnd().TrimEnd('\'');
+
+        return name.Length == 0 || name.Equals("History", StringComparison.OrdinalIgnoreCase) ? FallbackSheetName : name;
+    }
+
+    private static string CellText(string value) =>
+        value.Length <= MaxCellLength ? value : Cut(value, MaxCellLength - 1) + "…";
+
+    private static string Cut(string value, int length) =>
+        char.IsHighSurrogate(value[length - 1]) ? value[..(length - 1)] : value[..length];
 }

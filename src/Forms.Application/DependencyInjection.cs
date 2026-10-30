@@ -1,9 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Skylab.Forms.Application.Services;
 using Skylab.Forms.Application.Services.AccountErasure;
+using Skylab.Forms.Application.Services.Forms;
 using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
+using Skylab.Forms.Application.Services.Mail;
 using Skylab.Forms.Application.Services.Ownership;
+using Skylab.Forms.Application.Services.Responses;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Application.Services.Workflows;
 
@@ -13,8 +17,17 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        services.AddScoped<IFormService, FormService>();
-        services.AddScoped<IFormResponseService, FormResponseService>();
+        services.TryAddSingleton(TimeProvider.System);
+
+        services.AddScoped<IFormAuthoring, FormAuthoring>();
+        services.AddScoped<IFormCatalog, FormCatalog>();
+        services.AddScoped<IRespondentFormView, RespondentFormView>();
+        services.AddScoped<IResponseSubmission, ResponseSubmission>();
+        services.AddScoped<IResponseQueries, ResponseQueries>();
+        services.AddScoped<IResponseFiles, ResponseFiles>();
+        services.AddScoped<IResponseReview, ResponseReview>();
+        services.AddScoped<IResponseExports, ResponseExports>();
+        services.AddScoped<IResponseShareLinks, ResponseShareLinks>();
         services.AddScoped<IFormMetricService, FormMetricService>();
         services.AddScoped<IFormDraftService, FormDraftService>();
         services.AddScoped<IComponentGroupService, ComponentGroupService>();
@@ -23,8 +36,12 @@ public static class DependencyInjection
         services.AddScoped<IFormWorkflowService, FormWorkflowService>();
         services.AddScoped<IFormWorkflowRunService, FormWorkflowRunService>();
         services.AddScoped<IFormMailNotifier, FormMailNotifier>();
+        services.AddScoped<IPendingResponseReminder, PendingResponseReminder>();
         services.AddScoped<IFormShortLinkService, FormShortLinkService>();
         services.AddScoped<IFormAttemptService, FormAttemptService>();
+        services.AddScoped<IAttemptExpiry, AttemptExpiry>();
+        services.AddScoped<IAttemptDecisions, AttemptDecisions>();
+        services.AddScoped<IAttemptReadModels, AttemptReadModels>();
         services.AddScoped<IGuestUploadService, GuestUploadService>();
         services.AddScoped<IAccountErasureService, AccountErasureService>();
 

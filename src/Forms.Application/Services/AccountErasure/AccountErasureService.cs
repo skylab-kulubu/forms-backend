@@ -11,12 +11,14 @@ public class AccountErasureService : IAccountErasureService
     private readonly IAccountErasureRepository _erasures;
     private readonly IFormsUnitOfWork _uow;
     private readonly ICacheService _cache;
+    private readonly TimeProvider _time;
 
-    public AccountErasureService(IAccountErasureRepository erasures, IFormsUnitOfWork uow, ICacheService cache)
+    public AccountErasureService(IAccountErasureRepository erasures, IFormsUnitOfWork uow, ICacheService cache, TimeProvider time)
     {
         _erasures = erasures;
         _uow = uow;
         _cache = cache;
+        _time = time;
     }
 
     public async Task<Dictionary<string, long>> EraseAsync(AccountErasureCommand command, CancellationToken ct = default)
@@ -44,7 +46,7 @@ public class AccountErasureService : IAccountErasureService
             // sahip olmaz.
             ["collaborators_deleted"] = await _erasures.RemoveCollaboratorsAsync(userId, token),
             ["form_owners_replaced"] = await _erasures.ReplaceOwnersAsync(userId, DeletedUser.Id, token),
-            ["workflow_runs_cancelled"] = await _erasures.CloseWorkflowRunsAsync(userId, DateTime.UtcNow, token),
+            ["workflow_runs_cancelled"] = await _erasures.CloseWorkflowRunsAsync(userId, _time.GetUtcNow().UtcDateTime, token),
             ["workflow_runs_detached"] = await _erasures.DetachWorkflowRunsAsync(userId, DeletedUser.Id, token),
             ["answer_file_links_deleted"] = await _erasures.DeleteAnswerFileLinksAsync(userId, token),
             ["notifications_cleared"] = await _erasures.ClearNotificationsAsync(userId, emails, token),

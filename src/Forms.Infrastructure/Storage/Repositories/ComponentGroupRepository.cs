@@ -34,13 +34,15 @@ public sealed class ComponentGroupRepository : IComponentGroupRepository
 
         var totalCount = await query.CountAsync(ct);
 
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+
         var groups = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(g => new ComponentGroupContract(g.Id, g.Title, g.Description, g.Schema, null))
             .ToListAsync(ct);
 
-        return new PagedResult<ComponentGroupContract>(groups, totalCount, request.Page, request.PageSize);
+        return new PagedResult<ComponentGroupContract>(groups, totalCount, page, pageSize);
     }
 
     public void Add(ComponentGroup group) => _context.ComponentGroups.Add(group);

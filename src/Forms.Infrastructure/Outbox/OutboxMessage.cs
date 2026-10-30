@@ -1,0 +1,35 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Skylab.Forms.Infrastructure.Outbox;
+
+public class OutboxMessage
+{
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
+
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Type { get; set; } = string.Empty;
+    public string Payload { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public int Attempts { get; set; }
+    public DateTime NextAttemptAt { get; set; }
+
+    internal string? Source { get; init; }
+
+    public static OutboxMessage Of<T>(string type, T payload, DateTime now) => Of(type, payload, now, null);
+
+    internal static OutboxMessage Of<T>(string type, T payload, DateTime now, string? source) => new()
+    {
+        Type = type,
+        Payload = JsonSerializer.Serialize(payload, Json),
+        CreatedAt = now,
+        NextAttemptAt = now,
+        Source = source
+    };
+}
+
+public static class OutboxTypes
+{
+    public const string ResponseStatusChanged = "response.status-changed";
+    public const string Mail = "mail.send";
+}

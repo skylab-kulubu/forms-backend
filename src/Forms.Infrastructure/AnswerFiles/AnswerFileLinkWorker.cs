@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Services;
+using Skylab.Forms.Infrastructure.Scheduling;
 using Skylab.Forms.Infrastructure.Storage;
 
 namespace Skylab.Forms.Infrastructure.AnswerFiles;
@@ -14,66 +14,32 @@ namespace Skylab.Forms.Infrastructure.AnswerFiles;
 /// vermeden gider. Core aynı bağı yeniden istemeye var olanla cevap verdiği için yarıda kalan adım
 /// güvenle yeniden denenir.
 /// </summary>
-public class AnswerFileLinkWorker : BackgroundService
+public class AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, IDistributedLock locks, TimeProvider time, ILogger<AnswerFileLinkWorker> logger)
+    : ScheduledWorker(locks, logger)
 {
-    private const string LockKey = "forms:answer-file-links:lock";
     private const int BatchSize = 20;
-    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
-    // Core yanıt vermezse bir satır iki çağrıda 30 sn, bir tur 10 dk sürer; kilit ondan uzun tutulur ki iki örnek aynı satırları işlemesin.
-    private static readonly TimeSpan LockTtl = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan DraftCheckInterval = TimeSpan.FromDays(1);
-    private static readonly TimeSpan MaxBackoff = TimeSpan.FromHours(1);
 
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ICacheService _cache;
-    private readonly ILogger<AnswerFileLinkWorker> _logger;
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+    private readonly TimeProvider _time = time;
+    private readonly ILogger<AnswerFileLinkWorker> _logger = logger;
 
-    public AnswerFileLinkWorker(IServiceScopeFactory scopeFactory, ICacheService cache, ILogger<AnswerFileLinkWorker> logger)
-    {
-        _scopeFactory = scopeFactory;
-        _cache = cache;
-        _logger = logger;
-    }
+    protected override string LockKey => "forms:answer-file-links:lock";
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(Interval);
+    protected override TimeSpan Interval => TimeSpan.FromSeconds(10);
 
-        do
-        {
-            try
-            {
-                if (await _cache.AcquireLockAsync(LockKey, LockTtl, stoppingToken))
-                {
-                    try
-                    {
-                        await ProcessDueAsync(stoppingToken);
-                    }
-                    finally
-                    {
-                        await _cache.ReleaseLockAsync(LockKey, CancellationToken.None);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Cevap dosyası bağlarının taraması başarısız");
-            }
-        }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
-    }
+    // Core yanıt vermezse bir satır iki çağrıda 30 sn, bir tur 10 dk sürer; kilit ondan uzun tutulur ki iki örnek aynı satırları işlemesin.
+    protected override TimeSpan LockTtl => TimeSpan.FromMinutes(15);
 
-    private async Task ProcessDueAsync(CancellationToken ct)
+    protected override bool ReleasesLock => true;
+
+    protected override async Task RunAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FormsDbContext>();
-        var media = scope.ServiceProvider.GetRequiredService<ICoreMedia>();
+        var files = scope.ServiceProvider.GetRequiredService<IAnswerFileStore>();
         var drafts = scope.ServiceProvider.GetRequiredService<IFormDraftService>();
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         var due = await db.AnswerFileLinks.AsNoTracking()
             .Where(l => l.NextAttemptAt <= now)
@@ -88,10 +54,10 @@ public class AnswerFileLinkWorker : BackgroundService
                 switch (link.State)
                 {
                     case AnswerFileLinkState.Linking:
-                        await LinkAsync(db, media, link, ct);
+                        await LinkAsync(db, files, link, ct);
                         break;
                     case AnswerFileLinkState.Unlinking:
-                        await UnlinkAsync(db, media, link, ct);
+                        await UnlinkAsync(db, files, link, ct);
                         break;
                     default:
                         await CheckDraftAsync(db, drafts, link, ct);
@@ -107,34 +73,34 @@ public class AnswerFileLinkWorker : BackgroundService
         }
     }
 
-    private async Task LinkAsync(FormsDbContext db, ICoreMedia media, AnswerFileLink link, CancellationToken ct)
+    private async Task LinkAsync(FormsDbContext db, IAnswerFileStore files, AnswerFileLink link, CancellationToken ct)
     {
-        var read = await media.GetAsync(link.MediaId, ct);
-        if (read.Outcome == CoreMediaOutcome.NotFound)
+        var read = await files.FindAsync(link.MediaId, ct);
+        if (read.Outcome == FileStoreOutcome.NotFound)
         {
             await DropAsync(db, link, ct);
             return;
         }
 
-        if (read.Outcome != CoreMediaOutcome.Ok || read.Media is not { } file)
+        if (read.Outcome != FileStoreOutcome.Ok || read.File is not { } file)
         {
             await RetryAsync(db, link, ct);
             return;
         }
 
         // Legacy dosya eskisi gibi bağlanmaz; başkasının ya da taramada reddedilmiş dosya hiç bağlanmaz.
-        if (!string.Equals(file.Purpose, CoreMediaPurpose.AnswerFile, StringComparison.Ordinal)
+        if (file.Origin != FileOrigin.SignedInAnswer
             || file.UploadedBy != link.UserId
-            || file.Status == CoreMediaStatus.Rejected)
+            || file.State == FileState.Rejected)
         {
             await DropAsync(db, link, ct);
             return;
         }
 
-        var attach = await media.AttachAsync(link.MediaId, link.Owner(), link.UserId, ct);
-        if (attach is { Outcome: CoreMediaOutcome.Ok, AttachmentId: { } attachmentId })
+        var attach = await files.HoldAsync(link.MediaId, link.Holder(), link.UserId, ct);
+        if (attach is { Outcome: FileStoreOutcome.Ok, HoldId: { } attachmentId })
         {
-            DateTime? nextCheck = link.ResponseId is null ? DateTime.UtcNow + DraftCheckInterval : null;
+            DateTime? nextCheck = link.ResponseId is null ? _time.GetUtcNow().UtcDateTime + DraftCheckInterval : null;
 
             // Bu arada kaldırılmak üzere işaretlendiyse durumu korunur; kimlik yine yazılır ki bağ kaldırılabilsin.
             await db.AnswerFileLinks
@@ -147,7 +113,7 @@ public class AnswerFileLinkWorker : BackgroundService
             return;
         }
 
-        if (attach.Outcome == CoreMediaOutcome.NotLinkable)
+        if (attach.Outcome == FileStoreOutcome.NotHoldable)
         {
             if (link.ResponseId is { } responseId)
                 _logger.LogWarning("Cevap {ResponseId} dosyası {MediaId} core'da cevaba bağlanamadı; core onu süresi dolunca silecek", responseId, link.MediaId);
@@ -159,9 +125,9 @@ public class AnswerFileLinkWorker : BackgroundService
         await RetryAsync(db, link, ct);
     }
 
-    private static async Task UnlinkAsync(FormsDbContext db, ICoreMedia media, AnswerFileLink link, CancellationToken ct)
+    private async Task UnlinkAsync(FormsDbContext db, IAnswerFileStore files, AnswerFileLink link, CancellationToken ct)
     {
-        if (link.AttachmentId is { } attachmentId && !await media.DetachAsync(link.MediaId, attachmentId, ct))
+        if (link.AttachmentId is { } attachmentId && !await files.ReleaseAsync(link.MediaId, attachmentId, ct))
         {
             await RetryAsync(db, link, ct);
             return;
@@ -170,13 +136,13 @@ public class AnswerFileLinkWorker : BackgroundService
         await DropAsync(db, link, ct);
     }
 
-    private static async Task CheckDraftAsync(FormsDbContext db, IFormDraftService drafts, AnswerFileLink link, CancellationToken ct)
+    private async Task CheckDraftAsync(FormsDbContext db, IFormDraftService drafts, AnswerFileLink link, CancellationToken ct)
     {
         var row = db.AnswerFileLinks.Where(l => l.Id == link.Id && l.State == AnswerFileLinkState.Linked);
 
         if (link.ResponseId is null && !await drafts.HoldsFileAsync(link.FormId, link.UserId, link.MediaId, ct))
         {
-            var now = DateTime.UtcNow;
+            var now = _time.GetUtcNow().UtcDateTime;
             await row.ExecuteUpdateAsync(s => s
                 .SetProperty(l => l.State, AnswerFileLinkState.Unlinking)
                 .SetProperty(l => l.Attempts, 0)
@@ -184,7 +150,7 @@ public class AnswerFileLinkWorker : BackgroundService
             return;
         }
 
-        DateTime? nextCheck = link.ResponseId is null ? DateTime.UtcNow + DraftCheckInterval : null;
+        DateTime? nextCheck = link.ResponseId is null ? _time.GetUtcNow().UtcDateTime + DraftCheckInterval : null;
         await row.ExecuteUpdateAsync(s => s.SetProperty(l => l.NextAttemptAt, nextCheck), ct);
     }
 
@@ -192,16 +158,14 @@ public class AnswerFileLinkWorker : BackgroundService
     private static Task DropAsync(FormsDbContext db, AnswerFileLink link, CancellationToken ct) =>
         db.AnswerFileLinks.Where(l => l.Id == link.Id && l.State == link.State).ExecuteDeleteAsync(ct);
 
-    private static Task RetryAsync(FormsDbContext db, AnswerFileLink link, CancellationToken ct)
+    private Task RetryAsync(FormsDbContext db, AnswerFileLink link, CancellationToken ct)
     {
         var attempts = link.Attempts + 1;
-        var next = DateTime.UtcNow + Backoff(attempts);
+        var next = _time.GetUtcNow().UtcDateTime + RetryBackoff.After(attempts);
 
         return db.AnswerFileLinks
             .Where(l => l.Id == link.Id && l.State == link.State)
             .ExecuteUpdateAsync(s => s.SetProperty(l => l.Attempts, attempts).SetProperty(l => l.NextAttemptAt, next), ct);
     }
 
-    private static TimeSpan Backoff(int attempts) =>
-        TimeSpan.FromSeconds(Math.Min(30 * Math.Pow(2, attempts - 1), MaxBackoff.TotalSeconds));
 }

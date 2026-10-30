@@ -37,18 +37,10 @@ public sealed class FormMetricsRepository : IFormMetricsRepository
             .Select(r => r.Data)
             .ToListAsync(ct);
 
-    public async Task<IReadOnlyList<DailyResponseCount>> GetDailyResponseCountsAsync(Guid formId, DateTime sinceDate, CancellationToken ct = default) =>
+    public async Task<IReadOnlyList<DateTime>> GetSubmittedTimesAsync(Guid formId, DateTime since, CancellationToken ct = default) =>
         await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && r.SubmittedAt >= sinceDate && !FormResponseRepository.Uncounted.Contains(r.Status))
-            .GroupBy(r => r.SubmittedAt.Date)
-            .Select(g => new DailyResponseCount(g.Key, g.Count()))
-            .ToListAsync(ct);
-
-    public async Task<IReadOnlyList<HourlyResponseCount>> GetHourlyResponseCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default) =>
-        await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && r.SubmittedAt >= sinceTime && !FormResponseRepository.Uncounted.Contains(r.Status))
-            .GroupBy(r => new { r.SubmittedAt.Date, r.SubmittedAt.Hour })
-            .Select(g => new HourlyResponseCount(g.Key.Date, g.Key.Hour, g.Count()))
+            .Where(r => r.FormId == formId && r.SubmittedAt >= since && !FormResponseRepository.Uncounted.Contains(r.Status))
+            .Select(r => r.SubmittedAt)
             .ToListAsync(ct);
 
     public async Task<IReadOnlyList<ResponseSourceCount>> GetResponseSourceCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default) =>

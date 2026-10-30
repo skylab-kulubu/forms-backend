@@ -10,19 +10,22 @@ public class FormWorkflowRunService : IFormWorkflowRunService
 {
     private readonly IFormWorkflowRepository _workflows;
     private readonly IFormWorkflowInstanceRepository _instances;
-    private readonly IExternalUserService _userService;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly IUserDirectory _userService;
+    private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _time;
 
     public FormWorkflowRunService(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
-        IExternalUserService userService,
-        ICurrentUserService currentUserService)
+        IUserDirectory userService,
+        ICurrentUser currentUser,
+        TimeProvider time)
     {
         _workflows = workflows;
         _instances = instances;
         _userService = userService;
-        _currentUserService = currentUserService;
+        _currentUser = currentUser;
+        _time = time;
     }
 
     public async Task<ServiceResult<WorkflowRunOverviewContract>> GetOverviewAsync(
@@ -47,7 +50,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         if (await FindAccessProblemAsync(workflowId, userId, cancellationToken) is { } problem)
             return new ServiceResult<PagedResult<WorkflowRunContract>>(problem.Status, Message: problem.Message);
 
-        var page = await _instances.GetRunsAsync(workflowId, request, DateTime.UtcNow, cancellationToken);
+        var page = await _instances.GetRunsAsync(workflowId, request, _time.GetUtcNow().UtcDateTime, cancellationToken);
 
         var users = await _userService.GetUsersAsync(page.Items.Select(run => run.UserId), cancellationToken);
         var usersById = users.DistinctBy(user => user.Id).ToDictionary(user => user.Id);
@@ -88,8 +91,10 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         if (workflowIds.Count == 0) return new Dictionary<Guid, WorkflowRunOverviewContract>();
 
         var definitions = await _workflows.GetCurrentDefinitionsAsync(workflowIds, cancellationToken);
-        var openSteps = await _instances.GetOpenStepsAsync(workflowIds, DateTime.UtcNow, cancellationToken);
+        var openSteps = await _instances.GetOpenStepsAsync(workflowIds, _time.GetUtcNow().UtcDateTime, cancellationToken);
         var tallies = await _instances.CountRunsAsync(workflowIds, cancellationToken);
+        var routes = await _instances.CountRoutesAsync(workflowIds, cancellationToken);
+        var ends = await _instances.CountEndsAsync(workflowIds, cancellationToken);
 
         var formIds = definitions.Values
             .SelectMany(definition => definition.Nodes.Select(node => node.FormId))
@@ -109,6 +114,8 @@ public class FormWorkflowRunService : IFormWorkflowRunService
                     definitions.GetValueOrDefault(workflowId),
                     [.. openSteps.Where(step => step.WorkflowId == workflowId)],
                     [.. tallies.Where(tally => tally.WorkflowId == workflowId)],
+                    [.. routes.Where(route => route.WorkflowId == workflowId)],
+                    [.. ends.Where(end => end.WorkflowId == workflowId)],
                     forms));
     }
 
@@ -120,7 +127,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         var workflow = await _workflows.GetAsync(workflowId, cancellationToken);
         if (workflow is null) return (ServiceStatus.NotFound, "Akış bulunamadı.");
 
-        if (workflow.OwnerUserId != userId && !await _currentUserService.HasRoleAsync("skyforms:*", "forms", cancellationToken))
+        if (workflow.OwnerUserId != userId && !_currentUser.IsPlatformAdmin)
             return (ServiceStatus.NotAuthorized, "Bu akış üzerinde yetkiniz yok.");
 
         return null;

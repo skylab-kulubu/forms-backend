@@ -19,6 +19,10 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>Cevabın bağlı olduğu adım; başvurusu ve kardeş adımlarıyla birlikte.</summary>
     Task<FormWorkflowStep?> GetStepByResponseAsync(Guid responseId, CancellationToken ct = default);
 
+    Task<int> StopRunsAwaitingApplicantAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
+    Task<int> TouchActiveRunsAsync(Guid workflowId, DateTime now, CancellationToken ct = default);
+
     /// <summary>
     /// Kullanıcının bu akıştaki en son başvurusu. Hem "daha önce çalıştırdı mı"
     /// sorusunu hem de sonuçlanmış bir başvurunun kullanıcıya gösterilecek
@@ -35,6 +39,10 @@ public interface IFormWorkflowInstanceRepository
 
     Task<IReadOnlyList<WorkflowRunTally>> CountRunsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
 
+    Task<IReadOnlyList<WorkflowRouteTally>> CountRoutesAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
+
+    Task<IReadOnlyList<WorkflowEndTally>> CountEndsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
+
     Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
         Guid workflowId,
         GetWorkflowRunsRequest request,
@@ -43,6 +51,8 @@ public interface IFormWorkflowInstanceRepository
 
     /// <summary>Cevap, rotası henüz belirlenmemiş bir adıma mı bağlı?</summary>
     Task<bool> HasOpenStepForResponseAsync(Guid responseId, CancellationToken ct = default);
+
+    Task<bool> IsStepOpenAsync(Guid stepId, CancellationToken ct = default);
 
     /// <summary>Koşul değerlendirmesi için başvurunun cevaplanmış adımları.</summary>
     Task<IReadOnlyList<WorkflowStepAnswers>> GetAnswersAsync(Guid instanceId, CancellationToken ct = default);
@@ -68,8 +78,7 @@ public interface IFormWorkflowInstanceRepository
     /// <summary>Başvurunun durumu ve geçersiz sayılıp sayılamayacağını belirleyen gerçekler.</summary>
     Task<WorkflowRunFacts?> GetRunFactsAsync(Guid instanceId, CancellationToken ct = default);
 
-    /// <summary>Kişi akışın sahibi ya da başvurunun bir adım formunda Owner veya Editor mı?</summary>
-    Task<bool> CanManageRunAsync(Guid instanceId, Guid userId, CancellationToken ct = default);
+    Task<WorkflowRunAccess?> GetRunAccessAsync(Guid instanceId, Guid userId, CancellationToken ct = default);
 
     /// <summary>Geçersiz saymak için başvuru; adımları ve akışıyla, izlenen olarak.</summary>
     Task<FormWorkflowInstance?> GetForVoidAsync(Guid instanceId, CancellationToken ct = default);
@@ -97,6 +106,20 @@ public sealed record WorkflowOpenStepFact(
 
 public sealed record WorkflowRunTally(
     Guid WorkflowId,
+    WorkflowInstanceStatus Status,
+    WorkflowInstanceOutcome Outcome,
+    int Count);
+
+public sealed record WorkflowRouteTally(
+    Guid WorkflowId,
+    string SourceNodeKey,
+    WorkflowTransitionTrigger Trigger,
+    string? TargetNodeKey,
+    int Count);
+
+public sealed record WorkflowEndTally(
+    Guid WorkflowId,
+    string NodeKey,
     WorkflowInstanceStatus Status,
     WorkflowInstanceOutcome Outcome,
     int Count);
@@ -186,3 +209,5 @@ public sealed record WorkflowRunFacts(
     string? VoidNote,
     Guid StartFormId,
     bool HasTimedStep);
+
+public sealed record WorkflowRunAccess(bool IsWorkflowOwner, IReadOnlyList<CollaboratorRole> StepFormRoles);

@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace Skylab.Forms.Domain.Models;
 
 /// <summary>
@@ -9,9 +7,6 @@ namespace Skylab.Forms.Domain.Models;
 /// </summary>
 public class ResponseGuest
 {
-    /// <summary>Form sayfasındaki notla aynı kural: forms-frontend FormDisplayer.jsx EMAIL_PATTERN.</summary>
-    private const string EmailPattern = @"^[^\s@]+@[^\s@]+\.[^\s@]+$";
-
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
@@ -28,7 +23,7 @@ public class ResponseGuest
     }
 
     /// <summary>Kimlik alanlarına yazılanlar; biri boşsa ya da e-posta geçersizse null.</summary>
-    public static ResponseGuest? From(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers)
+    public static ResponseGuest? From(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers, out bool unmailableEmail)
     {
         string? AnswerTo(string key) => schema
             .Where(field => IdentityOf(field) == key)
@@ -37,9 +32,11 @@ public class ResponseGuest
 
         var firstName = AnswerTo("firstName");
         var lastName = AnswerTo("lastName");
-        var email = AnswerTo("email");
+        var email = EmailAddress.Clean(AnswerTo("email"));
 
-        if (firstName is null || lastName is null || email is null || !email.Contains('@'))
+        unmailableEmail = firstName is not null && lastName is not null && !string.IsNullOrEmpty(email) && !EmailAddress.IsValid(email);
+
+        if (firstName is null || lastName is null || !EmailAddress.IsValid(email))
             return null;
 
         return new ResponseGuest { FirstName = firstName, LastName = lastName, Email = email.ToLowerInvariant() };
@@ -52,10 +49,9 @@ public class ResponseGuest
     public static ResponseGuest? FromEmailQuestion(IEnumerable<FormSchemaItem> schema, IReadOnlyList<FormResponseSchemaItem> answers)
     {
         var field = schema.FirstOrDefault(field => IdentityOf(field) == "email");
-        var email = field is null ? null : answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer?.Trim();
+        var email = field is null ? null : EmailAddress.Clean(answers.FirstOrDefault(answer => answer.Id == field.Id)?.Answer);
 
-        // Uzunluk sınırı regex'ten önce gelmeli: uzun girdide desen karesel geri izler. Form sayfasındaki not da aynı sınırı uygular.
-        return email is { Length: <= 254 } && Regex.IsMatch(email, EmailPattern) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
+        return EmailAddress.IsValid(email) ? new ResponseGuest { Email = email.ToLowerInvariant() } : null;
     }
 
     private static string? IdentityOf(FormSchemaItem field) =>

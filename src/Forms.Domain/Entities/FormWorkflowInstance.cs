@@ -33,4 +33,44 @@ public class FormWorkflowInstance : BaseEntity
     public string? VoidNote { get; set; }
 
     public ICollection<FormWorkflowStep> Steps { get; set; } = new List<FormWorkflowStep>();
+
+    public void Touch(DateTime now) => UpdatedAt = now;
+
+    public void Finish(WorkflowInstanceOutcome outcome, DateTime now)
+    {
+        Status = outcome is WorkflowInstanceOutcome.Declined or WorkflowInstanceOutcome.TimedOut
+            ? WorkflowInstanceStatus.Terminated
+            : WorkflowInstanceStatus.Completed;
+        Outcome = outcome;
+        CompletedAt = now;
+    }
+
+    public void Stop(DateTime now, WorkflowInstanceOutcome outcome = WorkflowInstanceOutcome.None)
+    {
+        Status = WorkflowInstanceStatus.Terminated;
+        Outcome = outcome;
+        CompletedAt = now;
+    }
+
+    public void Fault(DateTime now)
+    {
+        Status = WorkflowInstanceStatus.Faulted;
+        CompletedAt = now;
+    }
+
+    public bool Void(Guid actorId, string? note, DateTime now)
+    {
+        var wasActive = Status == WorkflowInstanceStatus.Active;
+
+        foreach (var step in Steps.Where(step => step.CompletedAt is null))
+            step.CompletedAt = now;
+
+        Status = WorkflowInstanceStatus.Voided;
+        VoidedAt = now;
+        VoidedBy = actorId;
+        VoidNote = note;
+        if (wasActive) CompletedAt = now;
+
+        return wasActive;
+    }
 }

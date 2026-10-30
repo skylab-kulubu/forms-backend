@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -66,60 +67,17 @@ public sealed class FormResponseRepository : IFormResponseRepository
 
     public async Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default)
     {
-        var page = Math.Max(1, request.Page);
-        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
         var take = page * pageSize;
         var ascending = request.SortingDirection == "ascending";
-        var showArchived = request.ShowArchived.GetValueOrDefault(false);
-        var extendedOnly = request.Time == "extended";
-        var endingSoon = request.Time == "soon";
-        var soonLimit = now.AddHours(24);
+        var list = ListOf(formId, request, includeAttempts, now);
 
-        var responses = _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId)
-            .Where(r => r.Status != FormResponseStatus.Provisional || !r.IsArchived);
-
-        if (!showArchived)
-            responses = responses.Where(r => !r.IsArchived);
-
-        responses = request.ResponderType switch
-        {
-            FormResponderType.Registered => responses.Where(r => r.UserId != null),
-            FormResponderType.Anonymous => responses.Where(r => r.UserId == null),
-            _ => responses
-        };
-
-        if (request.FilterByUserId.HasValue)
-            responses = responses.Where(r => r.UserId == request.FilterByUserId.Value);
-
-        if (extendedOnly)
-        {
-            responses = responses.Where(r => _context.Attempts.Any(a => a.ResponseId == r.Id
-                && a.Events.Any(e => e.Type == FormAttemptEventType.Extended)));
-        }
-
-        var attempts = _context.Attempts.AsNoTracking()
-            .Where(a => a.FormId == formId)
-            .Where(a => a.Status == FormAttemptStatus.Opened || a.Status == FormAttemptStatus.Started || a.Status == FormAttemptStatus.NoSubmission);
-
-        if (request.FilterByUserId.HasValue)
-            attempts = attempts.Where(a => a.UserId == request.FilterByUserId.Value);
-
-        if (extendedOnly)
-            attempts = attempts.Where(a => a.Events.Any(e => e.Type == FormAttemptEventType.Extended));
-
-        if (endingSoon)
-            attempts = attempts.Where(a => a.Status == FormAttemptStatus.Started && a.DeadlineAt <= soonLimit);
-
-        var responsesAllowed = !endingSoon;
-        var attemptsAllowed = includeAttempts && request.ResponderType != FormResponderType.Anonymous;
-
-        var responseCounts = responsesAllowed
-            ? await responses.GroupBy(r => r.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct)
+        var responseCounts = list.ResponsesAllowed
+            ? await list.Responses.GroupBy(r => r.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct)
             : [];
 
-        var attemptCounts = attemptsAllowed
-            ? await attempts.GroupBy(a => a.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct)
+        var attemptCounts = list.AttemptsAllowed
+            ? await list.Attempts.GroupBy(a => a.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct)
             : [];
 
         int ResponsesWith(FormResponseStatus status) => responseCounts.FirstOrDefault(item => item.Status == status)?.Count ?? 0;
@@ -137,24 +95,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
             ResponsesWith(FormResponseStatus.Flagged),
             ResponsesWith(FormResponseStatus.Returned));
 
-        var wantResponses = responsesAllowed;
-        var wantAttempts = attemptsAllowed;
-
-        if (request.AttemptStatus is { } attemptStatus)
-        {
-            wantResponses = false;
-            attempts = attempts.Where(a => a.Status == attemptStatus);
-        }
-        else if (request.Status is { } status)
-        {
-            wantAttempts = false;
-            responses = responses.Where(r => r.Status == status);
-        }
-        else
-        {
-            // Düzeltme istenen cevabın yerini adayın yeni gönderimi aldı; yalnız kendi filtresiyle listelenir.
-            responses = responses.Where(r => r.Status != FormResponseStatus.Returned);
-        }
+        var (responses, attempts, wantResponses, wantAttempts) = Shown(list, request);
 
         var responseTotal = wantResponses ? await responses.CountAsync(ct) : 0;
         var attemptTotal = wantAttempts ? await attempts.CountAsync(ct) : 0;
@@ -219,6 +160,24 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 .ToListAsync(ct)
             : [];
 
+        var attemptStepIds = attemptItems
+            .Where(a => pageAttemptIds.Contains(a.Id) && a.WorkflowStepId != null)
+            .Select(a => a.WorkflowStepId!.Value)
+            .ToList();
+
+        var places = pageResponseIds.Count + attemptStepIds.Count > 0
+            ? await _context.WorkflowSteps.AsNoTracking()
+                .Where(step => (step.ResponseId != null && pageResponseIds.Contains(step.ResponseId.Value)) || attemptStepIds.Contains(step.Id))
+                .Select(step => new { step.Id, step.ResponseId, step.Sequence, step.Round })
+                .ToListAsync(ct)
+            : [];
+
+        ResponseRowStep? StepOfResponse(Guid responseId) =>
+            places.FirstOrDefault(place => place.ResponseId == responseId) is { } place ? new ResponseRowStep(place.Sequence, place.Round) : null;
+
+        ResponseRowStep? StepOfAttempt(Guid? stepId) =>
+            stepId is { } id && places.FirstOrDefault(place => place.Id == id) is { } place ? new ResponseRowStep(place.Sequence, place.Round) : null;
+
         var factIds = pageAttemptIds.Concat(linkedAttempts.Select(a => a.Id)).Distinct().ToList();
 
         var facts = factIds.Count > 0
@@ -257,7 +216,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 }
 
                 return new ResponseRowProjection(
-                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt, r.Guest);
+                    r.Id, r.UserId, r.Status, r.IsArchived, r.ReviewedBy, r.ArchivedBy, r.SubmittedAt, r.ReviewedAt, r.ArchivedAt, r.TimeSpent, attempt, r.Guest,
+                    StepOfResponse(responseId));
             }
 
             var a = attemptItems.First(item => item.Id == row.AttemptId);
@@ -267,7 +227,8 @@ public sealed class FormResponseRepository : IFormResponseRepository
                 a.Id, a.UserId, null, false, null, null, null, null, null, null,
                 new ResponseAttemptProjection(
                     a.Id, a.Status, a.WorkflowStepId, a.CreatedAt, a.StartedAt, a.DeadlineAt,
-                    a.ExpiredAt, a.ReminderSentAt, minutes, closedByTeam, null));
+                    a.ExpiredAt, a.ReminderSentAt, minutes, closedByTeam, null),
+                Step: StepOfAttempt(a.WorkflowStepId));
         }).ToList();
 
         double? averageTaskSeconds = null;
@@ -290,11 +251,101 @@ public sealed class FormResponseRepository : IFormResponseRepository
         return new PagedResponsesProjection(items, responseTotal + attemptTotal, averageTimeSpent, counts, averageTaskSeconds);
     }
 
+    public async Task<int?> FindPageAsync(Guid formId, Guid responseId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default)
+    {
+        var (_, pageSize) = Paging.Normalize(request.Page, request.PageSize);
+        var ascending = request.SortingDirection == "ascending";
+        var (responses, attempts, wantResponses, wantAttempts) = Shown(ListOf(formId, request, includeAttempts, now), request);
+
+        if (!wantResponses) return null;
+
+        var submittedAt = await responses.Where(r => r.Id == responseId).Select(r => (DateTime?)r.SubmittedAt).FirstOrDefaultAsync(ct);
+        if (submittedAt is not { } at) return null;
+
+        var before = await (ascending ? responses.Where(r => r.SubmittedAt < at) : responses.Where(r => r.SubmittedAt > at)).CountAsync(ct);
+
+        if (wantAttempts)
+        {
+            before += await (ascending
+                ? attempts.Where(a => (a.UpdatedAt ?? a.CreatedAt) < at)
+                : attempts.Where(a => (a.UpdatedAt ?? a.CreatedAt) > at)).CountAsync(ct);
+        }
+
+        return before / pageSize + 1;
+    }
+
+    private sealed record ResponseListQuery(IQueryable<FormResponse> Responses, IQueryable<FormAttempt> Attempts, bool ResponsesAllowed, bool AttemptsAllowed);
+
+    private ResponseListQuery ListOf(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now)
+    {
+        var showArchived = request.ShowArchived.GetValueOrDefault(false);
+        var extendedOnly = request.Time == "extended";
+        var endingSoon = request.Time == "soon";
+        var soonLimit = now.AddHours(24);
+
+        var responses = _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId)
+            .Where(r => r.Status != FormResponseStatus.Provisional || !r.IsArchived);
+
+        if (!showArchived)
+            responses = responses.Where(r => !r.IsArchived);
+
+        responses = request.ResponderType switch
+        {
+            FormResponderType.Registered => responses.Where(r => r.UserId != null),
+            FormResponderType.Anonymous => responses.Where(r => r.UserId == null),
+            _ => responses
+        };
+
+        if (request.FilterByUserId.HasValue)
+            responses = responses.Where(r => r.UserId == request.FilterByUserId.Value);
+
+        if (extendedOnly)
+        {
+            responses = responses.Where(r => _context.Attempts.Any(a => a.ResponseId == r.Id
+                && a.Events.Any(e => e.Type == FormAttemptEventType.Extended)));
+        }
+
+        var attempts = _context.Attempts.AsNoTracking()
+            .Where(a => a.FormId == formId)
+            .Where(a => a.Status == FormAttemptStatus.Opened || a.Status == FormAttemptStatus.Started || a.Status == FormAttemptStatus.NoSubmission);
+
+        if (request.FilterByUserId.HasValue)
+            attempts = attempts.Where(a => a.UserId == request.FilterByUserId.Value);
+
+        if (extendedOnly)
+            attempts = attempts.Where(a => a.Events.Any(e => e.Type == FormAttemptEventType.Extended));
+
+        if (endingSoon)
+            attempts = attempts.Where(a => a.Status == FormAttemptStatus.Started && a.DeadlineAt <= soonLimit);
+
+        return new ResponseListQuery(responses, attempts, !endingSoon, includeAttempts && request.ResponderType != FormResponderType.Anonymous);
+    }
+
+    private static (IQueryable<FormResponse> Responses, IQueryable<FormAttempt> Attempts, bool WantResponses, bool WantAttempts) Shown(ResponseListQuery list, GetResponsesRequest request)
+    {
+        if (request.AttemptStatus is { } attemptStatus)
+            return (list.Responses, list.Attempts.Where(a => a.Status == attemptStatus), false, list.AttemptsAllowed);
+
+        if (request.Status is { } status)
+            return (list.Responses.Where(r => r.Status == status), list.Attempts, list.ResponsesAllowed, false);
+
+        // Düzeltme istenen cevabın yerini adayın yeni gönderimi aldı; yalnız kendi filtresiyle listelenir.
+        return (list.Responses.Where(r => r.Status != FormResponseStatus.Returned), list.Attempts, list.ResponsesAllowed, list.AttemptsAllowed);
+    }
+
     public async Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default) =>
-        await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
-            .OrderBy(r => r.SubmittedAt)
+        await NonArchivedOf(formId).ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default) =>
+        await NonArchivedOf(formId)
+            .Select(r => new ResponseContactProjection(r.UserId, r.Guest))
             .ToListAsync(ct);
+
+    private IQueryable<FormResponse> NonArchivedOf(Guid formId) =>
+        _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
+            .OrderBy(r => r.SubmittedAt);
 
     public async Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default)
     {
@@ -330,9 +381,10 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .ToList();
     }
 
-    public Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default) =>
+    public Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default) =>
         _context.Responses
             .IgnoreQueryFilters()
+            .Where(r => formIds.Contains(r.FormId))
             .Where(r => (r.Status == FormResponseStatus.Pending || r.Status == FormResponseStatus.Flagged)
                 && !r.IsArchived
                 && r.PendingReminderSentAt == null

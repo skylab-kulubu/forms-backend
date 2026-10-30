@@ -14,17 +14,20 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
     private readonly IFormWorkflowInstanceRepository _instances;
     private readonly IFormResponseRepository _responses;
     private readonly IFormsUnitOfWork _uow;
+    private readonly TimeProvider _time;
 
     public FormWorkflowRuntime(
         IFormWorkflowRepository workflows,
         IFormWorkflowInstanceRepository instances,
         IFormResponseRepository responses,
-        IFormsUnitOfWork uow)
+        IFormsUnitOfWork uow,
+        TimeProvider time)
     {
         _workflows = workflows;
         _instances = instances;
         _responses = responses;
         _uow = uow;
+        _time = time;
     }
 
     public async Task<ServiceResult<WorkflowStepOutcome>> ResolveDisplayAsync(
@@ -145,6 +148,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
 
+        if (await RefuseWhileRunActiveAsync(location, lastRun, cancellationToken) is { } running) return running;
+
         if (HasUsedOnlyRun(location, lastRun))
         {
             return new ServiceResult<WorkflowStepOutcome>(
@@ -152,7 +157,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                 Message: "Bu akışı daha önce tamamladınız.");
         }
 
-        var intake = IntakeFor(location, lastRun, DateTime.UtcNow);
+        var now = _time.GetUtcNow().UtcDateTime;
+        var intake = IntakeFor(location, lastRun, now);
         if (intake != WorkflowIntake.Open)
             return IntakeClosed(intake, null, 0, location.StartFormId, location.NodeCount == 2);
 
@@ -165,7 +171,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         {
             WorkflowId = location.WorkflowId,
             WorkflowVersionId = location.WorkflowVersionId,
-            UserId = userId
+            UserId = userId,
+            StartedAt = now
         };
 
         var step = new FormWorkflowStep { NodeId = node.Id, Sequence = 1 };
@@ -209,7 +216,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         var node = definition.Nodes.First(candidate => candidate.Id == step.NodeId);
 
         var (outcome, nextStep) = await AdvanceAsync(
-            instance, definition, node, step, [], WorkflowTransitionTrigger.TimedOut, cancellationToken);
+            instance, definition, node, step, [], WorkflowTransitionTrigger.TimedOut, _time.GetUtcNow().UtcDateTime, cancellationToken);
 
         await CommitAsync(instance, nextStep, cancellationToken);
 
@@ -273,6 +280,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         bool addResponse,
         CancellationToken cancellationToken)
     {
+        var now = _time.GetUtcNow().UtcDateTime;
         var instance = await _instances.GetActiveByFormAsync(form.Id, userId, cancellationToken);
 
         WorkflowDefinition? definition;
@@ -295,6 +303,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
             var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
 
+            if (await RefuseWhileRunActiveAsync(location, lastRun, cancellationToken) is { } running) return running;
+
             if (HasUsedOnlyRun(location, lastRun))
             {
                 return new ServiceResult<WorkflowStepOutcome>(
@@ -302,7 +312,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
                     Message: "Bu akışı daha önce tamamladınız.");
             }
 
-            var intake = IntakeFor(location, lastRun, DateTime.UtcNow);
+            var intake = IntakeFor(location, lastRun, now);
             if (intake != WorkflowIntake.Open)
                 return IntakeClosed(intake, null, 0, location.StartFormId, location.NodeCount == 2);
 
@@ -317,7 +327,8 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
             {
                 WorkflowId = location.WorkflowId,
                 WorkflowVersionId = location.WorkflowVersionId,
-                UserId = userId
+                UserId = userId,
+                StartedAt = now
             };
 
             step = new FormWorkflowStep { NodeId = node.Id, Sequence = 1 };
@@ -373,6 +384,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         if (addResponse) _responses.Add(response);
         step.ResponseId = response.Id;
+        instance.Touch(now);
 
         if (node.RequiresManualReview)
         {
@@ -392,7 +404,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         }
 
         var (outcome, nextStep) = await AdvanceAsync(
-            instance, definition, node, step, response.Data, WorkflowTransitionTrigger.ResponseSubmitted, cancellationToken);
+            instance, definition, node, step, response.Data, WorkflowTransitionTrigger.ResponseSubmitted, now, cancellationToken);
 
         await CommitAsync(instance, nextStep, cancellationToken);
 
@@ -473,17 +485,23 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         if (definition is null) return DefinitionUnavailable();
 
         var node = definition.Nodes.First(candidate => candidate.Id == step.NodeId);
+        var now = _time.GetUtcNow().UtcDateTime;
 
         if (newStatus == FormResponseStatus.Returned)
-            return await ReturnAsync(response, step, definition, node, reviewerId, note, questionIds, cancellationToken);
+        {
+            if (instance.Workflow?.Status == WorkflowStatus.Archived)
+                return new ServiceResult<WorkflowStepOutcome>(ServiceStatus.NotAcceptable, Message: "Arşivlenmiş akışta düzeltme istenemez.");
+
+            return await ReturnAsync(response, step, definition, node, reviewerId, note, questionIds, now, cancellationToken);
+        }
 
         var trigger = newStatus == FormResponseStatus.Approved
             ? WorkflowTransitionTrigger.ResponseApproved
             : WorkflowTransitionTrigger.ResponseDeclined;
 
-        response.ApplyReview(newStatus, reviewerId, note, DateTime.UtcNow);
+        response.ApplyReview(newStatus, reviewerId, note, now);
 
-        var (outcome, nextStep) = await AdvanceAsync(instance, definition, node, step, response.Data, trigger, cancellationToken);
+        var (outcome, nextStep) = await AdvanceAsync(instance, definition, node, step, response.Data, trigger, now, cancellationToken);
 
         // Akış burada bittiyse kullanıcı gerekçeyi aynı yanıtta görmeli.
         if (outcome.State is WorkflowActionState.Completed or WorkflowActionState.Declined)
@@ -508,10 +526,9 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         Guid reviewerId,
         string? note,
         IReadOnlyCollection<string>? questionIds,
+        DateTime now,
         CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
-
         // Süreli formda deneme (form, kişi) başına tektir; yeni gönderim eski denemeye takılırdı.
         if (response.Form.HasTimeLimit)
             return new ServiceResult<WorkflowStepOutcome>(ServiceStatus.NotAcceptable, Message: "Süreli adımda düzeltme istenemez.");
@@ -527,6 +544,7 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         step.CompletedAt = now;
         step.SelectedTransitionId = null;
+        step.WorkflowInstance.Touch(now);
 
         var nextRound = new FormWorkflowStep
         {
@@ -562,28 +580,15 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         var instance = await _instances.GetForVoidAsync(instanceId, cancellationToken);
         if (instance is null) return new ServiceResult<WorkflowRunVoided>(ServiceStatus.NotFound, Message: "Başvuru bulunamadı.");
 
-        var now = DateTime.UtcNow;
-        var wasActive = instance.Status == WorkflowInstanceStatus.Active;
-
-        foreach (var step in instance.Steps.Where(step => step.CompletedAt is null))
-            step.CompletedAt = now;
-
-        instance.Status = WorkflowInstanceStatus.Voided;
-        instance.VoidedAt = now;
-        instance.VoidedBy = actorId;
-        instance.VoidNote = note;
-        if (wasActive) instance.CompletedAt = now;
+        var now = _time.GetUtcNow().UtcDateTime;
+        var wasActive = instance.Void(actorId, note, now);
 
         // Cevaplar başvurunun geçmişinde kalır ama listeden ve sayımlardan çıkar: yeni başvuru kendi cevaplarıyla sayılır.
         var responseIds = instance.Steps.Where(step => step.ResponseId is not null).Select(step => step.ResponseId!.Value).ToList();
 
         foreach (var response in await _responses.GetForEditByIdsAsync(responseIds, cancellationToken))
         {
-            if (response.IsArchived) continue;
-
-            response.IsArchived = true;
-            response.ArchivedBy = actorId;
-            response.ArchivedAt = now;
+            if (!response.IsArchived) response.Archive(actorId, now);
         }
 
         try
@@ -620,19 +625,12 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         var lastRun = await _instances.GetLastRunAsync(location.WorkflowId, userId, cancellationToken);
 
-        // Aktif başvuru bu formu içermiyorsa kullanıcı akışın başka bir dalında demektir.
-        if (lastRun is { Status: WorkflowInstanceStatus.Active })
-        {
-            return Result(
-                new WorkflowStepOutcome(lastRun.InstanceId, WorkflowActionState.RequiresPreviousStep, lastRun.LastSequence, null, location.StartFormId, Journey: await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken)),
-                "Devam eden bir başvurunuz var; önce onu tamamlayın.",
-                isTwoStepFlow);
-        }
+        if (await RefuseWhileRunActiveAsync(location, lastRun, cancellationToken) is { } running) return running;
 
         // Sonuçlanmış başvuru kabul durumundan önce gelir: akış kapansa da sonucu görünsün.
         if (HasUsedOnlyRun(location, lastRun)) return ClosedRun(lastRun!, isTwoStepFlow, location.StartFormId, await RunJourneyAsync(location.WorkflowName, lastRun!, cancellationToken));
 
-        var intake = IntakeFor(location, lastRun, DateTime.UtcNow);
+        var intake = IntakeFor(location, lastRun, _time.GetUtcNow().UtcDateTime);
         if (intake != WorkflowIntake.Open)
             return IntakeClosed(intake, null, 0, location.StartFormId, isTwoStepFlow, await StartJourneyAsync(location, cancellationToken));
 
@@ -719,23 +717,30 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         FormWorkflowStep step,
         List<FormResponseSchemaItem> answers,
         WorkflowTransitionTrigger trigger,
+        DateTime now,
         CancellationToken cancellationToken)
     {
         var context = await BuildContextAsync(instance, node.NodeKey, answers, cancellationToken);
         var decision = WorkflowTransitionResolver.Resolve(definition.Transitions, node.Id, trigger, context);
 
         var startFormId = definition.Nodes.First(candidate => candidate.IsStart).FormId;
-        var now = DateTime.UtcNow;
 
         step.CompletedAt = now;
         step.SelectedTransitionId = decision.Transition?.Id;
+        instance.Touch(now);
+
+        if (instance.Workflow?.Status == WorkflowStatus.Archived)
+        {
+            step.SelectedTransitionId = null;
+
+            return (Complete(instance, step, trigger, now, startFormId, stopped: true), null);
+        }
 
         if (decision.Outcome == WorkflowRouteOutcome.Unresolved)
         {
             // Publish doğrulaması varsayılan rotayı zorunlu kılar; buraya düşmek
             // tanımın doğrulama dışı bir yoldan bozulduğu anlamına gelir.
-            instance.Status = WorkflowInstanceStatus.Faulted;
-            instance.CompletedAt = now;
+            instance.Fault(now);
 
             return (new WorkflowStepOutcome(instance.Id, WorkflowActionState.Faulted, step.Sequence, null, startFormId), null);
         }
@@ -783,19 +788,20 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
         FormWorkflowStep step,
         WorkflowTransitionTrigger trigger,
         DateTime now,
-        Guid startFormId)
+        Guid startFormId,
+        bool stopped = false)
     {
-        var declined = trigger is WorkflowTransitionTrigger.ResponseDeclined or WorkflowTransitionTrigger.TimedOut;
-
-        instance.Status = declined ? WorkflowInstanceStatus.Terminated : WorkflowInstanceStatus.Completed;
-        instance.CompletedAt = now;
-        instance.Outcome = trigger switch
+        var outcome = trigger switch
         {
             WorkflowTransitionTrigger.ResponseApproved => WorkflowInstanceOutcome.Approved,
             WorkflowTransitionTrigger.ResponseDeclined => WorkflowInstanceOutcome.Declined,
             WorkflowTransitionTrigger.TimedOut => WorkflowInstanceOutcome.TimedOut,
             _ => WorkflowInstanceOutcome.None
         };
+        var declined = outcome is WorkflowInstanceOutcome.Declined or WorkflowInstanceOutcome.TimedOut;
+
+        if (stopped) instance.Stop(now, outcome);
+        else instance.Finish(outcome, now);
 
         return new WorkflowStepOutcome(
             instance.Id,
@@ -862,6 +868,15 @@ public class FormWorkflowRuntime : IFormWorkflowRuntime
 
         return WorkflowJourneyBuilder.Build(workflowName, definition, steps, forms, voided: run.Status == WorkflowInstanceStatus.Voided);
     }
+
+    // Aktif başvuru bu formu içermiyorsa kullanıcı akışın başka bir dalında demektir.
+    private async Task<ServiceResult<WorkflowStepOutcome>?> RefuseWhileRunActiveAsync(WorkflowNodeLocation location, WorkflowRunSummary? lastRun, CancellationToken cancellationToken) =>
+        lastRun is { Status: WorkflowInstanceStatus.Active }
+            ? Result(
+                new WorkflowStepOutcome(lastRun.InstanceId, WorkflowActionState.RequiresPreviousStep, lastRun.LastSequence, null, location.StartFormId, Journey: await RunJourneyAsync(location.WorkflowName, lastRun, cancellationToken)),
+                "Devam eden bir başvurunuz var; önce onu tamamlayın.",
+                location.NodeCount == 2)
+            : null;
 
     /// <summary>Tek başvuruluk akışta hak kullanıldı mı? Ekibin geçersiz saydığı başvuru hakkı yemez.</summary>
     private static bool HasUsedOnlyRun(WorkflowNodeLocation location, WorkflowRunSummary? lastRun) =>

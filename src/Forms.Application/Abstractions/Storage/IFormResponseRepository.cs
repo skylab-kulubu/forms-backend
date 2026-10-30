@@ -17,16 +17,20 @@ public interface IFormResponseRepository
     Task<IReadOnlyList<FormResponse>> GetForEditByIdsAsync(IReadOnlyCollection<Guid> responseIds, CancellationToken ct = default);
 
     Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
+    Task<int?> FindPageAsync(Guid formId, Guid responseId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default);
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);
+    Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default);
 
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
-    Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, CancellationToken ct = default);
+    Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default);
 
     void Add(FormResponse response);
     void Remove(FormResponse response);
 }
 
 public sealed record FormResponseCounts(int Total, int Waiting, double? AverageTimeSpentSeconds);
+
+public sealed record ResponseContactProjection(Guid? UserId, ResponseGuest? Guest);
 
 public sealed record OverduePendingFormProjection(Guid FormId, string FormTitle, int PendingCount, IReadOnlyList<Guid> ReviewerIds);
 
@@ -42,8 +46,11 @@ public sealed record ResponseRowProjection(
     DateTime? ArchivedAt,
     int? TimeSpent,
     ResponseAttemptProjection? Attempt,
-    ResponseGuest? Guest = null
+    ResponseGuest? Guest = null,
+    ResponseRowStep? Step = null
 );
+
+public sealed record ResponseRowStep(int Stage, int Round);
 
 public sealed record ResponseAttemptProjection(
     Guid Id,

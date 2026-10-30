@@ -1,28 +1,37 @@
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Options;
 using ProxyNetwork = Microsoft.AspNetCore.HttpOverrides.IPNetwork;
 
 namespace Skylab.Forms.Api.Extensions;
 
+public sealed class TrustedProxyOptions
+{
+    public const string SectionName = "ForwardedHeaders";
+
+    public string TrustedProxyRanges { get; init; } = "";
+}
+
 public static class ForwardedHeadersExtensions
 {
-    private const string DefaultTrustedProxyRanges = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7";
-
-    public static IServiceCollection AddTrustedForwardedHeaders(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddTrustedForwardedHeaders(this IServiceCollection services)
     {
-        var networks = ParseTrustedProxyRanges(
-            Environment.GetEnvironmentVariable("TRUSTED_PROXY_RANGES")
-            ?? configuration["ForwardedHeaders:TrustedProxyRanges"]
-            ?? DefaultTrustedProxyRanges);
+        services.AddOptions<TrustedProxyOptions>()
+            .BindConfiguration(TrustedProxyOptions.SectionName)
+            .Validate(
+                proxies => TryParse(proxies.TrustedProxyRanges, out _),
+                "ForwardedHeaders:TrustedProxyRanges must be comma-separated CIDR ranges or addresses, like 10.0.0.0/8,::1/128.")
+            .ValidateOnStart();
 
-        services.Configure<ForwardedHeadersOptions>(options =>
+        services.AddOptions<ForwardedHeadersOptions>().Configure<IOptions<TrustedProxyOptions>>((options, proxies) =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
             options.ForwardLimit = null;
             options.KnownProxies.Clear();
             options.KnownNetworks.Clear();
 
+            TryParse(proxies.Value.TrustedProxyRanges, out var networks);
             foreach (var network in networks)
                 options.KnownNetworks.Add(network);
         });
@@ -30,17 +39,17 @@ public static class ForwardedHeadersExtensions
         return services;
     }
 
-    private static List<ProxyNetwork> ParseTrustedProxyRanges(string value)
+    private static bool TryParse(string value, out List<ProxyNetwork> networks)
     {
-        var networks = new List<ProxyNetwork>();
+        networks = [];
 
         foreach (var entry in value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            networks.Add(ParseNetwork(entry)
-                ?? throw new InvalidOperationException($"TRUSTED_PROXY_RANGES contains an invalid entry: '{entry}'."));
+            if (ParseNetwork(entry) is not { } network) return false;
+            networks.Add(network);
         }
 
-        return networks;
+        return true;
     }
 
     private static ProxyNetwork? ParseNetwork(string entry)

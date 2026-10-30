@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Abstractions.Storage;
@@ -19,29 +18,35 @@ public class FormDraftService : IFormDraftService
     private readonly IFormRepository _forms;
     private readonly IFormAttemptRepository _attempts;
     private readonly IDraftFileHolds _fileHolds;
+    private readonly TimeProvider _time;
 
     private static readonly TimeSpan ResponseDraftTtl = TimeSpan.FromHours(168);
     private static readonly TimeSpan FormDraftTtl = TimeSpan.FromHours(168);
     private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public FormDraftService(ICacheService cache, IFormRepository forms, IFormAttemptRepository attempts, IDraftFileHolds fileHolds)
+    public FormDraftService(ICacheService cache, IFormRepository forms, IFormAttemptRepository attempts, IDraftFileHolds fileHolds, TimeProvider time)
     {
         _cache = cache;
         _forms = forms;
         _attempts = attempts;
         _fileHolds = fileHolds;
+        _time = time;
     }
 
     public async Task<ServiceResult<bool>> SaveResponseDraftAsync(Guid formId, Guid userId, ResponseDraftRequest draft, CancellationToken ct)
     {
+        var now = _time.GetUtcNow().UtcDateTime;
         var form = await _forms.GetByIdAsync(formId, ct);
-        if (form is null || form.Status != FormStatus.Open)
+        if (form is null)
             return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
+
+        if (form.AvailabilityAt(now) != FormAvailability.Open)
+            return new ServiceResult<bool>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         if (form.HasTimeLimit)
         {
             var attempt = await _attempts.GetLatestAsync(formId, userId, ct);
-            if (attempt is null || !attempt.AcceptsSubmissionAt(DateTime.UtcNow, AttemptLimits.SubmitGrace))
+            if (attempt is null || !attempt.AcceptsSubmissionAt(now))
                 return new ServiceResult<bool>(ServiceStatus.NotAcceptable, Message: "Süre işlemediği için taslak kaydedilmedi.");
         }
 
@@ -54,7 +59,7 @@ public class FormDraftService : IFormDraftService
             return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
         }
 
-        var stored = new ResponseDraftContract(draft.Responses, draft.TimeSpent, DateTime.UtcNow, form.HasTimeLimit ? draft.Submission : null);
+        var stored = new ResponseDraftContract(draft.Responses, draft.TimeSpent, now, form.HasTimeLimit ? draft.Submission : null);
         await _cache.SetAsync(key, stored, DraftTtlFor(form), ct);
         await HoldFilesAsync(form, userId, stored, ct);
 
@@ -64,7 +69,7 @@ public class FormDraftService : IFormDraftService
     public async Task RestoreResponseDraftAsync(Guid formId, Guid userId, List<FormResponseSchemaItem> responses, int timeSpent, List<FormResponseSchemaItem>? submission, CancellationToken ct = default)
     {
         var form = await _forms.GetByIdAsync(formId, ct);
-        var stored = new ResponseDraftContract(responses, timeSpent, DateTime.UtcNow, submission);
+        var stored = new ResponseDraftContract(responses, timeSpent, _time.GetUtcNow().UtcDateTime, submission);
 
         await _cache.SetAsync(FormCacheKeys.ResponseDraft(formId, userId), stored, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
 
@@ -109,8 +114,9 @@ public class FormDraftService : IFormDraftService
     public async Task<ServiceResult<ResponseDraftContract?>> GetResponseDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
         var key = FormCacheKeys.ResponseDraft(formId, userId);
+        var form = await _forms.GetByIdAsync(formId, ct);
 
-        var draft = await _cache.GetAsync<ResponseDraftContract>(key, ResponseDraftTtl, ct);
+        var draft = await _cache.GetAsync<ResponseDraftContract>(key, form is null ? ResponseDraftTtl : DraftTtlFor(form), ct);
 
         if (draft != null && !HasAnswers(draft.Responses))
         {
@@ -124,7 +130,7 @@ public class FormDraftService : IFormDraftService
 
         // Bağlar okurken de taslağa göre tazelenir: aynı anda giden iki kayıttan eskisi sonra yazılmış
         // ya da taslak bağlar tutulmadan önce kaydedilmiş olabilir.
-        if (await _forms.GetByIdAsync(formId, ct) is { } form)
+        if (form is not null)
             await HoldFilesAsync(form, userId, draft, ct);
 
         return new ServiceResult<ResponseDraftContract?>(ServiceStatus.Success, Data: draft);
@@ -222,11 +228,8 @@ public class FormDraftService : IFormDraftService
         if (draft.ClosesAt != form.ClosesAt) return false;
         if (JsonSerializer.Serialize(draft.Task, CamelCase) != JsonSerializer.Serialize(form.Task, CamelCase)) return false;
 
-        return JsonNode.DeepEquals(ToJsonNode(draft.Schema), ToJsonNode(form.Schema));
+        return FormSchemaChange.IsSame(draft.Schema, form.Schema);
     }
-
-    private static JsonNode? ToJsonNode(IReadOnlyList<FormSchemaItem>? schema) =>
-        JsonNode.Parse(JsonSerializer.Serialize(schema, CamelCase));
 
     public async Task<ServiceResult<bool>> DeleteFormDraftAsync(Guid formId, Guid userId, CancellationToken ct = default)
     {
