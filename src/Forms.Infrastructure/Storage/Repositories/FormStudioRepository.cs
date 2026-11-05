@@ -29,7 +29,26 @@ public sealed class FormStudioRepository : IFormStudioRepository
             .Take(take)
             .ToListAsync(ct);
 
+    public Task<List<FormComment>> GetCommentsAsync(Guid formId, CancellationToken ct = default) =>
+        _context.FormComments.AsNoTracking()
+            .Where(c => c.FormId == formId)
+            .OrderBy(c => c.CreatedAt)
+            .ToListAsync(ct);
+
+    public Task<List<FormComment>> GetThreadAsync(Guid formId, Guid threadId, CancellationToken ct = default) =>
+        _context.FormComments.AsNoTracking()
+            .Where(c => c.FormId == formId && (c.Id == threadId || c.ThreadId == threadId))
+            .OrderBy(c => c.CreatedAt)
+            .ToListAsync(ct);
+
+    public Task<FormComment?> GetCommentAsync(Guid formId, Guid commentId, CancellationToken ct = default) =>
+        _context.FormComments.FirstOrDefaultAsync(c => c.FormId == formId && c.Id == commentId, ct);
+
     public void Add(FormWorkingCopy copy) => _context.WorkingCopies.Add(copy);
 
     public void Add(FormEdit edit) => _context.FormEdits.Add(edit);
+
+    public void Add(FormComment comment) => _context.FormComments.Add(comment);
+
+    public void Remove(FormComment comment) => _context.FormComments.Remove(comment);
 }

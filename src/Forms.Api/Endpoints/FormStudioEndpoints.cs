@@ -40,6 +40,48 @@ public static class FormStudioEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/comments", async (Guid id, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.ListAsync(id, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/comments", async (Guid id, [FromBody] StudioThreadRequest request, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.StartAsync(id, request, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/comments/{threadId:guid}/replies", async (Guid id, Guid threadId, [FromBody] StudioCommentRequest request, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.ReplyAsync(id, threadId, request, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPut("/{id:guid}/comments/{commentId:guid}", async (Guid id, Guid commentId, [FromBody] StudioCommentRequest request, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.EditAsync(id, commentId, request, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapDelete("/{id:guid}/comments/{commentId:guid}", async (Guid id, Guid commentId, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.DeleteAsync(id, commentId, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/comments/{threadId:guid}/resolve", async (Guid id, Guid threadId, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.ResolveAsync(id, threadId, true, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/comments/{threadId:guid}/reopen", async (Guid id, Guid threadId, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.ResolveAsync(id, threadId, false, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
         group.MapPut("/{id:guid}/collaborators", async (Guid id, [FromBody] FormCollaboratorsRequest request, IFormAuthoring service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();

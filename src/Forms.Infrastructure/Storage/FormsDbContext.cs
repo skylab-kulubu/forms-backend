@@ -28,6 +28,7 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options, TimeProvid
     public DbSet<AnswerFileLink> AnswerFileLinks { get; set; }
     public DbSet<FormWorkingCopy> WorkingCopies { get; set; }
     public DbSet<FormEdit> FormEdits { get; set; }
+    public DbSet<FormComment> FormComments { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(FormsDbContext).Assembly);

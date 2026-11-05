@@ -14,6 +14,9 @@ public sealed class HubStudioNotifier(IHubContext<StudioHub, IStudioClient> hub,
     public Task PublishedAsync(StudioPublishedContract published, CancellationToken ct = default) =>
         SendAsync(published.FormId, client => client.Published(published.FormId, published));
 
+    public Task CommentsChangedAsync(Guid formId, StudioThreadContract thread, CancellationToken ct = default) =>
+        SendAsync(formId, client => client.Comments(formId, thread));
+
     public async Task TeamChangedAsync(StudioTeamContract team, CancellationToken ct = default)
     {
         await SendAsync(team.FormId, client => client.Team(team.FormId, team));

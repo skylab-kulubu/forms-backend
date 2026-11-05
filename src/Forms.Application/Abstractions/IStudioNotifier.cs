@@ -9,4 +9,6 @@ public interface IStudioNotifier
     Task PublishedAsync(StudioPublishedContract published, CancellationToken ct = default);
 
     Task TeamChangedAsync(StudioTeamContract team, CancellationToken ct = default);
+
+    Task CommentsChangedAsync(Guid formId, StudioThreadContract thread, CancellationToken ct = default);
 }

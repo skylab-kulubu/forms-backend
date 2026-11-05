@@ -142,6 +142,7 @@ Dynamic form creation and response management service.
 | `Forms` | Form definitions, JSONB schema, status, response settings, and the published version |
 | `FormWorkingCopies` | One shared working copy per form: the JSONB document editors change, its version and who changed it last |
 | `FormEdits` | Each applied studio edit with its version, batch id, editor and operations, kept seven days so clients can catch up |
+| `FormComments` | Editors' comments on a question: thread roots and their replies, with who resolved a thread |
 | `Responses` | User responses, the name and email a guest typed into the identity fields (only the email when `email` is marked alone), review information, the questions flagged when changes were requested, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
@@ -198,6 +199,7 @@ The studio connects to the SignalR hub at `/hubs/studio`. Hub methods answer in 
 | server to client | `Team(formId, team)` | The editing team changed; a member who lost access is also removed from the group |
 | server to client | `Presence(formId, members)` | Who is in the studio, whether the form is on their screen, and what each person selected |
 | server to client | `Cursor(formId, cursor)` | Another person's pointer, with their connection `key` and user id |
+| server to client | `Comments(formId, thread)` | A comment thread changed; a thread with no `comments` was deleted |
 
 A client that misses an edit (a gap in versions, or a reconnect) calls `Join` again with the last version it has. Edits, presence and pointers go only through the hub; loading a form, publishing and the editing team stay on HTTP.
 
@@ -218,6 +220,14 @@ The account gate runs on every hub call. For `Cursor`, which a client sends up t
 ### Editing team
 
 `PUT /api/admin/forms/{id}/collaborators` with `{ collaborators: [{ userId, role }] }` saves the team at once, outside the working copy, and tells the group through `Team`. The usual team rules apply: the owner stays, and an editor may only add or remove viewers.
+
+### Comments
+
+Editors discuss a question in **threads** attached to its id. Comments are not part of the working copy, so saving, undoing or discarding a draft does not touch them, and respondents never see them. Removing a question leaves its threads in place: the client hides them, and they come back if the removal is undone.
+
+Reading needs access to the editor; writing needs the right to edit the form. Everyone edits and deletes their own comments, and the form's owner may delete any. Deleting the first comment deletes the thread. A resolved thread takes no replies until it is reopened. A comment holds at most 2000 characters.
+
+Every change goes through HTTP and reaches the group through `Comments`, the sender included, so clients merge a thread by its id. A client that was disconnected reads the list again.
 
 ### Retention and old drafts
 
@@ -642,6 +652,13 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/{id}/studio` | The studio's view of a form: `form` (as `GET /api/admin/forms/{id}`), `working` (`document`, `version`, `dirty`, `updatedAt`, `updatedBy`), the `published` document and `legacyDraft` |
 | `POST` | `/api/admin/forms/{id}/studio/publish` | Publish the working copy, see [Publishing](#publishing) |
 | `PUT` | `/api/admin/forms/{id}/collaborators` | Save the editing team at once, see [Editing team](#editing-team) |
+| `GET` | `/api/admin/forms/{id}/comments` | List a form's comment threads, see [Comments](#comments) |
+| `POST` | `/api/admin/forms/{id}/comments` | Start a thread on a question with `{ fieldId, body }` |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/replies` | Reply to a thread with `{ body }` |
+| `PUT` | `/api/admin/forms/{id}/comments/{commentId}` | Edit your own comment with `{ body }` |
+| `DELETE` | `/api/admin/forms/{id}/comments/{commentId}` | Delete a comment; the first comment takes its thread with it |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/resolve` | Mark a thread resolved |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/reopen` | Reopen a resolved thread |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |

@@ -7,6 +7,7 @@ public static class StudioLimits
     public const int MaxKeyLength = 64;
     public const int MaxCatchUpEdits = 500;
     public const int MaxEditAttempts = 5;
+    public const int MaxCommentLength = 2000;
 
     public static readonly TimeSpan EditRetention = TimeSpan.FromDays(7);
 }

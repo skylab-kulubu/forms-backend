@@ -20,6 +20,8 @@ public interface IStudioClient
     Task Team(Guid formId, StudioTeamContract team);
 
     Task Cursor(Guid formId, StudioCursor cursor);
+
+    Task Comments(Guid formId, StudioThreadContract thread);
 }
 
 public sealed record StudioJoinReply(

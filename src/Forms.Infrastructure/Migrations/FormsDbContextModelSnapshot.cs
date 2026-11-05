@@ -251,6 +251,52 @@ namespace Forms.Infrastructure.Migrations
                     b.ToTable("Collaborators", (string)null);
                 });
 
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EditedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FieldId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResolvedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ThreadId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ThreadId");
+
+                    b.HasIndex("FormId", "CreatedAt");
+
+                    b.ToTable("FormComments", (string)null);
+                });
+
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormEdit", b =>
                 {
                     b.Property<Guid>("FormId")
@@ -802,6 +848,22 @@ namespace Forms.Infrastructure.Migrations
                         .HasForeignKey("FormId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormComment", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
+                        .WithMany()
+                        .HasForeignKey("FormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skylab.Forms.Domain.Entities.FormComment", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Form");
                 });
