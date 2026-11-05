@@ -9,6 +9,7 @@ using Skylab.Forms.Application.Services.Mail;
 using Skylab.Forms.Application.Services.Ownership;
 using Skylab.Forms.Application.Services.Responses;
 using Skylab.Forms.Application.Services.ShortLinks;
+using Skylab.Forms.Application.Services.Studio;
 using Skylab.Forms.Application.Services.Workflows;
 
 namespace Skylab.Forms.Application;
@@ -21,6 +22,7 @@ public static class DependencyInjection
 
         services.AddScoped<IFormAuthoring, FormAuthoring>();
         services.AddScoped<IFormCatalog, FormCatalog>();
+        services.AddScoped<IFormStudio, FormStudio>();
         services.AddScoped<IRespondentFormView, RespondentFormView>();
         services.AddScoped<IResponseSubmission, ResponseSubmission>();
         services.AddScoped<IResponseQueries, ResponseQueries>();

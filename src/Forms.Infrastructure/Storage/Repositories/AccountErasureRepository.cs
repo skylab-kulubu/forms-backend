@@ -56,7 +56,11 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
                await _context.WorkflowInstances.IgnoreQueryFilters().Where(i => i.VoidedBy == userId)
                    .ExecuteUpdateAsync(s => s.SetProperty(i => i.VoidedBy, (Guid?)replacementUserId), ct) +
                await _context.AttemptEvents.IgnoreQueryFilters().Where(e => e.ActorUserId == userId)
-                   .ExecuteUpdateAsync(s => s.SetProperty(e => e.ActorUserId, (Guid?)replacementUserId), ct);
+                   .ExecuteUpdateAsync(s => s.SetProperty(e => e.ActorUserId, (Guid?)replacementUserId), ct) +
+               await _context.WorkingCopies.IgnoreQueryFilters().Where(c => c.UpdatedBy == userId)
+                   .ExecuteUpdateAsync(s => s.SetProperty(c => c.UpdatedBy, replacementUserId), ct) +
+               await _context.FormEdits.IgnoreQueryFilters().Where(e => e.UserId == userId)
+                   .ExecuteUpdateAsync(s => s.SetProperty(e => e.UserId, replacementUserId), ct);
     }
 
     public Task<int> RemoveCollaboratorsAsync(Guid userId, CancellationToken ct = default) =>

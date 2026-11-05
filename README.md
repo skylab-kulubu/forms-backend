@@ -129,7 +129,7 @@ Dynamic form creation and response management service.
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
 - Timed forms: one attempt per person with a deadline the team can extend. An answer is accepted until two minutes after the deadline, so the page's own submission at the deadline arrives in time; opening the form, saving a draft, sending the answer and the expiry worker all apply that one rule, and only after it does the attempt close
-- Redis-backed form and response drafts
+- Redis-backed response drafts, and one shared working copy per form that editors change together in real time, see [Form studio](#form-studio)
 - Response and component-group sharing tokens
 - XLSX response export
 - Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
@@ -139,7 +139,9 @@ Dynamic form creation and response management service.
 
 | Table | Description |
 |-------|-------------|
-| `Forms` | Form definitions, JSONB schema, status, and response settings |
+| `Forms` | Form definitions, JSONB schema, status, response settings, and the published version |
+| `FormWorkingCopies` | One shared working copy per form: the JSONB document editors change, its version and who changed it last |
+| `FormEdits` | Each applied studio edit with its version, batch id, editor and operations, kept seven days so clients can catch up |
 | `Responses` | User responses, the name and email a guest typed into the identity fields (only the email when `email` is marked alone), review information, the questions flagged when changes were requested, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
@@ -150,6 +152,72 @@ Dynamic form creation and response management service.
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
 | `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core, written in the change's own transaction, and mails; a row is deleted once delivered |
+
+## Form studio
+
+Editors change a form together in the studio. A form has two states: the **published form** (`Forms`), which respondents fill in, and one shared **working copy** (`FormWorkingCopies`), which every editor of the form changes. Saving copies the working copy onto the published form; until then respondents keep seeing the published one.
+
+```text
+editor ── Edit ──> working copy (version 41 -> 42) ── publish ──> Forms (published version 3 -> 4)
+                          |
+                          └── Edits v42 ──> the other editors in the studio
+```
+
+### Edits
+
+An edit is a batch of operations on the working copy's JSON document. The document holds `title`, `description`, `schema`, `status`, `allowAnonymousResponses`, `allowMultipleResponses`, `requiresManualReview`, `task`, `closesAt` and `timeLimitMinutes`. The editing team is not part of it, see [Editing team](#editing-team).
+
+| Operation | Shape | When its target is gone |
+|---|---|---|
+| `set` | `{ op, path, value }`. `path` is a setting (`["title"]`), a question part (`["schema", id, "type" or "props" or "condition"]`) or one prop (`["schema", id, "props", key]`); `null` removes a prop or a condition | skipped |
+| `insert` | `{ op, field, after }`; `after: null` puts the question first | an unknown `after` puts it last; an id already in the form skips it |
+| `remove` | `{ op, id }` | skipped |
+| `move` | `{ op, id, after }` | skipped |
+| `replace` | `{ op, document }` | applied |
+| `reset` | `{ op }`, which the server turns into a `replace` with the published document | applied |
+
+The server applies a batch to the latest working copy, raises the version by one, stores the applied operations in `FormEdits` and answers with them. Operations whose target is gone are **skipped, not rejected**: the answer counts them in `skipped`, and a batch where nothing applied keeps the version and answers `version: null`. A batch is rejected as a whole (`400`) only when it breaks a rule: an unknown path or value shape, a title over 100 characters, more than 200 operations, a document over 512 KB, or removing or retyping a question that a published workflow routes on.
+
+Every batch carries a client-made `batchId`. Sending the same batch twice applies it once and answers the stored result, so a client can resend after a dropped connection. Writes are ordered by the working copy's `xmin`; a write that loses the race starts over, up to five times, before answering `409`.
+
+> **Keep both engines in step:** the frontend applies the same operations locally (`src/lib/studio/doc-ops.js`) to show its own edits before the server answers. If the two apply an operation differently, a client's copy drifts from the server's, so change both together.
+
+### Real-time hub
+
+The studio connects to the SignalR hub at `/hubs/studio`. Hub methods answer in the usual `{ status, data, message }` envelope.
+
+| Direction | Name | Purpose |
+|---|---|---|
+| client to server | `Join(formId, version)` | Join the form's group. Answers the edits after `version`, or `snapshotRequired: true` when they are no longer stored, plus `canEdit` and the people in the studio. Owners, editors and service administrators may join; a viewer gets `403` |
+| client to server | `Edit(formId, { batchId, ops })` | Apply a batch, see [Edits](#edits). Needs an owner or editor |
+| client to server | `Presence(formId, { selection, editing })` | Share the selected question ids; nothing is stored |
+| client to server | `Leave(formId)` | Leave the group |
+| server to client | `Edits(formId, edit)` | Another editor's applied batch |
+| server to client | `Published(formId, published)` | The form was saved; carries the published document and whether the working copy still differs from it |
+| server to client | `Team(formId, team)` | The editing team changed; a member who lost access is also removed from the group |
+| server to client | `Presence(formId, members)` | Who is in the studio and what each person selected |
+
+A client that misses an edit (a gap in versions, or a reconnect) calls `Join` again with the last version it has. Edits and presence go only through the hub; loading a form, publishing and the editing team stay on HTTP.
+
+> **One instance:** the people in each studio are kept in the API process's memory, and edits reach only the connections of that process. A second API instance needs a SignalR backplane and a shared member list before it starts.
+
+### Publishing
+
+`POST /api/admin/forms/{id}/studio/publish` with `{ workingVersion }` saves the working copy onto the published form. When `workingVersion` is not the working copy's current version the answer is `409`: someone edited after the client last synced, and nobody publishes a state they have not seen. Publishing runs the checks of `PUT /api/admin/forms/{id}`, raises `publishedVersion` and tells the group through `Published`. A blank title is published as `Adsız form`, an anonymous form allows multiple answers and drops its time limit, and a task without text is removed; the working copy keeps what the editors typed. The working copy remains after publishing, and its `dirty` flag says whether it differs from the published form.
+
+`PUT /api/admin/forms/{id}` still replaces the whole form. It answers `409` while the working copy holds unpublished changes, so it cannot overwrite them, and on success it moves the working copy to the new form with a `replace` edit.
+
+### New forms
+
+`POST /api/admin/forms/studio` with `{ document }` creates a form when its editor first changes something. The published form starts closed with an empty schema and `publishedVersion: 0`, so respondents cannot open it before the first save; until then its title in lists follows the working copy. The form list reports `publishedVersion` so a client can mark such forms.
+
+### Editing team
+
+`PUT /api/admin/forms/{id}/collaborators` with `{ collaborators: [{ userId, role }] }` saves the team at once, outside the working copy, and tells the group through `Team`. The usual team rules apply: the owner stays, and an editor may only add or remove viewers.
+
+### Retention and old drafts
+
+`FormEdits` rows older than seven days are deleted every hour; a client that comes back later gets `snapshotRequired` and reloads the working copy. The per-person editor drafts in Redis (`/api/admin/forms/{id}/draft`) are only read now: `GET /api/admin/forms/{id}/studio` returns the caller's draft as `legacyDraft`, and the studio applies it to a form that has no working copy yet, then deletes it.
 
 ## Form Workflows
 
@@ -556,13 +624,17 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list |
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
+| `POST` | `/api/admin/forms/studio` | Create a form from the studio's first edit, see [New forms](#new-forms) |
 | `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
-| `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from |
+| `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from; answers `409` while the studio's working copy holds unpublished changes |
+| `GET` | `/api/admin/forms/{id}/studio` | The studio's view of a form: `form` (as `GET /api/admin/forms/{id}`), `working` (`document`, `version`, `dirty`, `updatedAt`, `updatedBy`), the `published` document and `legacyDraft` |
+| `POST` | `/api/admin/forms/{id}/studio/publish` | Publish the working copy, see [Publishing](#publishing) |
+| `PUT` | `/api/admin/forms/{id}/collaborators` | Save the editing team at once, see [Editing team](#editing-team) |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
-| `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
+| `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft; needs edit rights on the form |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them. A row of a workflow step, answered or still a timed attempt, carries `workflow` with the step's `stage` and the submission's `round` |
 | `GET` | `/api/admin/forms/{id}/responses/{responseId}/page` | The `page` of the list that holds a response, read with the list's own filters, order and page size, so a client that opens a response directly can show its neighbours; `404` when the filters leave it out |
@@ -619,6 +691,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
 - **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts, both looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
 - **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
+- **Studio hub:** `/hubs/studio` takes the token from the `access_token` query value, because a browser cannot set headers on a WebSocket. The connection closes when the token expires and the client reconnects with a new one; the account gate runs on every hub call instead of once per HTTP request.
 - **External user data:** User details are fetched from core (`Integrations:SkylabCore:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
 - **Service authentication:** SkyMail and core calls use a client-credentials token of the service account in `Authentication:ServiceAccount` (a Keycloak client at SKY LAB). On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
 - **Authorization:** What each form role may do is decided in one place, `FormAccess` in the Domain; services ask it instead of comparing roles themselves:

@@ -20,6 +20,7 @@ public class Form : BaseEntity
     public FormTask? Task { get; set; }
     public DateTime? ClosesAt { get; set; }
     public int? TimeLimitMinutes { get; set; }
+    public int PublishedVersion { get; set; } = 1;
 
     public bool HasTimeLimit => TimeLimitMinutes is > 0;
 

@@ -20,6 +20,7 @@ using Skylab.Forms.Infrastructure.Mail;
 using Skylab.Forms.Infrastructure.Outbox;
 using Skylab.Forms.Infrastructure.Storage;
 using Skylab.Forms.Infrastructure.Storage.Repositories;
+using Skylab.Forms.Infrastructure.Studio;
 using StackExchange.Redis;
 
 namespace Skylab.Forms.Infrastructure;
@@ -59,6 +60,7 @@ public static class DependencyInjection
         services.AddScoped<IFormWorkflowInstanceRepository, FormWorkflowInstanceRepository>();
         services.AddScoped<IFormAttemptRepository, FormAttemptRepository>();
         services.AddScoped<IAccountErasureRepository, AccountErasureRepository>();
+        services.AddScoped<IFormStudioRepository, FormStudioRepository>();
         services.AddScoped<IFormsUnitOfWork, FormsUnitOfWork>();
 
         services.AddSingleton<IConnectionMultiplexer>(provider =>
@@ -98,6 +100,7 @@ public static class DependencyInjection
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<FormMailOptions>>().Value);
         services.AddHostedService<PendingResponseReminderWorker>();
         services.AddHostedService<FormAttemptExpiryWorker>();
+        services.AddHostedService<FormEditPruneWorker>();
 
         return services;
     }

@@ -23,7 +23,7 @@ namespace Skylab.Forms.Api.Endpoints;
 
 public static class FormAdminEndpoints
 {
-    private const string FormRoute = "AdminForm";
+    internal const string FormRoute = "AdminForm";
     private const string ComponentGroupRoute = "AdminComponentGroup";
     internal const string ResponseRoute = "AdminResponse";
 

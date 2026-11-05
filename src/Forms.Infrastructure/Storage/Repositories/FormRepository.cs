@@ -87,7 +87,8 @@ public sealed class FormRepository : IFormRepository
                 f.RequiresManualReview,
                 null,
                 f.UpdatedAt ?? f.CreatedAt,
-                f.Responses.Count()
+                f.Responses.Count(),
+                f.PublishedVersion
             ))
             .ToListAsync(ct);
 

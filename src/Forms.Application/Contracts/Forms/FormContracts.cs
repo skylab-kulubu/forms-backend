@@ -21,7 +21,8 @@ public record FormContract(
     DateTime? UpdatedAt,
     FormTask? Task = null,
     DateTime? ClosesAt = null,
-    int? TimeLimitMinutes = null
+    int? TimeLimitMinutes = null,
+    int PublishedVersion = 1
 );
 
 public record FormDisplayContract(
@@ -46,7 +47,8 @@ public record FormSummaryContract(
     bool RequiresManualReview,
     FormWorkflowRefContract? Workflow,
     DateTime? UpdatedAt,
-    int ResponseCount
+    int ResponseCount,
+    int PublishedVersion = 1
 );
 
 public record FormAllSummaryContract(

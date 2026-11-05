@@ -11,6 +11,7 @@ Thanks for your interest in contributing! This document covers the project archi
 - [Architecture](#architecture)
 - [Adding a Forms Feature](#adding-a-forms-feature)
 - [Working on the Workflow Engine](#working-on-the-workflow-engine)
+- [Working on the Form Studio](#working-on-the-form-studio)
 - [Code Conventions](#code-conventions)
 - [How to Contribute](#how-to-contribute)
 - [Commit Convention](#commit-convention)
@@ -60,6 +61,7 @@ The `.env` file and `appsettings.Development.json` are ignored. Never commit sec
 ```text
 src/
 ├── Forms.Api/                             # Endpoints, middleware, Swagger, composition root
+│   └── Realtime/                          # Form studio hub, presence and the hub notifier
 ├── Forms.Application/                     # Use cases, contracts, ports, validation
 │   ├── Abstractions/                      # External-service and persistence ports
 │   ├── Contracts/                         # API-independent request/response models
@@ -67,6 +69,7 @@ src/
 │   │   └── Workflows/                     # Workflow orchestration and admin use cases
 │   └── DependencyInjection.cs             # Application service registration
 ├── Forms.Domain/                          # Entities, enums, domain models and rules
+│   ├── Studio/                            # Form studio document and its edit operations
 │   └── Workflows/                         # Graph validation, condition and route resolution
 ├── Forms.Infrastructure/                  # Technical adapters and persistence
 │   ├── Auth/                              # Current user and Forms permissions
@@ -373,6 +376,41 @@ caller falls back to the standalone form path.
    `AdvanceAsync` so the step closes and the decision is recorded.
 
 ---
+
+## Working on the Form Studio
+
+Editors change one shared working copy per form and publish it onto the form. See
+[Form studio](README.md#form-studio) for the model; this section is about where the
+code lives and what to keep in mind when you change it.
+
+### Where the pieces live
+
+| Piece | Location | Depends on |
+|-------|----------|------------|
+| The document, its operations, the lock rules and applying a batch | `Forms.Domain/Studio` | Nothing. `FormDocumentEditor.Apply` is a pure function |
+| Snapshot, edits, catch-up, publishing, new forms | `Forms.Application/Services/Studio/FormStudio.cs` | Repository ports, `IStudioNotifier` |
+| The checks and side effects shared by publishing and `PUT` | `Forms.Application/Services/Forms/FormPublication.cs` | Repository ports |
+| Hub, who is in each studio, notifications | `Forms.Api/Realtime` | Application |
+| Storage and the edit retention worker | `Forms.Infrastructure/Storage`, `Forms.Infrastructure/Studio` | EF Core |
+
+### Rules worth knowing before you start
+
+- **The frontend runs the same operations.** `src/lib/studio/doc-ops.js` in the frontend
+  applies every operation locally before the server answers, and it applies the server's
+  answer to its own copy. A difference between the two engines makes a client's copy drift
+  without any error, so change an operation's behavior on both sides in one go.
+- **The working copy changes only through an edit.** Raise its version with
+  `FormWorkingCopy.Append` and store the `FormEdit` it returns, as `PUT` does when it moves
+  the working copy to the new form. A change that skips the edit log never reaches the
+  other editors.
+- **Notify after the commit, and never fail because of it.** `IStudioNotifier` sends to the
+  hub group after the save; a send that fails is logged and the request still succeeds.
+  Clients notice the version gap and call `Join` again.
+- **Hub calls take the caller explicitly.** Hub methods build a `StudioCaller` from the
+  connection's user instead of reading `ICurrentUser`, because `IHttpContextAccessor` does
+  not reliably reach hub invocations on every transport.
+- **New settings stay optional.** The deployments set their own environment, so a required
+  or `ValidateOnStart` setting stops both of them at startup until someone adds it there.
 
 ## Code Conventions
 
