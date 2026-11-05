@@ -10,7 +10,7 @@ using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services.Forms;
 
-internal sealed record FormPublicationResult(ServiceResult<FormContract>? Failure, bool SchemaChanged = false, bool ClearResponseDrafts = false);
+public sealed record FormPublicationResult(ServiceResult<FormContract>? Failure, bool SchemaChanged = false, bool ClearResponseDrafts = false);
 
 internal static class FormPublication
 {

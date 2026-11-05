@@ -1,3 +1,4 @@
+using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
@@ -116,4 +117,11 @@ public record WorkflowValidationErrorContract(
     string Code,
     string Message,
     string? NodeKey
+);
+
+public record WorkflowSaveContract(
+    WorkflowContract? Workflow,
+    List<FormContract> Forms,
+    WorkflowValidationContract? Validation = null,
+    Guid? FailedFormId = null
 );

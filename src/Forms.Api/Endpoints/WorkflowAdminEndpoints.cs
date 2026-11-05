@@ -142,6 +142,14 @@ public static class WorkflowAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapPost("/{id:guid}/save", async (Guid id, [FromBody] WorkflowSaveRequest request, IFormWorkflowService service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.SaveAsync(id, request, userId, ct);
+            return result.ToApiResult();
+        });
+
         group.MapDelete("/{id:guid}", async (Guid id, IFormWorkflowService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();

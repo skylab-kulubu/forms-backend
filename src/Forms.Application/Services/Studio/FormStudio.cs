@@ -7,7 +7,6 @@ using Skylab.Forms.Application.Contracts.Draft;
 using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Studio;
 using Skylab.Forms.Application.Services.Forms;
-using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
@@ -33,11 +32,8 @@ public sealed class FormStudio : IFormStudio
     private readonly IFormStudioRepository _studio;
     private readonly IFormsUnitOfWork _uow;
     private readonly IFormWorkflowRepository _workflows;
-    private readonly IUserDirectory _users;
     private readonly IFormDraftService _drafts;
-    private readonly ICacheService _cache;
-    private readonly IGuestUploadService _guestUploads;
-    private readonly IStudioNotifier _notifier;
+    private readonly IFormPublishing _publishing;
     private readonly TimeProvider _time;
     private readonly ILogger<FormStudio> _logger;
 
@@ -46,11 +42,8 @@ public sealed class FormStudio : IFormStudio
         IFormStudioRepository studio,
         IFormsUnitOfWork uow,
         IFormWorkflowRepository workflows,
-        IUserDirectory users,
         IFormDraftService drafts,
-        ICacheService cache,
-        IGuestUploadService guestUploads,
-        IStudioNotifier notifier,
+        IFormPublishing publishing,
         TimeProvider time,
         ILogger<FormStudio> logger)
     {
@@ -58,11 +51,8 @@ public sealed class FormStudio : IFormStudio
         _studio = studio;
         _uow = uow;
         _workflows = workflows;
-        _users = users;
         _drafts = drafts;
-        _cache = cache;
-        _guestUploads = guestUploads;
-        _notifier = notifier;
+        _publishing = publishing;
         _time = time;
         _logger = logger;
     }
@@ -85,7 +75,7 @@ public sealed class FormStudio : IFormStudio
             : null;
 
         return Ok(new StudioSnapshotContract(
-            await ContractOfAsync(form, role, ct),
+            await _publishing.ContractOfAsync(form, role, ct),
             new StudioWorkingCopyContract(document.ToJson(), copy?.Version ?? 0, !document.SameAs(published), copy?.UpdatedAt, copy?.UpdatedBy),
             published.ToJson(),
             legacyDraft));
@@ -115,7 +105,7 @@ public sealed class FormStudio : IFormStudio
         await _uow.SaveChangesAsync(ct);
 
         return Ok(new StudioSnapshotContract(
-            await ContractOfAsync(form, CollaboratorRole.Owner, ct),
+            await _publishing.ContractOfAsync(form, CollaboratorRole.Owner, ct),
             new StudioWorkingCopyContract(document.ToJson(), copy.Version, !document.SameAs(FormDocument.Of(form)), copy.UpdatedAt, copy.UpdatedBy),
             FormDocument.Of(form).ToJson(),
             null));
@@ -217,61 +207,30 @@ public sealed class FormStudio : IFormStudio
 
     public async Task<ServiceResult<FormContract>> PublishAsync(Guid formId, StudioPublishRequest request, StudioCaller caller, CancellationToken ct = default)
     {
-        var form = await _forms.GetForEditWithCollaboratorsAsync(formId, ct);
-        if (form is null) return Fail<FormContract>(ServiceStatus.NotFound, "Form bulunamadı.");
+        var staging = await _publishing.StageAsync(formId, request.WorkingVersion, caller, ct);
+        if (staging.Data is not { } staged) return Fail<FormContract>(staging.Status, staging.Message);
 
-        var role = form.RoleOf(caller.UserId);
-        if (!FormAccess.Allows(role, caller.IsPlatformAdmin, FormAction.EditForm))
-            return Fail<FormContract>(ServiceStatus.NotAuthorized, "Bu formu kaydetme yetkiniz yok.");
-
-        var copy = await _studio.GetWorkingCopyAsync(formId, ct);
-        var workingVersion = copy?.Version ?? 0;
-
-        if (workingVersion != request.WorkingVersion)
-            return Fail<FormContract>(ServiceStatus.Conflict, "Siz kaydederken formda yeni değişiklikler oldu. Onları gördükten sonra tekrar kaydedin.");
-
-        var document = (copy?.Document ?? FormDocument.Of(form)).Publishable();
-
-        if (form.PublishedVersion > 0 && document.SameAs(FormDocument.Of(form)))
-            return Ok(await ContractOfAsync(form, role, ct));
-
-        var publication = await FormPublication.ApplyAsync(form, UpsertOf(document), _workflows, _guestUploads.Capability is not null, ct);
-        if (publication.Failure is { } failure) return failure;
-
-        form.PublishedVersion += 1;
-
-        try
+        if (staged.Result is not null)
         {
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (StorageConflictException)
-        {
-            return Fail<FormContract>(ServiceStatus.Conflict, "Form bu sırada başka bir yerden değişti; sayfayı yenileyip tekrar deneyin.");
+            try
+            {
+                await _uow.SaveChangesAsync(ct);
+            }
+            catch (StorageConflictException)
+            {
+                return Fail<FormContract>(ServiceStatus.Conflict, "Form bu sırada başka bir yerden değişti; sayfayı yenileyip tekrar deneyin.");
+            }
+
+            await _publishing.CompleteAsync(staged, caller.UserId, ct);
         }
 
-        await FormPublication.AfterCommitAsync(formId, publication, _drafts, _cache, ct);
-
-        var published = FormDocument.Of(form);
-        await _notifier.PublishedAsync(
-            new StudioPublishedContract(formId, form.PublishedVersion, workingVersion, caller.UserId, published.ToJson(), copy is not null && !copy.Document.SameAs(published)),
-            ct);
-
-        return Ok(await ContractOfAsync(form, role, ct));
+        return Ok(await _publishing.ContractOfAsync(staged.Form, staged.Role, ct));
     }
 
     private async Task<FormEditRules> RulesForAsync(Guid formId, CancellationToken ct) =>
         await FormEditorMapping.MembershipOfAsync(_workflows, formId, ct) is { IsPublished: true } membership
             ? new FormEditRules(membership.WorkflowName, membership.LockedQuestions.Select(question => question.QuestionId))
             : FormEditRules.None;
-
-    private async Task<FormContract> ContractOfAsync(Form form, CollaboratorRole role, CancellationToken ct)
-    {
-        var collaboratorIds = form.Collaborators.Where(c => c.Role != CollaboratorRole.None).Select(c => c.UserId).ToList();
-        var users = await _users.GetUsersAsync(collaboratorIds, ct);
-        var membership = await FormEditorMapping.MembershipOfAsync(_workflows, form.Id, ct);
-
-        return FormEditorMapping.ContractOf(form, users, role, FormEditorMapping.WorkflowRefOf(membership));
-    }
 
     private async Task<FormDraftContract?> LegacyDraftOfAsync(Guid formId, Guid userId, CancellationToken ct)
     {
@@ -286,20 +245,6 @@ public sealed class FormStudio : IFormStudio
             return null;
         }
     }
-
-    private static FormUpsertRequest UpsertOf(FormDocument document) => new(
-        null,
-        document.Title,
-        document.Description,
-        document.Schema,
-        document.AllowAnonymousResponses,
-        document.AllowMultipleResponses,
-        document.RequiresManualReview,
-        document.Status,
-        null,
-        document.Task,
-        document.ClosesAt,
-        document.TimeLimitMinutes);
 
     private static ServiceResult<T> Ok<T>(T data) => new(ServiceStatus.Success, Data: data);
 

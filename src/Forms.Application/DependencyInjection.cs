@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IFormAuthoring, FormAuthoring>();
         services.AddScoped<IFormCatalog, FormCatalog>();
         services.AddScoped<IFormStudio, FormStudio>();
+        services.AddScoped<IFormPublishing, FormPublishing>();
         services.AddScoped<IRespondentFormView, RespondentFormView>();
         services.AddScoped<IResponseSubmission, ResponseSubmission>();
         services.AddScoped<IResponseQueries, ResponseQueries>();

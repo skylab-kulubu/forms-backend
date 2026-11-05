@@ -436,6 +436,14 @@ A condition may only read a step that lies on **every** route to the step being 
 
 The forms themselves must also hold up: each must exist, be open, reject anonymous answers because a run belongs to a signed-in user, and name the workflow owner as an Owner. A form may belong to at most one published workflow, or an answer could not say which run it belongs to.
 
+### Saving from the studio
+
+`POST /api/admin/workflows/{id}/save` saves everything the studio edits in **one transaction**: the name, description and repeat-run setting, the graph, and the working copies of the forms that changed (see [Form studio](#form-studio)). The graph is published when it differs from the live version, so what a save returns is what applicants see. Applications already running stay on the version they started on, as with publishing.
+
+The checks run **before anything is written**, against the forms as the save will publish them rather than as they are live, so a condition may read a question added in the same save. Removing a question the live graph reads still takes two saves, because the studio refuses that edit while the question is locked (see [Edits](#edits)): the first save stops the graph reading it, the second publishes the form without it. A graph that does not validate returns its findings in `validation`, the same codes publishing uses. A form that cannot be saved fails the whole request and is named in `failedFormId`; so does a form whose working copy moved past the version the request names, with `409`. Either way nothing is written. Clearing drafts and caches and the `Published` message to the form's studio group wait for the commit, so a refused save leaves them alone.
+
+The body carries `name`, `description`, `allowMultipleRuns`, `definition` in the shape `PUT /definition` takes, and `forms`, a list of `{ formId, workingVersion }` in which `workingVersion` is the working copy version the studio has seen, as `POST /api/admin/forms/{id}/studio/publish` takes it. A form may appear once, and the caller needs the right to edit each form. The response carries the saved `workflow` and `forms`.
+
 ### Forms used by a published workflow
 
 Publishing locks the parts of a form that routing depends on. While the workflow is live you may still add questions, fix wording, and reorder the schema, but you cannot remove a question a condition reads, open the form to anonymous answers, close it, or delete it. A workflow is stopped through its intake, not by closing its forms one by one.
@@ -665,6 +673,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/workflows/available-forms` | The same list before a workflow exists, judged as for a new workflow that runs once, so a client can pick the steps first and create the workflow with them |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
+| `POST` | `/api/admin/workflows/{id}/save` | Save the name, settings, graph and changed forms in one transaction, publishing the graph when it changed, see [Saving from the studio](#saving-from-the-studio) |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
 | `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step, finished ones by result and by the step they ended on, and the routes taken, see [Tracking applications](#tracking-applications) |
 | `GET` | `/api/admin/workflows/{id}/runs` | List applications, paged; accepts `Page`, `PageSize`, `Filter` (`0` running, `1` waiting for review, `2` finished), `NodeKey`, and `State` |
