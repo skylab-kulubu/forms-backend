@@ -190,14 +190,18 @@ The studio connects to the SignalR hub at `/hubs/studio`. Hub methods answer in 
 |---|---|---|
 | client to server | `Join(formId, version)` | Join the form's group. Answers the edits after `version`, or `snapshotRequired: true` when they are no longer stored, plus `canEdit` and the people in the studio. Owners, editors and service administrators may join; a viewer gets `403` |
 | client to server | `Edit(formId, { batchId, ops })` | Apply a batch, see [Edits](#edits). Needs an owner or editor |
-| client to server | `Presence(formId, { selection, editing })` | Share the selected question ids; nothing is stored |
+| client to server | `Presence(formId, { selection, editing, here })` | Share the selected question ids, the question being typed in, and whether this form is the one on screen (`here: false` for a form kept open in the background, as the workflow studio does for every step); nothing is stored |
+| client to server | `Cursor(formId, { anchor, x, y })` | Share the pointer as a position inside a question (`anchor` is its id) or the card (`card`); `anchor: null` hides it. Relayed to the others in the group, never stored |
 | client to server | `Leave(formId)` | Leave the group |
 | server to client | `Edits(formId, edit)` | Another editor's applied batch |
 | server to client | `Published(formId, published)` | The form was saved; carries the published document and whether the working copy still differs from it |
 | server to client | `Team(formId, team)` | The editing team changed; a member who lost access is also removed from the group |
-| server to client | `Presence(formId, members)` | Who is in the studio and what each person selected |
+| server to client | `Presence(formId, members)` | Who is in the studio, whether the form is on their screen, and what each person selected |
+| server to client | `Cursor(formId, cursor)` | Another person's pointer, with their connection `key` and user id |
 
-A client that misses an edit (a gap in versions, or a reconnect) calls `Join` again with the last version it has. Edits and presence go only through the hub; loading a form, publishing and the editing team stay on HTTP.
+A client that misses an edit (a gap in versions, or a reconnect) calls `Join` again with the last version it has. Edits, presence and pointers go only through the hub; loading a form, publishing and the editing team stay on HTTP.
+
+The account gate runs on every hub call. For `Cursor`, which a client sends up to 20 times a second, an allowed decision is reused for 5 seconds on the same connection, so pointers do not turn into a Redis read each; every other call is checked each time.
 
 > **One instance:** the people in each studio are kept in the API process's memory, and edits reach only the connections of that process. A second API instance needs a SignalR backplane and a shared member list before it starts.
 

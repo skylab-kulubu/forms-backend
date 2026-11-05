@@ -2,9 +2,13 @@ using Skylab.Forms.Domain.Common;
 
 namespace Skylab.Forms.Api.Realtime;
 
-public sealed record StudioMember(string Key, Guid UserId, string Name, bool CanEdit, IReadOnlyList<string> Selection, string? Editing);
+public sealed record StudioMember(string Key, Guid UserId, string Name, bool CanEdit, IReadOnlyList<string> Selection, string? Editing, bool Here);
 
-public sealed record StudioPresenceRequest(IReadOnlyList<string>? Selection, string? Editing);
+public sealed record StudioPresenceRequest(IReadOnlyList<string>? Selection, string? Editing, bool? Here);
+
+public sealed record StudioCursorRequest(string? Anchor, double X, double Y);
+
+public sealed record StudioCursor(string Key, Guid UserId, string? Anchor, double X, double Y);
 
 public sealed class StudioPresence
 {
@@ -22,7 +26,7 @@ public sealed class StudioPresence
             if (!_forms.TryGetValue(formId, out var members)) _forms[formId] = members = new Dictionary<string, Entry>();
 
             var previous = members.GetValueOrDefault(connectionId)?.Member;
-            members[connectionId] = new Entry(new StudioMember(connectionId, userId, name, canEdit, previous?.Selection ?? [], previous?.Editing), isPlatformAdmin);
+            members[connectionId] = new Entry(new StudioMember(connectionId, userId, name, canEdit, previous?.Selection ?? [], previous?.Editing, previous?.Here ?? false), isPlatformAdmin);
 
             return Snapshot(members);
         }
@@ -34,10 +38,11 @@ public sealed class StudioPresence
         {
             if (!_forms.TryGetValue(formId, out var members) || !members.TryGetValue(connectionId, out var entry)) return null;
 
-            var selection = (request.Selection ?? []).Where(FitsKey).Distinct(StringComparer.Ordinal).Take(MaxSelection).ToArray();
-            var editing = request.Editing is { Length: <= StudioLimits.MaxKeyLength * 2 } text ? text : null;
+            var here = request.Here ?? true;
+            var selection = here ? (request.Selection ?? []).Where(FitsKey).Distinct(StringComparer.Ordinal).Take(MaxSelection).ToArray() : [];
+            var editing = here && request.Editing is { Length: <= StudioLimits.MaxKeyLength * 2 } text ? text : null;
 
-            members[connectionId] = entry with { Member = entry.Member with { Selection = selection, Editing = editing } };
+            members[connectionId] = entry with { Member = entry.Member with { Selection = selection, Editing = editing, Here = here } };
 
             return Snapshot(members);
         }
@@ -84,6 +89,14 @@ public sealed class StudioPresence
             }
 
             return left;
+        }
+    }
+
+    public Guid? UserOf(Guid formId, string connectionId)
+    {
+        lock (_gate)
+        {
+            return _forms.TryGetValue(formId, out var members) && members.TryGetValue(connectionId, out var entry) ? entry.Member.UserId : null;
         }
     }
 

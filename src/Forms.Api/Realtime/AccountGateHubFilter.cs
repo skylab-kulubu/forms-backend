@@ -5,8 +5,11 @@ using Skylab.Forms.Application.Common;
 
 namespace Skylab.Forms.Api.Realtime;
 
-public sealed class AccountGateHubFilter(ILogger<AccountGateHubFilter> logger) : IHubFilter
+public sealed class AccountGateHubFilter(TimeProvider time, ILogger<AccountGateHubFilter> logger) : IHubFilter
 {
+    private const string AllowedAtKey = "account-gate-allowed-at";
+    private static readonly TimeSpan CursorTrust = TimeSpan.FromSeconds(5);
+
     public async ValueTask<object?> InvokeMethodAsync(HubInvocationContext invocationContext, Func<HubInvocationContext, ValueTask<object?>> next)
     {
         var connection = invocationContext.Context;
@@ -14,8 +17,18 @@ public sealed class AccountGateHubFilter(ILogger<AccountGateHubFilter> logger) :
         if (invocationContext.ServiceProvider.GetService<IAccountAccessPolicy>() is not { } policy || connection.User is not { } user)
             return await next(invocationContext);
 
+        var now = time.GetUtcNow();
+
+        if (invocationContext.HubMethodName == nameof(StudioHub.Cursor)
+            && connection.Items.TryGetValue(AllowedAtKey, out var stored) && stored is DateTimeOffset allowedAt && now - allowedAt < CursorTrust)
+            return await next(invocationContext);
+
         var decision = await AccountAccessGateExtensions.DecideAsync(policy, user, connection.ConnectionAborted);
-        if (decision == AccountAccessDecision.Allowed) return await next(invocationContext);
+        if (decision == AccountAccessDecision.Allowed)
+        {
+            connection.Items[AllowedAtKey] = now;
+            return await next(invocationContext);
+        }
 
         logger.LogWarning(
             "Account access gate decision {Decision}; connection {ConnectionId}",

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Studio;
 using Skylab.Forms.Application.Services.Studio;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Infrastructure.Auth;
 
 namespace Skylab.Forms.Api.Realtime;
@@ -17,6 +18,8 @@ public interface IStudioClient
     Task Published(Guid formId, StudioPublishedContract published);
 
     Task Team(Guid formId, StudioTeamContract team);
+
+    Task Cursor(Guid formId, StudioCursor cursor);
 }
 
 public sealed record StudioJoinReply(
@@ -31,6 +34,8 @@ public sealed record StudioJoinReply(
 public sealed class StudioHub(IFormStudio studio, StudioPresence presence, ILogger<StudioHub> logger) : Hub<IStudioClient>
 {
     public const string Path = "/hubs/studio";
+
+    private const double MaxCursorOffset = 100;
 
     public static string GroupOf(Guid formId) => $"form:{formId}";
 
@@ -82,6 +87,17 @@ public sealed class StudioHub(IFormStudio studio, StudioPresence presence, ILogg
             await SendAsync(formId, Clients.OthersInGroup(GroupOf(formId)), client => client.Presence(formId, members));
     }
 
+    public async Task Cursor(Guid formId, StudioCursorRequest? request)
+    {
+        if (presence.UserOf(formId, Context.ConnectionId) is not { } userId) return;
+
+        var cursor = request is { Anchor: { Length: > 0 and <= StudioLimits.MaxKeyLength } anchor } && FitsOffset(request.X) && FitsOffset(request.Y)
+            ? new StudioCursor(Context.ConnectionId, userId, anchor, request.X, request.Y)
+            : new StudioCursor(Context.ConnectionId, userId, null, 0, 0);
+
+        await SendAsync(formId, Clients.OthersInGroup(GroupOf(formId)), client => client.Cursor(formId, cursor));
+    }
+
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         foreach (var (formId, members) in presence.Drop(Context.ConnectionId))
@@ -115,6 +131,8 @@ public sealed class StudioHub(IFormStudio studio, StudioPresence presence, ILogg
 
         return full.Length > 0 ? full : user?.FindFirst("preferred_username")?.Value ?? "Editör";
     }
+
+    private static bool FitsOffset(double value) => double.IsFinite(value) && Math.Abs(value) <= MaxCursorOffset;
 
     private static ServiceResult<T> Failed<T>(ServiceStatus status, string? message) => new(status, Message: message);
 }
