@@ -674,7 +674,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `POST` | `/api/admin/forms/studio` | Create a form from the studio's first edit, see [New forms](#new-forms) |
-| `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
+| `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview`, and `access` what the caller may do, see [Authentication & Authorization](#authentication--authorization) |
 | `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from; answers `409` while the studio's working copy holds unpublished changes |
 | `GET` | `/api/admin/forms/{id}/studio` | The studio's view of a form: `form` (as `GET /api/admin/forms/{id}`), `working` (`document`, `version`, `dirty`, `updatedAt`, `updatedBy`), the `published` document and `legacyDraft` |
 | `POST` | `/api/admin/forms/{id}/studio/publish` | Publish the working copy, see [Publishing](#publishing) |
@@ -688,7 +688,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `POST` | `/api/admin/forms/{id}/comments/{threadId}/reopen` | Reopen a resolved thread |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
-| `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
+| `GET` | `/api/admin/forms/{id}/info` | Get form summary information, without archived answers; `access` tells what the caller may do |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
 | `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft; needs edit rights on the form |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
@@ -763,6 +763,8 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | Delete the form | | | ✓ | |
 
 A **Viewer** is a response viewer: they handle answers but never change the form. A workflow's owner may also void its applications.
+
+`GET /api/admin/forms/{id}` and `/info` answer with `access` (`canViewResponses`, `canHandleResponses`, `canEdit`), read from this table for the caller. A client asks it instead of comparing role numbers, because a service administrator has no role on the form and may still see its answers.
 
 ## Ownership transfer
 

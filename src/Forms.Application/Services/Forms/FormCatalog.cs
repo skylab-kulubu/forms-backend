@@ -54,7 +54,10 @@ public sealed class FormCatalog : IFormCatalog
 
         return new ServiceResult<FormContract>(
             ServiceStatus.Success,
-            Data: FormEditorMapping.ContractOf(form, users, userRole, FormEditorMapping.WorkflowRefOf(await FormEditorMapping.MembershipOfAsync(_workflows, id, cancellationToken))));
+            Data: FormEditorMapping.ContractOf(form, users, userRole, FormEditorMapping.WorkflowRefOf(await FormEditorMapping.MembershipOfAsync(_workflows, id, cancellationToken))) with
+            {
+                Access = FormEditorMapping.AccessOf(form, userId, _currentUser.IsPlatformAdmin)
+            });
     }
 
     public async Task<ServiceResult<FormInfoContract>> GetFormInfoByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -78,7 +81,8 @@ public sealed class FormCatalog : IFormCatalog
             AverageTimeSeconds: counts.AverageTimeSpentSeconds,
             LastSeenUsers: Array.Empty<FormLastSeenUserContract>(),
             UserRole: form.RoleOf(userId),
-            TimeLimitMinutes: form.HasTimeLimit ? form.TimeLimitMinutes : null
+            TimeLimitMinutes: form.HasTimeLimit ? form.TimeLimitMinutes : null,
+            Access: FormEditorMapping.AccessOf(form, userId, _currentUser.IsPlatformAdmin)
         );
 
         return new ServiceResult<FormInfoContract>(ServiceStatus.Success, Data: contract);

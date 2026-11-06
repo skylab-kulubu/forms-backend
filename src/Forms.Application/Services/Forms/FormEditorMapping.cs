@@ -46,6 +46,12 @@ internal static class FormEditorMapping
         );
     }
 
+    public static FormAccessContract AccessOf(Form form, Guid userId, bool isPlatformAdmin) =>
+        new(
+            form.Allows(userId, isPlatformAdmin, FormAction.ViewResponses),
+            form.Allows(userId, isPlatformAdmin, FormAction.HandleResponses),
+            form.Allows(userId, isPlatformAdmin, FormAction.EditForm));
+
     public static async Task<WorkflowFormMembership?> MembershipOfAsync(IFormWorkflowRepository workflows, Guid formId, CancellationToken cancellationToken)
     {
         var memberships = await workflows.GetFormMembershipsAsync([formId], cancellationToken);

@@ -22,8 +22,11 @@ public record FormContract(
     FormTask? Task = null,
     DateTime? ClosesAt = null,
     int? TimeLimitMinutes = null,
-    int PublishedVersion = 1
+    int PublishedVersion = 1,
+    FormAccessContract? Access = null
 );
+
+public record FormAccessContract(bool CanViewResponses, bool CanHandleResponses, bool CanEdit);
 
 public record FormDisplayContract(
     Guid Id,
