@@ -44,7 +44,7 @@ public sealed class FormCatalog : IFormCatalog
 
         if (form == null) return new ServiceResult<FormContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.OpenEditor))
+        if (!form.Allows(userId, _currentUser.IsPlatformAdmin, FormAction.ViewForm))
             return new ServiceResult<FormContract>(ServiceStatus.NotAuthorized, Message: "Yetkiniz yok.");
 
         var userRole = form.RoleOf(userId);

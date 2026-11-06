@@ -674,7 +674,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `POST` | `/api/admin/forms/studio` | Create a form from the studio's first edit, see [New forms](#new-forms) |
-| `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview`, and `access` what the caller may do, see [Authentication & Authorization](#authentication--authorization) |
+| `GET` | `/api/admin/forms/{id}` | Get form details, for everyone who may see the form; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview`, and `access` what the caller may do, see [Authentication & Authorization](#authentication--authorization). The editor reads `/studio`, which needs edit rights |
 | `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from; answers `409` while the studio's working copy holds unpublished changes |
 | `GET` | `/api/admin/forms/{id}/studio` | The studio's view of a form: `form` (as `GET /api/admin/forms/{id}`), `working` (`document`, `version`, `dirty`, `updatedAt`, `updatedBy`), the `published` document and `legacyDraft` |
 | `POST` | `/api/admin/forms/{id}/studio/publish` | Publish the working copy, see [Publishing](#publishing) |
