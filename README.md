@@ -123,7 +123,7 @@ Dynamic form creation and response management service.
 - Collaborator management with Owner, Editor, and Viewer roles
 - Manual review workflow (`Pending -> Approved / Declined`); a workflow step can also be sent back for changes, see [Changes requested](#changes-requested)
 - Response archiving
-- Form metrics and answer analytics, see [Metrics and analytics](#metrics-and-analytics). Each question reports `askedCount`, the answers that carry it: the form submits only the questions on screen, so a question its condition hid, or one added after an answer, is left out of that answer's count
+- Form metrics and answer analytics, see [Metrics and analytics](#metrics-and-analytics)
 - Reusable component groups
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
@@ -256,7 +256,7 @@ Every count below leaves out **archived answers**, along with provisional answer
 
 An answer filter matches **exactly what the option's row counted**: the whole trimmed answer, or one selection of a multiple-choice question, case-sensitively. A looser match would merge rows the distribution keeps apart, and the list would stop agreeing with the number the reviewer clicked. A blank `AnswerValue` matches nothing. Only the unfiltered result is cached: the cache key is per form and a submission deletes it, so a filtered result could outlive the answers behind it.
 
-Each question reports `askedCount`, `answeredCount` and `skippedCount`, which is asked minus answered. A `short_text` with `props.inputType` `number` is analyzed as `Number`. Rows of choice, multiple-choice, toggle and number questions carry `approvedCount` and `declinedCount`, and the result carries `decisions` (`approved`, `declined`) for the answers it counted.
+Each question reports `askedCount`, `answeredCount` and `skippedCount`, which is asked minus answered: someone who never saw a conditional question did not skip it. Every answer stores every question of the form, blank when hidden, so `askedCount` cannot be read from the stored rows alone. It runs the question's `condition` against each answer with the same rules as the form page (`FormQuestionVisibility`, which must change together with the client's `checkCondition`), which also holds for answers stored before this count existed. A question added after an answer is left out of that answer, and a hidden question that holds an answer anyway counts as asked. A `short_text` with `props.inputType` `number` is analyzed as `Number`. Rows of choice, multiple-choice, toggle and number questions carry `approvedCount` and `declinedCount`, and the result carries `decisions` (`approved`, `declined`) for the answers it counted.
 
 ## Form Workflows
 

@@ -34,20 +34,31 @@ public static class AnswerAnalyticsBuilder
         var answersById = new Dictionary<string, List<GivenAnswer>>();
         var embeddedTextById = new Dictionary<string, string>();
 
+        var questionsById = form.Schema.ToDictionary(item => item.Id);
+
         foreach (var response in responses)
         {
+            var answers = new Dictionary<string, string?>();
+            foreach (var item in response.Data)
+                answers.TryAdd(item.Id, item.Answer);
+
             var seen = new HashSet<string>();
             foreach (var item in response.Data)
             {
                 if (!seen.Add(item.Id))
                     continue;
 
+                if (!embeddedTextById.ContainsKey(item.Id) && !string.IsNullOrWhiteSpace(item.Question))
+                    embeddedTextById[item.Id] = item.Question;
+
+                if (string.IsNullOrWhiteSpace(item.Answer)
+                    && questionsById.TryGetValue(item.Id, out var question)
+                    && !FormQuestionVisibility.IsShown(question, form.Schema, answers))
+                    continue;
+
                 if (!answersById.TryGetValue(item.Id, out var list))
                     answersById[item.Id] = list = new List<GivenAnswer>();
                 list.Add(new GivenAnswer(item.Answer, response.Status));
-
-                if (!embeddedTextById.ContainsKey(item.Id) && !string.IsNullOrWhiteSpace(item.Question))
-                    embeddedTextById[item.Id] = item.Question;
             }
         }
 
