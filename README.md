@@ -670,7 +670,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow`. `AllowMultiple` and `RequiresManualReview` match a form in a published workflow on the workflow's and the step's settings |
-| `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list |
+| `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list. `Status` is `2` open, `1` closed or `0` deleted, and deleted forms appear only under their own filter; `Owner` is a user id or `orphaned`; `Search` matches the title or the start of the id; `SortBy` accepts `updatedAt`, `status`, `title`, `owner`, `responseCount`, `pendingCount`, `lastResponseAt`. Rows add `pendingCount`, `lastResponseAt` and `isOrphaned`; the page adds `summary` (`total`, `open`, `closed`, `deleted`, `orphaned`, `pending`) and `owners`, each with `formCount`, which ignore the filters. Owner names come from core and are kept for two minutes |
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
 | `POST` | `/api/admin/forms/studio` | Create a form from the studio's first edit, see [New forms](#new-forms) |
@@ -687,6 +687,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `POST` | `/api/admin/forms/{id}/comments/{threadId}/resolve` | Mark a thread resolved |
 | `POST` | `/api/admin/forms/{id}/comments/{threadId}/reopen` | Reopen a resolved thread |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
+| `POST` | `/api/admin/forms/{id}/restore` | Bring a soft-deleted form back, closed, for service administrators; `404` for a form that is not deleted. Drafts cleared by the deletion stay gone |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
 | `GET` | `/api/admin/forms/{id}/info` | Get form summary information, without archived answers; `access` tells what the caller may do |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |

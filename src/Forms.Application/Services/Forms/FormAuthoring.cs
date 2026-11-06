@@ -18,6 +18,7 @@ public interface IFormAuthoring
     Task<ServiceResult<FormContract>> UpdateFormAsync(Guid formId, FormUpsertRequest contract, Guid userId, CancellationToken cancellationToken = default);
     Task<ServiceResult<List<FormCollaboratorContract>>> UpdateCollaboratorsAsync(Guid formId, FormCollaboratorsRequest request, Guid userId, CancellationToken cancellationToken = default);
     Task<ServiceResult<bool>> DeleteFormAsync(Guid id, Guid userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<bool>> RestoreFormAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
 public sealed class FormAuthoring : IFormAuthoring
@@ -217,5 +218,18 @@ public sealed class FormAuthoring : IFormAuthoring
         await _draftService.ClearResponseDraftsAsync(id, cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Form silindi.");
+    }
+
+    public async Task<ServiceResult<bool>> RestoreFormAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var form = await _forms.GetDeletedForEditAsync(id, cancellationToken);
+
+        if (form == null) return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Silinmiş form bulunamadı.");
+
+        form.Status = FormStatus.Closed;
+
+        await _uow.SaveChangesAsync(cancellationToken);
+
+        return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Form geri yüklendi.");
     }
 }

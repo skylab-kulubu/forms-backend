@@ -10,6 +10,7 @@ public static class FormCacheKeys
     public static string Analytics(Guid formId) => $"{AnalyticsPrefix}{formId}";
     public static string LinkStats(Guid formId) => $"form:link-stats:{formId}";
     public static string Respondents(Guid formId) => $"{AnalyticsPrefix}respondents:{formId}";
+    public const string CatalogOwners = $"{AnalyticsPrefix}catalog-owners";
 
     public static string ResponseDraft(Guid formId, Guid userId) => $"{ResponseDraftPrefix(formId)}{userId}";
     public static string ResponseDraftPrefix(Guid formId) => $"{ResponseDraftRoot}{formId}:";

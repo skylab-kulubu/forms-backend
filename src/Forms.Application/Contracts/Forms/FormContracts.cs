@@ -1,5 +1,6 @@
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
+using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Collaborators;
 using Skylab.Forms.Application.Contracts.Identity;
 
@@ -65,8 +66,24 @@ public record FormAllSummaryContract(
     FormWorkflowRefContract? Workflow,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    int ResponseCount
+    int ResponseCount,
+    int PendingCount = 0,
+    DateTime? LastResponseAt = null,
+    bool IsOrphaned = false
 );
+
+public record FormCatalogSummaryContract(int Total, int Open, int Closed, int Deleted, int Orphaned, int Pending);
+
+public record FormOwnerContract(Guid Id, string? Email, string? FullName, string? ProfilePictureUrl, string? FirstName, int FormCount);
+
+public record FormAllPageContract(
+    List<FormAllSummaryContract> Items,
+    int TotalCount,
+    int Page,
+    int PageSize,
+    FormCatalogSummaryContract Summary,
+    List<FormOwnerContract> Owners
+) : PagedResult<FormAllSummaryContract>(Items, TotalCount, Page, PageSize);
 
 public record FormWorkflowRefContract(
     Guid Id,

@@ -2,7 +2,9 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts.Forms;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 
@@ -13,29 +15,35 @@ public interface IFormCatalog
     Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default);
     Task<ServiceResult<FormInfoContract>> GetFormInfoByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default);
     Task<ServiceResult<PagedResult<FormSummaryContract>>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken cancellationToken = default);
-    Task<ServiceResult<PagedResult<FormAllSummaryContract>>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<FormAllPageContract>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken cancellationToken = default);
 }
 
 public sealed class FormCatalog : IFormCatalog
 {
+    private static readonly TimeSpan OwnersCacheTtl = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan OwnersMissCacheTtl = TimeSpan.FromSeconds(15);
+
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
     private readonly IUserDirectory _userService;
     private readonly ICurrentUser _currentUser;
     private readonly IFormWorkflowRepository _workflows;
+    private readonly ICacheService _cache;
 
     public FormCatalog(
         IFormRepository forms,
         IFormResponseRepository responses,
         IUserDirectory userService,
         ICurrentUser currentUser,
-        IFormWorkflowRepository workflows)
+        IFormWorkflowRepository workflows,
+        ICacheService cache)
     {
         _forms = forms;
         _responses = responses;
         _userService = userService;
         _currentUser = currentUser;
         _workflows = workflows;
+        _cache = cache;
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -109,13 +117,17 @@ public sealed class FormCatalog : IFormCatalog
             Data: new PagedResult<FormSummaryContract>(items, data.TotalCount, data.Page, data.PageSize));
     }
 
-    public async Task<ServiceResult<PagedResult<FormAllSummaryContract>>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormAllPageContract>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken cancellationToken = default)
     {
-        var raw = await _forms.GetAllFormsAsync(request, cancellationToken);
+        var catalog = await _forms.GetCatalogRowsAsync(cancellationToken);
+        var directory = await GetOwnerDirectoryAsync(catalog, cancellationToken);
 
-        var ownerIds = raw.Items.Select(f => f.OwnerUserId).Distinct().ToList();
-        var users = await _userService.GetUsersAsync(ownerIds, cancellationToken);
-        var userMap = users.ToDictionary(u => u.Id);
+        var sortsByOwner = string.Equals(request.SortBy?.Trim(), "owner", StringComparison.OrdinalIgnoreCase);
+        var raw = await _forms.GetAllFormsAsync(request, sortsByOwner ? OwnerOrderOf(directory) : null, cancellationToken);
+
+        var unknown = raw.Items.Select(f => f.OwnerUserId).Distinct().Where(id => directory.All(user => user.Id != id));
+        var users = directory.Concat(await _userService.GetUsersAsync(unknown, cancellationToken));
+        var userMap = users.DistinctBy(u => u.Id).ToDictionary(u => u.Id);
 
         var memberships = await _workflows.GetFormMembershipsAsync(
             [.. raw.Items.Select(form => form.Id)], cancellationToken);
@@ -134,13 +146,62 @@ public sealed class FormCatalog : IFormCatalog
                 memberships.TryGetValue(f.Id, out var membership) ? FormEditorMapping.WorkflowRefOf(membership) : null,
                 f.CreatedAt,
                 f.UpdatedAt,
-                f.ResponseCount
+                f.ResponseCount,
+                f.PendingCount,
+                f.LastResponseAt,
+                f.OwnerUserId == DeletedUser.Id
             );
         }).ToList();
 
-        return new ServiceResult<PagedResult<FormAllSummaryContract>>(
+        return new ServiceResult<FormAllPageContract>(
             ServiceStatus.Success,
-            Data: new PagedResult<FormAllSummaryContract>(forms, raw.TotalCount, raw.Page, raw.PageSize)
+            Data: new FormAllPageContract(forms, raw.TotalCount, raw.Page, raw.PageSize, SummaryOf(catalog), OwnersOf(catalog, directory))
         );
+    }
+
+    private async Task<List<UserContract>> GetOwnerDirectoryAsync(IReadOnlyCollection<FormCatalogRow> catalog, CancellationToken cancellationToken)
+    {
+        var cached = await _cache.TryGetAsync<List<UserContract>>(FormCacheKeys.CatalogOwners, cancellationToken);
+        if (cached is not null) return cached;
+
+        var users = await _userService.GetUsersAsync(catalog.Select(form => form.OwnerUserId), cancellationToken);
+
+        await _cache.TrySetAsync(FormCacheKeys.CatalogOwners, users, users.Count > 0 ? OwnersCacheTtl : OwnersMissCacheTtl, cancellationToken);
+
+        return users;
+    }
+
+    private static List<Guid> OwnerOrderOf(IEnumerable<UserContract> directory) =>
+        [.. directory
+            .OrderBy(user => user.FullName ?? user.Email ?? string.Empty, StringComparer.Create(ClubTime.Culture, ignoreCase: true))
+            .Select(user => user.Id)];
+
+    private static FormCatalogSummaryContract SummaryOf(IReadOnlyCollection<FormCatalogRow> catalog)
+    {
+        var visible = catalog.Where(form => form.Status != FormStatus.Deleted).ToList();
+
+        return new FormCatalogSummaryContract(
+            visible.Count,
+            visible.Count(form => form.Status == FormStatus.Open),
+            visible.Count(form => form.Status == FormStatus.Closed),
+            catalog.Count - visible.Count,
+            visible.Count(form => form.OwnerUserId == DeletedUser.Id),
+            visible.Sum(form => form.PendingCount));
+    }
+
+    private static List<FormOwnerContract> OwnersOf(IReadOnlyCollection<FormCatalogRow> catalog, IEnumerable<UserContract> directory)
+    {
+        var owned = catalog
+            .Where(form => form.Status != FormStatus.Deleted && form.OwnerUserId != DeletedUser.Id)
+            .GroupBy(form => form.OwnerUserId)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        return directory
+            .Where(user => owned.ContainsKey(user.Id))
+            .DistinctBy(user => user.Id)
+            .OrderByDescending(user => owned[user.Id])
+            .ThenBy(user => user.FullName, StringComparer.Create(ClubTime.Culture, ignoreCase: true))
+            .Select(user => new FormOwnerContract(user.Id, user.Email, user.FullName, user.ProfilePictureUrl, user.FirstName, owned[user.Id]))
+            .ToList();
     }
 }

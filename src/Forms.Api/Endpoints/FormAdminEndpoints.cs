@@ -133,6 +133,12 @@ public static class FormAdminEndpoints
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
         });
 
+        group.MapPost("/{id:guid}/restore", async (Guid id, IFormAuthoring service, CancellationToken ct) =>
+        {
+            var result = await service.RestoreFormAsync(id, ct);
+            return result.ToApiResult();
+        }).RequireAuthorization(FormsAuthorization.PlatformAdmin);
+
         group.MapPost("/{id:guid}/transfer", async (Guid id, [FromBody] OwnershipTransferRequest request, IOwnershipService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();

@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Contracts.Forms;
@@ -163,22 +164,30 @@ public sealed class FormRepository : IFormRepository
         return query;
     }
 
-    public async Task<PagedResult<FormAllSummaryProjection>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken ct = default)
+    public async Task<PagedResult<FormAllSummaryProjection>> GetAllFormsAsync(GetAllFormsRequest request, IReadOnlyList<Guid>? ownerOrder, CancellationToken ct = default)
     {
-        var query = _context.Forms.AsNoTracking()
-            .Where(f => f.Status != FormStatus.Deleted);
+        var query = request.Status == FormStatus.Deleted
+            ? _context.Forms.AsNoTracking().IgnoreQueryFilters().Where(f => f.Status == FormStatus.Deleted)
+            : _context.Forms.AsNoTracking().Where(f => f.Status != FormStatus.Deleted);
+
+        if (request.Status is { } status and not FormStatus.Deleted)
+            query = query.Where(f => f.Status == status);
 
         if (!string.IsNullOrWhiteSpace(request.Search))
-            query = query.Where(f => EF.Functions.ILike(f.Title, $"%{request.Search.Trim()}%"));
+        {
+            var term = request.Search.Trim();
+            query = query.Where(f => EF.Functions.ILike(f.Title, $"%{term}%") || EF.Functions.ILike(f.Id.ToString(), $"{term}%"));
+        }
+
+        if (request.OwnerId is { } ownerId)
+            query = query.Where(f => f.Collaborators.Any(c => c.UserId == ownerId && c.Role == CollaboratorRole.Owner));
 
         if (request.AllowAnonymous.HasValue)
             query = query.Where(f => f.AllowAnonymousResponses == request.AllowAnonymous.Value);
 
         query = ApplyWorkflowAwareFilters(query, request.AllowMultiple, request.RequiresManualReview);
 
-        query = request.SortDirection?.ToLower() == "ascending"
-            ? query.OrderBy(f => f.UpdatedAt ?? f.CreatedAt)
-            : query.OrderByDescending(f => f.UpdatedAt ?? f.CreatedAt);
+        query = ApplyCatalogSorting(query, request.SortBy, string.Equals(request.SortDirection, "ascending", StringComparison.OrdinalIgnoreCase), ownerOrder);
 
         var totalCount = await query.CountAsync(ct);
 
@@ -197,12 +206,45 @@ public sealed class FormRepository : IFormRepository
                 f.RequiresManualReview,
                 f.CreatedAt,
                 f.UpdatedAt,
-                f.Responses.Count()
+                f.Responses.Count(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)),
+                f.Responses.Count(r => r.Status == FormResponseStatus.Pending && !r.IsArchived),
+                f.Responses.Where(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)).Max(r => (DateTime?)r.SubmittedAt)
             ))
             .ToListAsync(ct);
 
         return new PagedResult<FormAllSummaryProjection>(items, totalCount, page, pageSize);
     }
+
+    private static IQueryable<Form> ApplyCatalogSorting(IQueryable<Form> query, string? sortBy, bool ascending, IReadOnlyList<Guid>? ownerOrder)
+    {
+        IOrderedQueryable<Form> By<TKey>(Expression<Func<Form, TKey>> key) => ascending ? query.OrderBy(key) : query.OrderByDescending(key);
+
+        var owners = ownerOrder?.ToArray() ?? [];
+
+        var ordered = sortBy?.Trim().ToLowerInvariant() switch
+        {
+            "status" => By(f => f.Status),
+            "title" => By(f => f.Title),
+            "owner" => By(f => Array.IndexOf(owners, f.Collaborators.Where(c => c.Role == CollaboratorRole.Owner).Select(c => c.UserId).FirstOrDefault())),
+            "responsecount" => By(f => f.Responses.Count(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status))),
+            "pendingcount" => By(f => f.Responses.Count(r => r.Status == FormResponseStatus.Pending && !r.IsArchived)),
+            "lastresponseat" => By(f => f.Responses.Where(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)).Max(r => (DateTime?)r.SubmittedAt) ?? DateTime.MinValue),
+            _ => By(f => f.UpdatedAt ?? f.CreatedAt),
+        };
+
+        return ordered.ThenBy(f => f.Id);
+    }
+
+    public async Task<IReadOnlyList<FormCatalogRow>> GetCatalogRowsAsync(CancellationToken ct = default) =>
+        await _context.Forms.AsNoTracking().IgnoreQueryFilters()
+            .Select(f => new FormCatalogRow(
+                f.Status,
+                f.Collaborators.Where(c => c.Role == CollaboratorRole.Owner).Select(c => c.UserId).FirstOrDefault(),
+                f.Responses.Count(r => r.Status == FormResponseStatus.Pending && !r.IsArchived)))
+            .ToListAsync(ct);
+
+    public Task<Form?> GetDeletedForEditAsync(Guid id, CancellationToken ct = default) =>
+        _context.Forms.IgnoreQueryFilters().FirstOrDefaultAsync(f => f.Id == id && f.Status == FormStatus.Deleted, ct);
 
     public void Add(Form form) => _context.Forms.Add(form);
 }
