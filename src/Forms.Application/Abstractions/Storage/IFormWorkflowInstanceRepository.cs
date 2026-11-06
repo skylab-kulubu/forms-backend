@@ -43,6 +43,8 @@ public interface IFormWorkflowInstanceRepository
 
     Task<IReadOnlyList<WorkflowEndTally>> CountEndsAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
 
+    Task<IReadOnlyList<WorkflowStepSpan>> GetPassedStepSpansAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default);
+
     Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
         Guid workflowId,
         GetWorkflowRunsRequest request,
@@ -123,6 +125,12 @@ public sealed record WorkflowEndTally(
     WorkflowInstanceStatus Status,
     WorkflowInstanceOutcome Outcome,
     int Count);
+
+public sealed record WorkflowStepSpan(
+    Guid WorkflowId,
+    string NodeKey,
+    DateTime StartedAt,
+    DateTime LeftAt);
 
 public sealed record WorkflowRunRow(
     Guid InstanceId,
