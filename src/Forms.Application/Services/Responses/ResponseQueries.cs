@@ -64,7 +64,7 @@ public sealed class ResponseQueries : IResponseQueries
         var hasTimeLimit = form?.HasTimeLimit == true;
         var now = _time.GetUtcNow().UtcDateTime;
 
-        var paged = await _responses.GetPagedAsync(formId, request, hasTimeLimit, now, cancellationToken);
+        var paged = await _responses.GetPagedAsync(formId, request, await FindAnsweredIdsAsync(form, request, cancellationToken), hasTimeLimit, now, cancellationToken);
 
         var userIds = paged.Items.Where(r => r.UserId.HasValue).Select(r => r.UserId!.Value)
             .Concat(paged.Items.Where(r => r.ReviewedBy.HasValue).Select(r => r.ReviewedBy!.Value))
@@ -112,12 +112,17 @@ public sealed class ResponseQueries : IResponseQueries
             return new ServiceResult<ResponseListPageContract>(ServiceStatus.NotAuthorized, Message: "Bu formun yanıtlarını görüntüleme yetkiniz yok.");
 
         var form = await _forms.GetByIdAsync(formId, cancellationToken);
-        var page = await _responses.FindPageAsync(formId, responseId, request, form?.HasTimeLimit == true, _time.GetUtcNow().UtcDateTime, cancellationToken);
+        var page = await _responses.FindPageAsync(formId, responseId, request, await FindAnsweredIdsAsync(form, request, cancellationToken), form?.HasTimeLimit == true, _time.GetUtcNow().UtcDateTime, cancellationToken);
 
         return page is { } found
             ? new ServiceResult<ResponseListPageContract>(ServiceStatus.Success, new ResponseListPageContract(found))
             : new ServiceResult<ResponseListPageContract>(ServiceStatus.NotFound, Message: "Yanıt bu listede yok.");
     }
+
+    private async Task<IReadOnlyCollection<Guid>?> FindAnsweredIdsAsync(Form? form, GetResponsesRequest request, CancellationToken cancellationToken) =>
+        form is not null && !string.IsNullOrEmpty(request.AnswerQuestionId)
+            ? await _responses.GetIdsWhereAsync(form.Id, AnswerAnalyticsBuilder.GaveAnswer(form, request.AnswerQuestionId, request.AnswerValue), cancellationToken)
+            : null;
 
     private static ResponseAttemptSummaryContract ToAttemptSummary(ResponseAttemptProjection attempt, bool canRemind) =>
         new(

@@ -11,5 +11,7 @@ public record GetResponsesRequest(
     bool? ShowArchived = null,
     string SortingDirection = "descending",
     FormAttemptStatus? AttemptStatus = null,
-    string? Time = null
+    string? Time = null,
+    string? AnswerQuestionId = null,
+    string? AnswerValue = null
 );
