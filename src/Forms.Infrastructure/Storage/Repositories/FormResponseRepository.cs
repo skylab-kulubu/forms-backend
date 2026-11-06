@@ -28,7 +28,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public async Task<FormResponseCounts> GetCountsAsync(Guid formId, CancellationToken ct = default)
     {
         var result = await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !Uncounted.Contains(r.Status))
+            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
             .GroupBy(_ => 1)
             .Select(g => new FormResponseCounts(
                 g.Count(),

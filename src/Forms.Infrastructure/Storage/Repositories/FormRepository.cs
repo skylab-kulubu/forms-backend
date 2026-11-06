@@ -87,7 +87,7 @@ public sealed class FormRepository : IFormRepository
                 f.RequiresManualReview,
                 null,
                 f.UpdatedAt ?? f.CreatedAt,
-                f.Responses.Count(),
+                f.Responses.Count(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)),
                 f.PublishedVersion
             ))
             .ToListAsync(ct);
@@ -105,8 +105,8 @@ public sealed class FormRepository : IFormRepository
                 ? query.OrderBy(f => f.Status)
                 : query.OrderByDescending(f => f.Status),
             "responsecount" => ascending
-                ? query.OrderBy(f => f.Responses.Count())
-                : query.OrderByDescending(f => f.Responses.Count()),
+                ? query.OrderBy(f => f.Responses.Count(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)))
+                : query.OrderByDescending(f => f.Responses.Count(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status))),
             "userrole" => ascending
                 ? query.OrderBy(f => f.Collaborators.Where(c => c.UserId == userId).Select(c => c.Role).FirstOrDefault())
                 : query.OrderByDescending(f => f.Collaborators.Where(c => c.UserId == userId).Select(c => c.Role).FirstOrDefault()),

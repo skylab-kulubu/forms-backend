@@ -123,7 +123,7 @@ Dynamic form creation and response management service.
 - Collaborator management with Owner, Editor, and Viewer roles
 - Manual review workflow (`Pending -> Approved / Declined`); a workflow step can also be sent back for changes, see [Changes requested](#changes-requested)
 - Response archiving
-- Form metrics and answer analytics. Each question reports `askedCount`, the answers that carry it: the form submits only the questions on screen, so a question its condition hid, or one added after an answer, is left out of that answer's count
+- Form metrics and answer analytics, see [Metrics and analytics](#metrics-and-analytics). Each question reports `askedCount`, the answers that carry it: the form submits only the questions on screen, so a question its condition hid, or one added after an answer, is left out of that answer's count
 - Reusable component groups
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
@@ -232,6 +232,19 @@ Every change goes through HTTP and reaches the group through `Comments`, the sen
 ### Retention and old drafts
 
 `FormEdits` rows older than seven days are deleted every hour; a client that comes back later gets `snapshotRequired` and reloads the working copy. The per-person editor drafts in Redis (`/api/admin/forms/{id}/draft`) are only read now: `GET /api/admin/forms/{id}/studio` returns the caller's draft as `legacyDraft`, and the studio applies it to a form that has no working copy yet, then deletes it.
+
+## Metrics and analytics
+
+Every count below leaves out **archived answers**, along with provisional answers and answers sent back for changes. The overview, the analytics, the channels, both form lists and the service dashboard therefore agree with the response list.
+
+`GET /api/admin/forms/{id}/metrics` reads one row per answer and adds up the rest in memory, so a single query serves every figure:
+
+- **Trends.** `dailyTrendPercentage` compares the last seven days with the seven before, `hourlyTrendPercentage` the last 24 hours with the 24 before. Equal windows keep a half-finished day from reading as a drop. `GET /api/admin/forms/metrics` compares its weekly figures the same way.
+- **Filling time.** `medianCompletionTime` is the median in seconds, next to `averageCompletionTime`. The clock runs while the page is open, so one tab left open for a day moves the average and not the median.
+- **Waiting answers.** `pendingCount` includes the unverified answers and `flaggedCount` says how many those are.
+- **Review.** `review` is `null` until an answer waits or has been decided. It carries `decidedCount`, `medianDecisionSeconds` from submission to decision, `oldestPending` (`responseId`, `submittedAt`) and `reviewers` (`userId`, `decisions`), most decisions first. Reviewers come as ids on purpose: names live in core, and the overview must not wait for it, so the client reads them from the form's team. `oldestPending` looks only at `Pending` answers, the ones the list's pending filter shows, and a decision no reviewer made is left out.
+- **Channels.** Each row of `channels` adds `approved`, `declined` and `campaigns`, whose rows carry `campaign`, `responses`, `approved` and `declined`, with the row without a campaign last. The untagged channel has no `campaigns`. Core keeps clicks per source only, so campaigns have none.
+- **Form life.** `lifetime` is `null` for a form without answers. `days` lists every Istanbul day from the first answer to today with its `count`. `closesAt` is the form's closing time, or the intake's for the start form of a published workflow.
 
 ## Form Workflows
 
@@ -668,7 +681,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them. A row of a workflow step, answered or still a timed attempt, carries `workflow` with the step's `stage` and the submission's `round` |
 | `GET` | `/api/admin/forms/{id}/responses/{responseId}/page` | The `page` of the list that holds a response, read with the list's own filters, order and page size, so a client that opens a response directly can show its neighbours; `404` when the filters leave it out |
 | `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
-| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish |
+| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish, see [Metrics and analytics](#metrics-and-analytics) |
 | `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
 | `GET` | `/api/admin/forms/responses/{id}` | Get one response |
