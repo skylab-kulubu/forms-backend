@@ -8,6 +8,7 @@ using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Application.Contracts.Metrics;
 using Skylab.Forms.Application.Contracts.ShortLinks;
 using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Ownership;
@@ -184,11 +185,11 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/analytics", async (Guid id, IFormMetricService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/analytics", async (Guid id, [AsParameters] GetFormAnalyticsRequest request, IFormMetricService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
-            var result = await service.GetAnswerAnalyticsAsync(id, userId, ct);
+            var result = await service.GetAnswerAnalyticsAsync(id, userId, request, ct);
             return result.ToApiResult();
         });
 

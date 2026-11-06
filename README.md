@@ -246,6 +246,18 @@ Every count below leaves out **archived answers**, along with provisional answer
 - **Channels.** Each row of `channels` adds `approved`, `declined` and `campaigns`, whose rows carry `campaign`, `responses`, `approved` and `declined`, with the row without a campaign last. The untagged channel has no `campaigns`. Core keeps clicks per source only, so campaigns have none.
 - **Form life.** `lifetime` is `null` for a form without answers. `days` lists every Istanbul day from the first answer to today with its `count`. `closesAt` is the form's closing time, or the intake's for the start form of a published workflow.
 
+`GET /api/admin/forms/{id}/analytics` takes four optional filters that narrow the answers before anything is counted:
+
+| Parameter | Effect |
+|-----------|--------|
+| `Status` | Only answers in this status, as a number. `1` is `Pending` alone, like the list's filter; unverified answers stay out |
+| `SinceDays` | Only answers from the last so many days. A value below 1 is ignored |
+| `AnswerQuestionId`, `AnswerValue` | Only those who gave this answer, see the rule below |
+
+An answer filter matches **exactly what the option's row counted**: the whole trimmed answer, or one selection of a multiple-choice question, case-sensitively. A looser match would merge rows the distribution keeps apart, and the list would stop agreeing with the number the reviewer clicked. A blank `AnswerValue` matches nothing. Only the unfiltered result is cached: the cache key is per form and a submission deletes it, so a filtered result could outlive the answers behind it.
+
+Each question reports `askedCount`, `answeredCount` and `skippedCount`, which is asked minus answered. A `short_text` with `props.inputType` `number` is analyzed as `Number`. Rows of choice, multiple-choice, toggle and number questions carry `approvedCount` and `declinedCount`, and the result carries `decisions` (`approved`, `declined`) for the answers it counted.
+
 ## Form Workflows
 
 A workflow chains several forms into one application. The definition is a **directed acyclic graph**: it may branch, but a single application follows **exactly one route** through it and never moves back to an earlier form. The one exception is a reviewer asking for changes, which opens the same form again as the step's next submission (see [Changes requested](#changes-requested)). A route may span at most **three forms**, while the workflow as a whole may hold more.
@@ -682,7 +694,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/forms/{id}/responses/{responseId}/page` | The `page` of the list that holds a response, read with the list's own filters, order and page size, so a client that opens a response directly can show its neighbours; `404` when the filters leave it out |
 | `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
 | `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish, see [Metrics and analytics](#metrics-and-analytics) |
-| `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
+| `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics, optionally narrowed by `Status`, `SinceDays`, `AnswerQuestionId` and `AnswerValue` |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
 | `GET` | `/api/admin/forms/responses/{id}` | Get one response |
 | `GET` | `/api/admin/forms/responses/{responseId}/files/{mediaId}` | Metadata of a file answer, see [Reviewing files](#reviewing-files) |

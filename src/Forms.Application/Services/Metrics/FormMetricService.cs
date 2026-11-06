@@ -44,7 +44,7 @@ public class FormMetricService : IFormMetricService
         _time = time;
     }
 
-    public async Task<ServiceResult<FormAnswerAnalyticsContract>> GetAnswerAnalyticsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<FormAnswerAnalyticsContract>> GetAnswerAnalyticsAsync(Guid formId, Guid userId, GetFormAnalyticsRequest request, CancellationToken cancellationToken = default)
     {
         if (!await _forms.ExistsAsync(formId, cancellationToken))
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
@@ -53,20 +53,33 @@ public class FormMetricService : IFormMetricService
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotAuthorized, Message: "Bu formun analitiğini görüntüleme yetkiniz yok.");
 
         var cacheKey = FormCacheKeys.Analytics(formId);
-        var cached = await _cache.TryGetAsync<FormAnswerAnalyticsContract>(cacheKey, cancellationToken);
-        if (cached != null)
+        if (!request.IsFiltered && await _cache.TryGetAsync<FormAnswerAnalyticsContract>(cacheKey, cancellationToken) is { } cached)
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.Success, Data: cached);
 
         var form = await _forms.GetByIdAsync(formId, cancellationToken);
         if (form == null)
             return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.NotFound, Message: "Form bulunamadı.");
 
-        var responses = await _metrics.GetNonArchivedResponseDataAsync(formId, cancellationToken);
-        var analytics = AnswerAnalyticsBuilder.Build(form, responses, _time.GetUtcNow().UtcDateTime);
+        var now = _time.GetUtcNow().UtcDateTime;
+        var responses = await GetFilteredAnswersAsync(form, request, now, cancellationToken);
+        var analytics = AnswerAnalyticsBuilder.Build(form, responses, now);
 
-        await _cache.TrySetAsync(cacheKey, analytics, AnalyticsCacheTtl, cancellationToken);
+        if (!request.IsFiltered)
+            await _cache.TrySetAsync(cacheKey, analytics, AnalyticsCacheTtl, cancellationToken);
 
         return new ServiceResult<FormAnswerAnalyticsContract>(ServiceStatus.Success, Data: analytics);
+    }
+
+    private async Task<IReadOnlyList<ResponseAnswers>> GetFilteredAnswersAsync(Form form, GetFormAnalyticsRequest filter, DateTime now, CancellationToken cancellationToken)
+    {
+        var since = filter.SinceDays is > 0 and var days ? now.AddDays(-days) : (DateTime?)null;
+        var responses = await _metrics.GetResponseAnswersAsync(form.Id, filter.Status, since, cancellationToken);
+
+        if (string.IsNullOrEmpty(filter.AnswerQuestionId)) return responses;
+
+        var gaveAnswer = AnswerAnalyticsBuilder.GaveAnswer(form, filter.AnswerQuestionId, filter.AnswerValue);
+
+        return [.. responses.Where(response => gaveAnswer(response.Data))];
     }
 
     public async Task<ServiceResult<FormMetricsContract>> GetFormMetricsAsync(Guid formId, Guid userId, CancellationToken cancellationToken = default)

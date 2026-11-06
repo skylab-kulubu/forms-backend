@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
+using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Metrics;
 using Skylab.Forms.Domain.Entities;
+using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services;
@@ -26,48 +29,74 @@ public static class AnswerAnalyticsBuilder
         ["repeater"] = AnalyticsKind.Repeater,
     };
 
-    public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyList<List<FormResponseSchemaItem>> responses, DateTime generatedAt)
+    public static FormAnswerAnalyticsContract Build(Form form, IReadOnlyCollection<ResponseAnswers> responses, DateTime generatedAt)
     {
-        var total = responses.Count;
-
-        var answersById = new Dictionary<string, List<string?>>();
+        var answersById = new Dictionary<string, List<GivenAnswer>>();
         var embeddedTextById = new Dictionary<string, string>();
 
         foreach (var response in responses)
         {
             var seen = new HashSet<string>();
-            foreach (var item in response)
+            foreach (var item in response.Data)
             {
                 if (!seen.Add(item.Id))
                     continue;
 
                 if (!answersById.TryGetValue(item.Id, out var list))
-                    answersById[item.Id] = list = new List<string?>();
-                list.Add(item.Answer);
+                    answersById[item.Id] = list = new List<GivenAnswer>();
+                list.Add(new GivenAnswer(item.Answer, response.Status));
 
                 if (!embeddedTextById.ContainsKey(item.Id) && !string.IsNullOrWhiteSpace(item.Question))
                     embeddedTextById[item.Id] = item.Question;
             }
         }
 
-        var questions = form.Schema.Select(schemaItem => BuildQuestion(schemaItem, answersById, embeddedTextById, total)).ToList();
+        var questions = form.Schema.Select(schemaItem => BuildQuestion(schemaItem, answersById, embeddedTextById)).ToList();
 
-        return new FormAnswerAnalyticsContract(form.Id, total, generatedAt, questions);
+        var decisions = new DecisionCountsContract(
+            responses.Count(response => response.Status == FormResponseStatus.Approved),
+            responses.Count(response => response.Status == FormResponseStatus.Declined));
+
+        return new FormAnswerAnalyticsContract(form.Id, responses.Count, generatedAt, questions, decisions);
+    }
+
+    public static Func<IReadOnlyList<FormResponseSchemaItem>, bool> GaveAnswer(Form form, string questionId, string? value)
+    {
+        var wanted = value?.Trim() ?? string.Empty;
+        var question = form.Schema.FirstOrDefault(item => item.Id == questionId);
+        var multiple = question is not null && KindOf(question) == AnalyticsKind.MultiChoice;
+
+        return data =>
+            wanted.Length > 0
+            && data.FirstOrDefault(item => item.Id == questionId)?.Answer is { } answer
+            && (multiple ? FormAnswerText.Selections(answer).Contains(wanted, StringComparer.Ordinal) : answer.Trim() == wanted);
+    }
+
+    private static AnalyticsKind KindOf(FormSchemaItem schemaItem)
+    {
+        if (string.Equals(schemaItem.Type, "short_text", StringComparison.OrdinalIgnoreCase)
+            && schemaItem.Props.TryGetValue("inputType", out var inputType)
+            && inputType?.ToString() == "number")
+            return AnalyticsKind.Number;
+
+        return KindByType.TryGetValue(schemaItem.Type ?? "", out var kind) ? kind : AnalyticsKind.None;
     }
 
     private static QuestionAnalyticsContract BuildQuestion(
         FormSchemaItem schemaItem,
-        Dictionary<string, List<string?>> answersById,
-        Dictionary<string, string> embeddedTextById,
-        int total)
+        Dictionary<string, List<GivenAnswer>> answersById,
+        Dictionary<string, string> embeddedTextById)
     {
-        var kind = KindByType.TryGetValue(schemaItem.Type ?? "", out var k) ? k : AnalyticsKind.None;
+        var kind = KindOf(schemaItem);
         var text = ResolveQuestionText(schemaItem, embeddedTextById);
 
-        var raw = answersById.TryGetValue(schemaItem.Id, out var list) ? list : new List<string?>();
-        var answered = raw.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a!.Trim()).ToList();
+        var raw = answersById.TryGetValue(schemaItem.Id, out var list) ? list : new List<GivenAnswer>();
+        var given = raw
+            .Where(answer => !string.IsNullOrWhiteSpace(answer.Text))
+            .Select(answer => answer with { Text = answer.Text!.Trim() })
+            .ToList();
+        var answered = given.Select(answer => answer.Text!).ToList();
         var answeredCount = answered.Count;
-        var skippedCount = total - answeredCount;
         var askedCount = raw.Count;
 
         List<AnswerBucketContract>? distribution = null;
@@ -79,16 +108,16 @@ public static class AnswerAnalyticsBuilder
         {
             case AnalyticsKind.Choice:
             case AnalyticsKind.Switch:
-                distribution = ToBuckets(answered, answeredCount);
+                distribution = ToDecidedBuckets(given, answeredCount);
                 break;
 
             case AnalyticsKind.MultiChoice:
-                var options = answered.SelectMany(FormAnswerText.Selections).ToList();
-                distribution = ToBuckets(options, answeredCount);
+                var options = given.SelectMany(answer => FormAnswerText.Selections(answer.Text).Select(option => answer with { Text = option }));
+                distribution = ToDecidedBuckets(options, answeredCount);
                 break;
 
             case AnalyticsKind.Number:
-                distribution = ToBuckets(answered, answeredCount);
+                distribution = ToDecidedBuckets(given, answeredCount);
                 numeric = BuildNumericSummary(answered);
                 break;
 
@@ -102,7 +131,6 @@ public static class AnswerAnalyticsBuilder
 
             case AnalyticsKind.Matrix:
                 (rows, answeredCount) = BuildMatrix(answered);
-                skippedCount = total - answeredCount;
                 break;
         }
 
@@ -110,7 +138,7 @@ public static class AnswerAnalyticsBuilder
 
         return new QuestionAnalyticsContract(
             schemaItem.Id, text, schemaItem.Type ?? "", kind, aggregatable,
-            answeredCount, skippedCount, askedCount, distribution, numeric, dateRange, rows);
+            answeredCount, Math.Max(0, askedCount - answeredCount), askedCount, distribution, numeric, dateRange, rows);
     }
 
     private static string ResolveQuestionText(FormSchemaItem schemaItem, Dictionary<string, string> embeddedTextById)
@@ -130,6 +158,19 @@ public static class AnswerAnalyticsBuilder
             .ThenBy(b => b.Value, StringComparer.Ordinal)
             .ToList();
 
+    private static List<AnswerBucketContract> ToDecidedBuckets(IEnumerable<GivenAnswer> answers, int denom) =>
+        answers
+            .GroupBy(answer => answer.Text!)
+            .Select(group => new AnswerBucketContract(
+                group.Key,
+                group.Count(),
+                Percentage(group.Count(), denom),
+                group.Count(answer => answer.Status == FormResponseStatus.Approved),
+                group.Count(answer => answer.Status == FormResponseStatus.Declined)))
+            .OrderByDescending(bucket => bucket.Count)
+            .ThenBy(bucket => bucket.Value, StringComparer.Ordinal)
+            .ToList();
+
     private static NumericSummaryContract? BuildNumericSummary(List<string> answered)
     {
         var numbers = answered
@@ -142,11 +183,8 @@ public static class AnswerAnalyticsBuilder
 
         if (numbers.Count == 0) return null;
 
-        var mid = numbers.Count / 2;
-        var median = numbers.Count % 2 == 1 ? numbers[mid] : (numbers[mid - 1] + numbers[mid]) / 2.0;
-
         return new NumericSummaryContract(
-            Math.Round(numbers.Average(), 2), numbers[0], numbers[^1], median, numbers.Count);
+            Math.Round(numbers.Average(), 2), numbers[0], numbers[^1], Statistics.Median(numbers)!.Value, numbers.Count);
     }
 
     private static (List<AnswerBucketContract> Distribution, DateRangeContract? Range) BuildDate(List<string> answered)
@@ -233,4 +271,6 @@ public static class AnswerAnalyticsBuilder
 
     private static double Percentage(int count, int denom) =>
         denom <= 0 ? 0 : Math.Round((double)count / denom * 100, 2);
+
+    private readonly record struct GivenAnswer(string? Text, FormResponseStatus Status);
 }

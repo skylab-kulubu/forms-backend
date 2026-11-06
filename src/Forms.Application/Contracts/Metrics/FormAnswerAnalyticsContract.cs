@@ -8,7 +8,7 @@ public enum AnalyticsKind
     Choice = 3,      // combobox: single choice
     MultiChoice = 4, // multi_choice: several selections, as a JSON array or comma-joined
     Switch = 5,      // toggle: localized Evet/Hayır
-    Number = 6,      // slider: numeric
+    Number = 6,      // slider, or short_text with inputType number: numeric
     Matrix = 7,      // matrix: per-row column distribution
     Date = 8,        // date: monthly histogram
     Time = 9,        // time: hour-of-day histogram
@@ -19,8 +19,11 @@ public record FormAnswerAnalyticsContract(
     Guid FormId,
     int TotalResponses,
     DateTime GeneratedAt,
-    List<QuestionAnalyticsContract> Questions
+    List<QuestionAnalyticsContract> Questions,
+    DecisionCountsContract? Decisions = null
 );
+
+public record DecisionCountsContract(int Approved, int Declined);
 
 public record QuestionAnalyticsContract(
     string QuestionId,
@@ -37,7 +40,7 @@ public record QuestionAnalyticsContract(
     List<MatrixRowAnalyticsContract>? Rows
 );
 
-public record AnswerBucketContract(string Value, int Count, double Percentage);
+public record AnswerBucketContract(string Value, int Count, double Percentage, int? ApprovedCount = null, int? DeclinedCount = null);
 
 public record NumericSummaryContract(double Average, double Min, double Max, double Median, int Count);
 
