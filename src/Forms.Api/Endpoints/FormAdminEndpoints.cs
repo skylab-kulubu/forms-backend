@@ -193,6 +193,14 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/analytics/questions/{questionId}/answers", async (Guid id, string questionId, [AsParameters] GetQuestionAnswersRequest request, IFormMetricService service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.GetQuestionAnswersAsync(id, questionId, userId, request, ct);
+            return result.ToApiResult();
+        });
+
         group.MapGet("/{id:guid}/short-link", async (Guid id, IFormShortLinkService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
