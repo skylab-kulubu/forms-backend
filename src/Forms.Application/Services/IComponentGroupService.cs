@@ -11,6 +11,9 @@ public interface IComponentGroupService
     Task<ServiceResult<PagedResult<ComponentGroupContract>>> GetUserGroupsAsync(Guid userId, GetComponentGroupsRequest request, CancellationToken cancellationToken = default);
     Task<ServiceResult<ComponentGroupContract>> GetGroupByIdAsync(Guid id, Guid userId, string? token, CancellationToken cancellationToken = default);
     Task<ServiceResult<bool>> DeleteGroupAsync(Guid id, Guid userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<ComponentGroupDraftContract?>> GetDraftAsync(Guid id, Guid userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<bool>> SaveDraftAsync(Guid id, ComponentGroupDraftRequest request, Guid userId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<bool>> DeleteDraftAsync(Guid id, Guid userId, CancellationToken cancellationToken = default);
     Task<ServiceResult<ShareTokenContract>> CreateOrRefreshShareTokenAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default);
     Task RevokeShareTokenAsync(Guid groupId, CancellationToken cancellationToken = default);
     Task<ServiceResult<ComponentGroupContract>> CloneGroupAsync(Guid id, Guid userId, string token, CancellationToken cancellationToken = default);

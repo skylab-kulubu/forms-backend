@@ -18,6 +18,19 @@ public record ComponentGroupUpsertRequest(
     List<FormSchemaItem> Schema
 );
 
+public record ComponentGroupDraftRequest(
+    string? Title,
+    string? Description,
+    List<FormSchemaItem>? Schema
+);
+
+public record ComponentGroupDraftContract(
+    string? Title,
+    string? Description,
+    List<FormSchemaItem> Schema,
+    DateTime SavedAt
+);
+
 public record ShareTokenContract(string Token, DateTime ExpiresAt);
 
 public record ComponentGroupMetaContract(string Title, string? Description, PublicUserContract? SharedBy);
