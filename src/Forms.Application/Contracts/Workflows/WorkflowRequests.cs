@@ -74,3 +74,16 @@ public record WorkflowTransitionRequest(
     WorkflowConditionGroup? Condition,
     int Priority
 );
+
+public record WorkflowSaveRequest(
+    string Name,
+    string? Description,
+    bool AllowMultipleRuns,
+    WorkflowDefinitionRequest Definition,
+    List<WorkflowFormSaveRequest>? Forms = null
+);
+
+public record WorkflowFormSaveRequest(
+    Guid FormId,
+    long WorkingVersion
+);

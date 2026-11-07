@@ -87,6 +87,9 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<Guid?>("LinkedFormId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("PublishedVersion")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("RequiresManualReview")
                         .HasColumnType("boolean");
 
@@ -110,6 +113,12 @@ namespace Forms.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -240,6 +249,83 @@ namespace Forms.Infrastructure.Migrations
                         .HasFilter("\"Role\" = 3");
 
                     b.ToTable("Collaborators", (string)null);
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EditedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FieldId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResolvedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ThreadId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ThreadId");
+
+                    b.HasIndex("FormId", "CreatedAt");
+
+                    b.ToTable("FormComments", (string)null);
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormEdit", b =>
+                {
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Ops")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("FormId", "Version");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("FormId", "BatchId")
+                        .IsUnique();
+
+                    b.ToTable("FormEdits", (string)null);
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormResponse", b =>
@@ -604,6 +690,35 @@ namespace Forms.Infrastructure.Migrations
                     b.ToTable("WorkflowVersions", (string)null);
                 });
 
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormWorkingCopy", b =>
+                {
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("FormId");
+
+                    b.ToTable("FormWorkingCopies", (string)null);
+                });
+
             modelBuilder.Entity("Skylab.Forms.Infrastructure.AnswerFiles.AnswerFileLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -730,6 +845,33 @@ namespace Forms.Infrastructure.Migrations
                 {
                     b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
                         .WithMany("Collaborators")
+                        .HasForeignKey("FormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormComment", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
+                        .WithMany()
+                        .HasForeignKey("FormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skylab.Forms.Domain.Entities.FormComment", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormEdit", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
+                        .WithMany()
                         .HasForeignKey("FormId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -929,6 +1071,17 @@ namespace Forms.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormWorkingCopy", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.Form", "Form")
+                        .WithOne()
+                        .HasForeignKey("Skylab.Forms.Domain.Entities.FormWorkingCopy", "FormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Form");
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.Form", b =>

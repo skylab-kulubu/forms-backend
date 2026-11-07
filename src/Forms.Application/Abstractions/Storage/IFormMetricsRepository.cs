@@ -1,13 +1,12 @@
+using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Abstractions.Storage;
 
 public interface IFormMetricsRepository
 {
-    Task<FormBasicStats?> GetFormBasicStatsAsync(Guid formId, CancellationToken ct = default);
-    Task<IReadOnlyList<List<FormResponseSchemaItem>>> GetNonArchivedResponseDataAsync(Guid formId, CancellationToken ct = default);
-    Task<IReadOnlyList<DateTime>> GetSubmittedTimesAsync(Guid formId, DateTime since, CancellationToken ct = default);
-    Task<IReadOnlyList<ResponseSourceCount>> GetResponseSourceCountsAsync(Guid formId, DateTime sinceTime, CancellationToken ct = default);
+    Task<IReadOnlyList<ResponseFact>> GetResponseFactsAsync(Guid formId, CancellationToken ct = default);
+    Task<IReadOnlyList<ResponseAnswers>> GetResponseAnswersAsync(Guid formId, FormResponseStatus? status = null, DateTime? since = null, CancellationToken ct = default);
 
     Task<int> GetTotalFormsCountAsync(CancellationToken ct = default);
     Task<int> GetTotalResponsesCountAsync(CancellationToken ct = default);
@@ -16,16 +15,23 @@ public interface IFormMetricsRepository
     Task<IReadOnlyList<DateTime>> GetResponseSubmittedDatesAsync(DateTime sinceDate, CancellationToken ct = default);
 }
 
-public sealed record FormBasicStats(
-    int Total,
-    int Pending,
-    int Approved,
-    int Rejected,
-    double? AvgTime,
-    int Registered,
-    int Anonymous
+public sealed record ResponseFact(
+    Guid Id,
+    Guid? UserId,
+    FormResponseStatus Status,
+    DateTime SubmittedAt,
+    int? TimeSpent,
+    DateTime? ReviewedAt,
+    Guid? ReviewedBy,
+    string? Source,
+    string? Campaign
 );
 
-
-
-public sealed record ResponseSourceCount(string? Source, int Count);
+public sealed record ResponseAnswers(
+    Guid Id,
+    Guid? UserId,
+    ResponseGuest? Guest,
+    FormResponseStatus Status,
+    DateTime SubmittedAt,
+    List<FormResponseSchemaItem> Data
+);

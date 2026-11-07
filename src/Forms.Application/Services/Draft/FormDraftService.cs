@@ -187,6 +187,9 @@ public class FormDraftService : IFormDraftService
 
     public async Task<ServiceResult<bool>> SaveFormDraftAsync(Guid formId, Guid userId, FormDraftRequest draft, CancellationToken ct = default)
     {
+        if (!FormAccess.Allows(await _forms.GetRoleAsync(formId, userId, ct), false, FormAction.EditForm))
+            return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu formu düzenleme yetkiniz yok.");
+
         var key = FormCacheKeys.FormDraft(formId, userId);
 
         await _cache.SetAsync(key, draft, FormDraftTtl, ct);

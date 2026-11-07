@@ -140,6 +140,31 @@ public sealed class FormWorkflowInstanceRepository : IFormWorkflowInstanceReposi
                 .Select(group => new WorkflowEndTally(group.Key.WorkflowId, group.Key.NodeKey, group.Key.Status, group.Key.Outcome, group.Count()))
                 .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<WorkflowStepSpan>> GetPassedStepSpansAsync(IReadOnlyCollection<Guid> workflowIds, CancellationToken ct = default) =>
+        workflowIds.Count == 0
+            ? []
+            : await _context.WorkflowSteps.AsNoTracking()
+                .Where(step => workflowIds.Contains(step.WorkflowInstance.WorkflowId))
+                .Select(step => new
+                {
+                    step.WorkflowInstance.WorkflowId,
+                    step.Node.NodeKey,
+                    step.WorkflowInstanceId,
+                    step.CreatedAt,
+                    step.CompletedAt,
+                    MovedOn = step.SelectedTransition != null && step.SelectedTransition.TargetNodeId != null,
+                    RunCompleted = step.WorkflowInstance.Status == WorkflowInstanceStatus.Completed
+                })
+                .GroupBy(step => new { step.WorkflowId, step.NodeKey, step.WorkflowInstanceId })
+                .Where(group => group.Count(step => step.CompletedAt == null) == 0
+                    && group.Count(step => step.MovedOn || step.RunCompleted) > 0)
+                .Select(group => new WorkflowStepSpan(
+                    group.Key.WorkflowId,
+                    group.Key.NodeKey,
+                    group.Min(step => step.CreatedAt),
+                    group.Max(step => step.CompletedAt)!.Value))
+                .ToListAsync(ct);
+
     public async Task<PagedResult<WorkflowRunRow>> GetRunsAsync(
         Guid workflowId,
         GetWorkflowRunsRequest request,

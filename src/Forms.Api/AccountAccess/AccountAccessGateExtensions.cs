@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Skylab.Forms.Application.Abstractions;
 
 namespace Skylab.Forms.Api.AccountAccess;
@@ -22,16 +23,7 @@ public static class AccountAccessGateExtensions
                 return;
             }
 
-            var subjects = context.User.Identities
-                .Where(identity => identity.IsAuthenticated)
-                .SelectMany(identity => identity.FindAll("sub").Select(sub => (Issuer: identity.FindFirst("iss")?.Value, Subject: sub.Value)))
-                .Where(pair => !string.IsNullOrWhiteSpace(pair.Issuer) && !string.IsNullOrWhiteSpace(pair.Subject))
-                .Distinct()
-                .ToArray();
-
-            var decision = subjects is [{ Issuer: { } issuer, Subject: { Length: <= 512 } subject }]
-                ? await policy.CheckAsync(issuer, subject, context.RequestAborted)
-                : AccountAccessDecision.Blocked;
+            var decision = await DecideAsync(policy, context.User, context.RequestAborted);
 
             if (decision == AccountAccessDecision.Allowed)
             {
@@ -58,6 +50,20 @@ public static class AccountAccessGateExtensions
                 context.Response.Headers.RetryAfter = policy.RetryAfterSeconds.ToString();
             }
         });
+    }
+
+    internal static Task<AccountAccessDecision> DecideAsync(IAccountAccessPolicy policy, ClaimsPrincipal user, CancellationToken ct)
+    {
+        var subjects = user.Identities
+            .Where(identity => identity.IsAuthenticated)
+            .SelectMany(identity => identity.FindAll("sub").Select(sub => (Issuer: identity.FindFirst("iss")?.Value, Subject: sub.Value)))
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Issuer) && !string.IsNullOrWhiteSpace(pair.Subject))
+            .Distinct()
+            .ToArray();
+
+        return subjects is [{ Issuer: { } issuer, Subject: { Length: <= 512 } subject }]
+            ? policy.CheckAsync(issuer, subject, ct)
+            : Task.FromResult(AccountAccessDecision.Blocked);
     }
 
     public static IEndpointRouteBuilder MapAccountAccessHealthEndpoints(this IEndpointRouteBuilder endpoints)

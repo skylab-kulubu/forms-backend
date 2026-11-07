@@ -4,6 +4,7 @@ using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Infrastructure.Storage.Repositories;
 
@@ -28,7 +29,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
     public async Task<FormResponseCounts> GetCountsAsync(Guid formId, CancellationToken ct = default)
     {
         var result = await _context.Responses.AsNoTracking()
-            .Where(r => r.FormId == formId && !Uncounted.Contains(r.Status))
+            .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
             .GroupBy(_ => 1)
             .Select(g => new FormResponseCounts(
                 g.Count(),
@@ -65,12 +66,12 @@ public sealed class FormResponseRepository : IFormResponseRepository
             ? []
             : await _context.Responses.IgnoreQueryFilters().Where(r => responseIds.Contains(r.Id)).ToListAsync(ct);
 
-    public async Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default)
+    public async Task<PagedResponsesProjection> GetPagedAsync(Guid formId, GetResponsesRequest request, IReadOnlyCollection<Guid>? onlyIds, bool includeAttempts, DateTime now, CancellationToken ct = default)
     {
         var (page, pageSize) = Paging.Normalize(request.Page, request.PageSize);
         var take = page * pageSize;
         var ascending = request.SortingDirection == "ascending";
-        var list = ListOf(formId, request, includeAttempts, now);
+        var list = ListOf(formId, request, onlyIds, includeAttempts, now);
 
         var responseCounts = list.ResponsesAllowed
             ? await list.Responses.GroupBy(r => r.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct)
@@ -251,11 +252,21 @@ public sealed class FormResponseRepository : IFormResponseRepository
         return new PagedResponsesProjection(items, responseTotal + attemptTotal, averageTimeSpent, counts, averageTaskSeconds);
     }
 
-    public async Task<int?> FindPageAsync(Guid formId, Guid responseId, GetResponsesRequest request, bool includeAttempts, DateTime now, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Guid>> GetIdsWhereAsync(Guid formId, Func<IReadOnlyList<FormResponseSchemaItem>, bool> matches, CancellationToken ct = default)
+    {
+        var rows = await _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId)
+            .Select(r => new { r.Id, r.Data })
+            .ToListAsync(ct);
+
+        return [.. rows.Where(row => matches(row.Data)).Select(row => row.Id)];
+    }
+
+    public async Task<int?> FindPageAsync(Guid formId, Guid responseId, GetResponsesRequest request, IReadOnlyCollection<Guid>? onlyIds, bool includeAttempts, DateTime now, CancellationToken ct = default)
     {
         var (_, pageSize) = Paging.Normalize(request.Page, request.PageSize);
         var ascending = request.SortingDirection == "ascending";
-        var (responses, attempts, wantResponses, wantAttempts) = Shown(ListOf(formId, request, includeAttempts, now), request);
+        var (responses, attempts, wantResponses, wantAttempts) = Shown(ListOf(formId, request, onlyIds, includeAttempts, now), request);
 
         if (!wantResponses) return null;
 
@@ -276,7 +287,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
 
     private sealed record ResponseListQuery(IQueryable<FormResponse> Responses, IQueryable<FormAttempt> Attempts, bool ResponsesAllowed, bool AttemptsAllowed);
 
-    private ResponseListQuery ListOf(Guid formId, GetResponsesRequest request, bool includeAttempts, DateTime now)
+    private ResponseListQuery ListOf(Guid formId, GetResponsesRequest request, IReadOnlyCollection<Guid>? onlyIds, bool includeAttempts, DateTime now)
     {
         var showArchived = request.ShowArchived.GetValueOrDefault(false);
         var extendedOnly = request.Time == "extended";
@@ -300,6 +311,9 @@ public sealed class FormResponseRepository : IFormResponseRepository
         if (request.FilterByUserId.HasValue)
             responses = responses.Where(r => r.UserId == request.FilterByUserId.Value);
 
+        if (onlyIds is not null)
+            responses = responses.Where(r => onlyIds.Contains(r.Id));
+
         if (extendedOnly)
         {
             responses = responses.Where(r => _context.Attempts.Any(a => a.ResponseId == r.Id
@@ -319,7 +333,7 @@ public sealed class FormResponseRepository : IFormResponseRepository
         if (endingSoon)
             attempts = attempts.Where(a => a.Status == FormAttemptStatus.Started && a.DeadlineAt <= soonLimit);
 
-        return new ResponseListQuery(responses, attempts, !endingSoon, includeAttempts && request.ResponderType != FormResponderType.Anonymous);
+        return new ResponseListQuery(responses, attempts, !endingSoon, onlyIds is null && includeAttempts && request.ResponderType != FormResponderType.Anonymous);
     }
 
     private static (IQueryable<FormResponse> Responses, IQueryable<FormAttempt> Attempts, bool WantResponses, bool WantAttempts) Shown(ResponseListQuery list, GetResponsesRequest request)

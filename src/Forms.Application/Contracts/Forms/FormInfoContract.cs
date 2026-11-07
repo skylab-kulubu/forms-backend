@@ -12,7 +12,8 @@ public record FormInfoContract(
     double? AverageTimeSeconds,
     IReadOnlyList<FormLastSeenUserContract> LastSeenUsers,
     CollaboratorRole UserRole,
-    int? TimeLimitMinutes = null
+    int? TimeLimitMinutes = null,
+    FormAccessContract? Access = null
 );
 
 public record FormLastSeenUserContract(

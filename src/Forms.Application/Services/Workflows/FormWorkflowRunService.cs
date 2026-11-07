@@ -36,7 +36,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         if (await FindAccessProblemAsync(workflowId, userId, cancellationToken) is { } problem)
             return new ServiceResult<WorkflowRunOverviewContract>(problem.Status, Message: problem.Message);
 
-        var overviews = await GetOverviewsAsync([workflowId], cancellationToken);
+        var overviews = await BuildOverviewsAsync([workflowId], withTiming: true, cancellationToken);
 
         return new ServiceResult<WorkflowRunOverviewContract>(ServiceStatus.Success, overviews[workflowId]);
     }
@@ -84,9 +84,15 @@ public class FormWorkflowRunService : IFormWorkflowRunService
             new PagedResult<WorkflowRunContract>(runs, page.TotalCount, page.Page, page.PageSize));
     }
 
-    public async Task<IReadOnlyDictionary<Guid, WorkflowRunOverviewContract>> GetOverviewsAsync(
+    public Task<IReadOnlyDictionary<Guid, WorkflowRunOverviewContract>> GetOverviewsAsync(
         IReadOnlyCollection<Guid> workflowIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        BuildOverviewsAsync(workflowIds, withTiming: false, cancellationToken);
+
+    private async Task<IReadOnlyDictionary<Guid, WorkflowRunOverviewContract>> BuildOverviewsAsync(
+        IReadOnlyCollection<Guid> workflowIds,
+        bool withTiming,
+        CancellationToken cancellationToken)
     {
         if (workflowIds.Count == 0) return new Dictionary<Guid, WorkflowRunOverviewContract>();
 
@@ -95,6 +101,7 @@ public class FormWorkflowRunService : IFormWorkflowRunService
         var tallies = await _instances.CountRunsAsync(workflowIds, cancellationToken);
         var routes = await _instances.CountRoutesAsync(workflowIds, cancellationToken);
         var ends = await _instances.CountEndsAsync(workflowIds, cancellationToken);
+        var spans = withTiming ? await _instances.GetPassedStepSpansAsync(workflowIds, cancellationToken) : [];
 
         var formIds = definitions.Values
             .SelectMany(definition => definition.Nodes.Select(node => node.FormId))
@@ -116,7 +123,8 @@ public class FormWorkflowRunService : IFormWorkflowRunService
                     [.. tallies.Where(tally => tally.WorkflowId == workflowId)],
                     [.. routes.Where(route => route.WorkflowId == workflowId)],
                     [.. ends.Where(end => end.WorkflowId == workflowId)],
-                    forms));
+                    forms,
+                    [.. spans.Where(span => span.WorkflowId == workflowId)]));
     }
 
     private async Task<(ServiceStatus Status, string Message)?> FindAccessProblemAsync(

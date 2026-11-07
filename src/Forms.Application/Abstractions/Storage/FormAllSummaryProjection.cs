@@ -13,5 +13,9 @@ public record FormAllSummaryProjection(
     bool RequiresManualReview,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    int ResponseCount
+    int ResponseCount,
+    int PendingCount,
+    DateTime? LastResponseAt
 );
+
+public record FormCatalogRow(FormStatus Status, Guid OwnerUserId, int PendingCount);

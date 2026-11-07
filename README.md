@@ -123,13 +123,13 @@ Dynamic form creation and response management service.
 - Collaborator management with Owner, Editor, and Viewer roles
 - Manual review workflow (`Pending -> Approved / Declined`); a workflow step can also be sent back for changes, see [Changes requested](#changes-requested)
 - Response archiving
-- Form metrics and answer analytics. Each question reports `askedCount`, the answers that carry it: the form submits only the questions on screen, so a question its condition hid, or one added after an answer, is left out of that answer's count
+- Form metrics and answer analytics, see [Metrics and analytics](#metrics-and-analytics)
 - Reusable component groups
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
 - Timed forms: one attempt per person with a deadline the team can extend. An answer is accepted until two minutes after the deadline, so the page's own submission at the deadline arrives in time; opening the form, saving a draft, sending the answer and the expiry worker all apply that one rule, and only after it does the attempt close
-- Redis-backed form and response drafts
+- Redis-backed response drafts, and one shared working copy per form that editors change together in real time, see [Form studio](#form-studio)
 - Response and component-group sharing tokens
 - XLSX response export
 - Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
@@ -139,7 +139,10 @@ Dynamic form creation and response management service.
 
 | Table | Description |
 |-------|-------------|
-| `Forms` | Form definitions, JSONB schema, status, and response settings |
+| `Forms` | Form definitions, JSONB schema, status, response settings, and the published version |
+| `FormWorkingCopies` | One shared working copy per form: the JSONB document editors change, its version and who changed it last |
+| `FormEdits` | Each applied studio edit with its version, batch id, editor and operations, kept seven days so clients can catch up |
+| `FormComments` | Editors' comments on a question: thread roots and their replies, with who resolved a thread |
 | `Responses` | User responses, the name and email a guest typed into the identity fields (only the email when `email` is marked alone), review information, the questions flagged when changes were requested, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
@@ -150,6 +153,112 @@ Dynamic form creation and response management service.
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
 | `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core, written in the change's own transaction, and mails; a row is deleted once delivered |
+
+## Form studio
+
+Editors change a form together in the studio. A form has two states: the **published form** (`Forms`), which respondents fill in, and one shared **working copy** (`FormWorkingCopies`), which every editor of the form changes. Saving copies the working copy onto the published form; until then respondents keep seeing the published one.
+
+```text
+editor ── Edit ──> working copy (version 41 -> 42) ── publish ──> Forms (published version 3 -> 4)
+                          |
+                          └── Edits v42 ──> the other editors in the studio
+```
+
+### Edits
+
+An edit is a batch of operations on the working copy's JSON document. The document holds `title`, `description`, `schema`, `status`, `allowAnonymousResponses`, `allowMultipleResponses`, `requiresManualReview`, `task`, `closesAt` and `timeLimitMinutes`. The editing team is not part of it, see [Editing team](#editing-team).
+
+| Operation | Shape | When its target is gone |
+|---|---|---|
+| `set` | `{ op, path, value }`. `path` is a setting (`["title"]`), a question part (`["schema", id, "type" or "props" or "condition"]`) or one prop (`["schema", id, "props", key]`); `null` removes a prop or a condition | skipped |
+| `insert` | `{ op, field, after }`; `after: null` puts the question first | an unknown `after` puts it last; an id already in the form skips it |
+| `remove` | `{ op, id }` | skipped |
+| `move` | `{ op, id, after }` | skipped |
+| `replace` | `{ op, document }` | applied |
+| `reset` | `{ op }`, which the server turns into a `replace` with the published document | applied |
+
+The server applies a batch to the latest working copy, raises the version by one, stores the applied operations in `FormEdits` and answers with them. Operations whose target is gone are **skipped, not rejected**: the answer counts them in `skipped`, and a batch where nothing applied keeps the version and answers `version: null`. A batch is rejected as a whole (`400`) only when it breaks a rule: an unknown path or value shape, a title over 100 characters, more than 200 operations, a document over 512 KB, or removing or retyping a question that a published workflow routes on.
+
+Every batch carries a client-made `batchId`. Sending the same batch twice applies it once and answers the stored result, so a client can resend after a dropped connection. Writes are ordered by the working copy's `xmin`; a write that loses the race starts over, up to five times, before answering `409`.
+
+> **Keep both engines in step:** the frontend applies the same operations locally (`src/lib/studio/doc-ops.js`) to show its own edits before the server answers. If the two apply an operation differently, a client's copy drifts from the server's, so change both together.
+
+### Real-time hub
+
+The studio connects to the SignalR hub at `/hubs/studio`. Hub methods answer in the usual `{ status, data, message }` envelope.
+
+| Direction | Name | Purpose |
+|---|---|---|
+| client to server | `Join(formId, version)` | Join the form's group. Answers the edits after `version`, or `snapshotRequired: true` when they are no longer stored, plus `canEdit` and the people in the studio. Owners, editors and service administrators may join; a viewer gets `403` |
+| client to server | `Edit(formId, { batchId, ops })` | Apply a batch, see [Edits](#edits). Needs an owner or editor |
+| client to server | `Presence(formId, { selection, editing, here })` | Share the selected question ids, the question being typed in, and whether this form is the one on screen (`here: false` for a form kept open in the background, as the workflow studio does for every step); nothing is stored |
+| client to server | `Cursor(formId, { anchor, x, y })` | Share the pointer as a position inside a question (`anchor` is its id) or the card (`card`); `anchor: null` hides it. Relayed to the others in the group, never stored |
+| client to server | `Leave(formId)` | Leave the group |
+| server to client | `Edits(formId, edit)` | Another editor's applied batch |
+| server to client | `Published(formId, published)` | The form was saved; carries the published document and whether the working copy still differs from it |
+| server to client | `Team(formId, team)` | The editing team changed; a member who lost access is also removed from the group |
+| server to client | `Presence(formId, members)` | Who is in the studio, whether the form is on their screen, and what each person selected |
+| server to client | `Cursor(formId, cursor)` | Another person's pointer, with their connection `key` and user id |
+| server to client | `Comments(formId, thread)` | A comment thread changed; a thread with no `comments` was deleted |
+
+A client that misses an edit (a gap in versions, or a reconnect) calls `Join` again with the last version it has. Edits, presence and pointers go only through the hub; loading a form, publishing and the editing team stay on HTTP.
+
+The account gate runs on every hub call. For `Cursor`, which a client sends up to 20 times a second, an allowed decision is reused for 5 seconds on the same connection, so pointers do not turn into a Redis read each; every other call is checked each time.
+
+> **One instance:** the people in each studio are kept in the API process's memory, and edits reach only the connections of that process. A second API instance needs a SignalR backplane and a shared member list before it starts.
+
+### Publishing
+
+`POST /api/admin/forms/{id}/studio/publish` with `{ workingVersion }` saves the working copy onto the published form. When `workingVersion` is not the working copy's current version the answer is `409`: someone edited after the client last synced, and nobody publishes a state they have not seen. Publishing runs the checks of `PUT /api/admin/forms/{id}`, raises `publishedVersion` and tells the group through `Published`. A blank title is published as `Adsız form`, an anonymous form allows multiple answers and drops its time limit, and a task without text is removed; the working copy keeps what the editors typed. The working copy remains after publishing, and its `dirty` flag says whether it differs from the published form.
+
+`PUT /api/admin/forms/{id}` still replaces the whole form. It answers `409` while the working copy holds unpublished changes, so it cannot overwrite them, and on success it moves the working copy to the new form with a `replace` edit.
+
+### New forms
+
+`POST /api/admin/forms/studio` with `{ document }` creates a form when its editor first changes something. The published form starts closed with an empty schema and `publishedVersion: 0`, so respondents cannot open it before the first save; until then its title in lists follows the working copy. The form list reports `publishedVersion` so a client can mark such forms.
+
+### Editing team
+
+`PUT /api/admin/forms/{id}/collaborators` with `{ collaborators: [{ userId, role }] }` saves the team at once, outside the working copy, and tells the group through `Team`. The usual team rules apply: the owner stays, and an editor may only add or remove viewers.
+
+### Comments
+
+Editors discuss a question in **threads** attached to its id. Comments are not part of the working copy, so saving, undoing or discarding a draft does not touch them, and respondents never see them. Removing a question leaves its threads in place: the client hides them, and they come back if the removal is undone.
+
+Reading needs access to the editor; writing needs the right to edit the form. Everyone edits and deletes their own comments, and the form's owner may delete any. Deleting the first comment deletes the thread. A resolved thread takes no replies until it is reopened. A comment holds at most 2000 characters.
+
+Every change goes through HTTP and reaches the group through `Comments`, the sender included, so clients merge a thread by its id. A client that was disconnected reads the list again.
+
+### Retention and old drafts
+
+`FormEdits` rows older than seven days are deleted every hour; a client that comes back later gets `snapshotRequired` and reloads the working copy. The per-person editor drafts in Redis (`/api/admin/forms/{id}/draft`) are only read now: `GET /api/admin/forms/{id}/studio` returns the caller's draft as `legacyDraft`, and the studio applies it to a form that has no working copy yet, then deletes it.
+
+## Metrics and analytics
+
+Every count below leaves out **archived answers**, along with provisional answers and answers sent back for changes. The overview, the analytics, the channels, both form lists and the service dashboard therefore agree with the response list.
+
+`GET /api/admin/forms/{id}/metrics` reads one row per answer and adds up the rest in memory, so a single query serves every figure:
+
+- **Trends.** `dailyTrendPercentage` compares the last seven days with the seven before, `hourlyTrendPercentage` the last 24 hours with the 24 before. Equal windows keep a half-finished day from reading as a drop. `GET /api/admin/forms/metrics` compares its weekly figures the same way.
+- **Filling time.** `medianCompletionTime` is the median in seconds, next to `averageCompletionTime`. The clock runs while the page is open, so one tab left open for a day moves the average and not the median.
+- **Waiting answers.** `pendingCount` includes the unverified answers and `flaggedCount` says how many those are.
+- **Review.** `review` is `null` until an answer waits or has been decided. It carries `decidedCount`, `medianDecisionSeconds` from submission to decision, `oldestPending` (`responseId`, `submittedAt`) and `reviewers` (`userId`, `decisions`), most decisions first. Reviewers come as ids on purpose: names live in core, and the overview must not wait for it, so the client reads them from the form's team. `oldestPending` looks only at `Pending` answers, the ones the list's pending filter shows, and a decision no reviewer made is left out.
+- **Channels.** Each row of `channels` adds `approved`, `declined` and `campaigns`, whose rows carry `campaign`, `responses`, `approved` and `declined`, with the row without a campaign last. The untagged channel has no `campaigns`. Core keeps clicks per source only, so campaigns have none.
+- **Form life.** `lifetime` is `null` for a form without answers. `days` lists every Istanbul day from the first answer to today with its `count`. `closesAt` is the form's closing time, or the intake's for the start form of a published workflow.
+
+`GET /api/admin/forms/{id}/analytics` takes four optional filters that narrow the answers before anything is counted:
+
+| Parameter | Effect |
+|-----------|--------|
+| `Status` | Only answers in this status, as a number. `1` is `Pending` alone, like the list's filter; unverified answers stay out |
+| `SinceDays` | Only answers from the last so many days. A value below 1 is ignored |
+| `AnswerQuestionId`, `AnswerValue` | Only those who gave this answer, see the rule below |
+
+An answer filter matches **exactly what the option's row counted**: the whole trimmed answer, or one selection of a multiple-choice question, case-sensitively. A looser match would merge rows the distribution keeps apart, and the list would stop agreeing with the number the reviewer clicked. A blank `AnswerValue` matches nothing. Only the unfiltered result is cached: the cache key is per form and a submission deletes it, so a filtered result could outlive the answers behind it.
+
+Each question reports `askedCount`, `answeredCount` and `skippedCount`, which is asked minus answered: someone who never saw a conditional question did not skip it. Every answer stores every question of the form, blank when hidden, so `askedCount` cannot be read from the stored rows alone. It runs the question's `condition` against each answer with the same rules as the form page (`FormQuestionVisibility`, which must change together with the client's `checkCondition`), which also holds for answers stored before this count existed. A question added after an answer is left out of that answer, and a hidden question that holds an answer anyway counts as asked. A `short_text` with `props.inputType` `number` is analyzed as `Number`. Rows of choice, multiple-choice, toggle and number questions carry `approvedCount` and `declinedCount`, and the result carries `decisions` (`approved`, `declined`) for the answers it counted.
+
+`GET /api/admin/forms/{id}/analytics/questions/{questionId}/answers` pages the non-blank answers to a question, newest first, 8 per page by default, as `{ responseId, user, guest, submittedAt, status, answer }`. It takes the same four filters, so the list agrees with the counts beside it. `Search` looks in the answer, in what the person gave to the form's name and address questions (a `short_text` with `inputType` `name` or `email`, or a `props.identity` field), and in a guest's stored name and address. Those answers are in Forms for everyone, signed in or not: the form page fills a signed-in person's name question from their account and stores it with the answer, so **a form that asks for a name never needs core to search**. Core is asked only when a signed-in person's answer holds no name and nothing else matched. It has no bulk lookup, so that costs one request per person; the result is kept for five minutes under the analytics prefix, which account erasure clears. The names get three seconds: past that, or without core, `Search` still finds everything Forms holds, so a slow core cannot hold the list.
 
 ## Form Workflows
 
@@ -256,6 +365,8 @@ A reviewer may send a step under review back to the applicant instead of approvi
 Two read-only endpoints show the team where applications stand. Both answer to the workflow owner and to service administrators.
 
 `GET /api/admin/workflows/{id}/runs/overview` counts applications. `steps` follows the current version (the published one, else the draft) in **flow order**: by `depth`, the longest route from the start, then in the order the routes reach each step. Every step counts the running applications waiting on it (`count`) and splits them into `awaitingReview`, `awaitingApplicant`, `timerRunning` and `revisionRequested`. A step that only an older version has but that still holds running applications comes last with `isRemoved: true`, so the counts always add up to `activeRunCount`. `finished` counts ended applications by result: `completed`, `declined`, `timedOut`, `voided` and `stopped`. Each step carries its own `finished` with the applications that ended on it, split the same way, so it matches the finished list filtered to that step. `routes` counts the routes applications took, one row per `sourceNodeKey`, `trigger` and `targetNodeKey`, which is `null` for a route that ended the workflow. Routes are matched across versions by step key, and only a step that closed on a route adds to them: a trigger with no routes, a request for changes, an archive or a void closes a step without one. Each row of the workflow list carries the same overview as `runs`.
+
+Each step of this endpoint also carries `timing` (`medianSeconds`, `passed`), `null` until someone has gone past it. It covers applications that moved on to a next step or finished the workflow, measured from when the step first opened to when they left it, so rounds of changes count as time at the step. Applications still at the step, declined there or voided are left out: `timing` answers how long getting through takes. The workflow list's `runs` has no `timing`, because it would scan every step of every listed workflow.
 
 `GET /api/admin/workflows/{id}/runs` lists applications, 20 per page by default and at most 100. `Filter` is `0` for running applications (the default), `1` for those waiting for review and `2` for finished ones; `NodeKey` keeps the applications at that step, which for a finished application is the step it ended on. Running applications come oldest step first, so whoever has waited longest leads; finished ones come most recent first. `State` keeps the applications in one state of the table below, the same `state` their rows carry, so a client can list who waits for review at a step without paging through the rest. A row carries the applicant, `state`, the step (`nodeKey`, `formId`, `formTitle`, `sequence`, `round`), `startedAt`, `stepStartedAt`, `deadlineAt` while a timer runs, `completedAt`, and `latestResponse` (`id`, `formId`), the newest answer of the application.
 
@@ -367,6 +478,14 @@ Publishing refuses a definition that has no start node or more than one, contain
 A condition may only read a step that lies on **every** route to the step being left. Reading a step that some routes skip would silently evaluate against an answer that was never given.
 
 The forms themselves must also hold up: each must exist, be open, reject anonymous answers because a run belongs to a signed-in user, and name the workflow owner as an Owner. A form may belong to at most one published workflow, or an answer could not say which run it belongs to.
+
+### Saving from the studio
+
+`POST /api/admin/workflows/{id}/save` saves everything the studio edits in **one transaction**: the name, description and repeat-run setting, the graph, and the working copies of the forms that changed (see [Form studio](#form-studio)). The graph is published when it differs from the live version, so what a save returns is what applicants see. Applications already running stay on the version they started on, as with publishing.
+
+The checks run **before anything is written**, against the forms as the save will publish them rather than as they are live, so a condition may read a question added in the same save. Removing a question the live graph reads still takes two saves, because the studio refuses that edit while the question is locked (see [Edits](#edits)): the first save stops the graph reading it, the second publishes the form without it. A graph that does not validate returns its findings in `validation`, the same codes publishing uses. A form that cannot be saved fails the whole request and is named in `failedFormId`; so does a form whose working copy moved past the version the request names, with `409`. Either way nothing is written. Clearing drafts and caches and the `Published` message to the form's studio group wait for the commit, so a refused save leaves them alone.
+
+The body carries `name`, `description`, `allowMultipleRuns`, `definition` in the shape `PUT /definition` takes, and `forms`, a list of `{ formId, workingVersion }` in which `workingVersion` is the working copy version the studio has seen, as `POST /api/admin/forms/{id}/studio/publish` takes it. A form may appear once, and the caller needs the right to edit each form. The response carries the saved `workflow` and `forms`.
 
 ### Forms used by a published workflow
 
@@ -553,22 +672,35 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/forms/` | List the current user's forms; `SortBy` accepts `updatedAt`, `status`, `responseCount`, `userRole`, `workflow`. `AllowMultiple` and `RequiresManualReview` match a form in a published workflow on the workflow's and the step's settings |
-| `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list |
+| `GET` | `/api/admin/forms/all` | List all forms for service administrators, with the same `workflow` reference and filters as the user's list. `Status` is `2` open, `1` closed or `0` deleted, and deleted forms appear only under their own filter; `Owner` is a user id or `orphaned`; `Search` matches the title or the start of the id; `SortBy` accepts `updatedAt`, `status`, `title`, `owner`, `responseCount`, `pendingCount`, `lastResponseAt`. Rows add `pendingCount`, `lastResponseAt` and `isOrphaned`; the page adds `summary` (`total`, `open`, `closed`, `deleted`, `orphaned`, `pending`) and `owners`, each with `formCount`, which ignore the filters. Owner names come from core and are kept for two minutes |
 | `GET` | `/api/admin/forms/orphaned` | List forms left to `Silinmiş kullanıcı` by erased accounts, for service administrators, with the user's list filters |
 | `POST` | `/api/admin/forms/` | Create a form |
-| `GET` | `/api/admin/forms/{id}` | Get form details; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview` |
-| `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from |
+| `POST` | `/api/admin/forms/studio` | Create a form from the studio's first edit, see [New forms](#new-forms) |
+| `GET` | `/api/admin/forms/{id}` | Get form details, for everyone who may see the form; `workflow` carries the workflow's `allowMultipleRuns` and the step's `requiresManualReview`, and `access` what the caller may do, see [Authentication & Authorization](#authentication--authorization). The editor reads `/studio`, which needs edit rights |
+| `PUT` | `/api/admin/forms/{id}` | Update a form; respondents' drafts are cleared when the status changes, a question changes type or the form gains a time limit, and never on a form that already had one, where the draft is what the provisional response is built from; answers `409` while the studio's working copy holds unpublished changes |
+| `GET` | `/api/admin/forms/{id}/studio` | The studio's view of a form: `form` (as `GET /api/admin/forms/{id}`), `working` (`document`, `version`, `dirty`, `updatedAt`, `updatedBy`), the `published` document and `legacyDraft` |
+| `POST` | `/api/admin/forms/{id}/studio/publish` | Publish the working copy, see [Publishing](#publishing) |
+| `PUT` | `/api/admin/forms/{id}/collaborators` | Save the editing team at once, see [Editing team](#editing-team) |
+| `GET` | `/api/admin/forms/{id}/comments` | List a form's comment threads, see [Comments](#comments) |
+| `POST` | `/api/admin/forms/{id}/comments` | Start a thread on a question with `{ fieldId, body }` |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/replies` | Reply to a thread with `{ body }` |
+| `PUT` | `/api/admin/forms/{id}/comments/{commentId}` | Edit your own comment with `{ body }` |
+| `DELETE` | `/api/admin/forms/{id}/comments/{commentId}` | Delete a comment; the first comment takes its thread with it |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/resolve` | Mark a thread resolved |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/reopen` | Reopen a resolved thread |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
+| `POST` | `/api/admin/forms/{id}/restore` | Bring a soft-deleted form back, closed, for service administrators; `404` for a form that is not deleted. Drafts cleared by the deletion stay gone |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |
-| `GET` | `/api/admin/forms/{id}/info` | Get form summary information |
+| `GET` | `/api/admin/forms/{id}/info` | Get form summary information, without archived answers; `access` tells what the caller may do |
 | `GET` | `/api/admin/forms/{id}/draft` | Get a form editing draft; a draft that matches the saved form is deleted and answers 404, comparing schemas regardless of property order |
-| `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft |
+| `POST` | `/api/admin/forms/{id}/draft` | Save a form editing draft; needs edit rights on the form |
 | `DELETE` | `/api/admin/forms/{id}/draft` | Delete a form editing draft |
-| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them. A row of a workflow step, answered or still a timed attempt, carries `workflow` with the step's `stage` and the submission's `round` |
+| `GET` | `/api/admin/forms/{id}/responses` | List form responses; a response sent back for changes is listed only under its own status filter (`Status=6`), and `counts.returned` reports them. `AnswerQuestionId` with `AnswerValue` keeps those who gave that answer, by the rule in [Metrics and analytics](#metrics-and-analytics); `counts` follows that filter and timed attempts without an answer drop out. A row of a workflow step, answered or still a timed attempt, carries `workflow` with the step's `stage` and the submission's `round` |
 | `GET` | `/api/admin/forms/{id}/responses/{responseId}/page` | The `page` of the list that holds a response, read with the list's own filters, order and page size, so a client that opens a response directly can show its neighbours; `404` when the filters leave it out |
 | `GET` | `/api/admin/forms/{id}/responses/export` | Export responses to Excel, with dates in Istanbul time and statuses as the panel names them; the sheet is named after the form title without the characters Excel forbids |
-| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish |
-| `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics |
+| `GET` | `/api/admin/forms/{id}/metrics` | Get form metrics; the daily and hourly trends count Istanbul days and hours and label them in Turkish, see [Metrics and analytics](#metrics-and-analytics) |
+| `GET` | `/api/admin/forms/{id}/analytics` | Get answer analytics, optionally narrowed by `Status`, `SinceDays`, `AnswerQuestionId` and `AnswerValue` |
+| `GET` | `/api/admin/forms/{id}/analytics/questions/{questionId}/answers` | Page the answers to a question; accepts `Page`, `PageSize`, `Search` and the analytics filters |
 | `GET` | `/api/admin/forms/metrics` | Get service-wide metrics |
 | `GET` | `/api/admin/forms/responses/{id}` | Get one response |
 | `GET` | `/api/admin/forms/responses/{responseId}/files/{mediaId}` | Metadata of a file answer, see [Reviewing files](#reviewing-files) |
@@ -593,8 +725,9 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `GET` | `/api/admin/workflows/available-forms` | The same list before a workflow exists, judged as for a new workflow that runs once, so a client can pick the steps first and create the workflow with them |
 | `POST` | `/api/admin/workflows/{id}/validate` | Report what would block publishing |
 | `POST` | `/api/admin/workflows/{id}/publish` | Publish the draft and archive the previous version |
+| `POST` | `/api/admin/workflows/{id}/save` | Save the name, settings, graph and changed forms in one transaction, publishing the graph when it changed, see [Saving from the studio](#saving-from-the-studio) |
 | `GET` | `/api/admin/workflows/{id}/versions` | List every version with its status |
-| `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step, finished ones by result and by the step they ended on, and the routes taken, see [Tracking applications](#tracking-applications) |
+| `GET` | `/api/admin/workflows/{id}/runs/overview` | Count running applications per step, finished ones by result and by the step they ended on, the routes taken, and how long getting through each step takes, see [Tracking applications](#tracking-applications) |
 | `GET` | `/api/admin/workflows/{id}/runs` | List applications, paged; accepts `Page`, `PageSize`, `Filter` (`0` running, `1` waiting for review, `2` finished), `NodeKey`, and `State` |
 | `DELETE` | `/api/admin/workflows/{id}` | Archive the workflow and close it for good: applications waiting for their applicant stop, step forms close, answers awaiting review stay reviewable (see [Intake](#intake)); a service administrator may archive one left to `Silinmiş kullanıcı` |
 | `POST` | `/api/admin/workflows/{id}/transfer` | Transfer ownership together with the step forms, see [Ownership transfer](#ownership-transfer) |
@@ -619,6 +752,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
 - **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts, both looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
 - **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
+- **Studio hub:** `/hubs/studio` takes the token from the `access_token` query value, because a browser cannot set headers on a WebSocket. The connection closes when the token expires and the client reconnects with a new one; the account gate runs on every hub call instead of once per HTTP request.
 - **External user data:** User details are fetched from core (`Integrations:SkylabCore:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
 - **Service authentication:** SkyMail and core calls use a client-credentials token of the service account in `Authentication:ServiceAccount` (a Keycloak client at SKY LAB). On core's `core` client that service account needs `ticket:forms` for response notifications and `media:attach` for guest uploads, their links to responses and reviewers' read links.
 - **Authorization:** What each form role may do is decided in one place, `FormAccess` in the Domain; services ask it instead of comparing roles themselves:
@@ -632,6 +766,8 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | Delete the form | | | ✓ | |
 
 A **Viewer** is a response viewer: they handle answers but never change the form. A workflow's owner may also void its applications.
+
+`GET /api/admin/forms/{id}` and `/info` answer with `access` (`canViewResponses`, `canHandleResponses`, `canEdit`), read from this table for the caller. A client asks it instead of comparing role numbers, because a service administrator has no role on the form and may still see its answers.
 
 ## Ownership transfer
 

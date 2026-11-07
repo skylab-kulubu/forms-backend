@@ -37,8 +37,11 @@ public record WorkflowRunStepContract(
     int AwaitingApplicant,
     int TimerRunning,
     int RevisionRequested,
-    WorkflowRunFinishedContract Finished
+    WorkflowRunFinishedContract Finished,
+    WorkflowStepTimingContract? Timing = null
 );
+
+public record WorkflowStepTimingContract(double MedianSeconds, int Passed);
 
 public record WorkflowRunFinishedContract(
     int Completed,

@@ -1,4 +1,5 @@
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Workflows;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Workflows;
@@ -15,7 +16,8 @@ public static class WorkflowRunOverviewBuilder
         IReadOnlyCollection<WorkflowRunTally> tallies,
         IReadOnlyCollection<WorkflowRouteTally> routes,
         IReadOnlyCollection<WorkflowEndTally> ends,
-        IReadOnlyDictionary<Guid, WorkflowFormHeader> forms)
+        IReadOnlyDictionary<Guid, WorkflowFormHeader> forms,
+        IReadOnlyCollection<WorkflowStepSpan>? spans = null)
     {
         var openByNode = openSteps
             .GroupBy(step => step.NodeKey, StringComparer.Ordinal)
@@ -24,6 +26,10 @@ public static class WorkflowRunOverviewBuilder
         var endsByNode = ends
             .GroupBy(end => end.NodeKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => FinishedOf(group.Select(end => (end.Status, end.Outcome, end.Count))), StringComparer.Ordinal);
+
+        var timingByNode = (spans ?? [])
+            .GroupBy(span => span.NodeKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, TimingOf, StringComparer.Ordinal);
 
         var ordered = definition is null ? [] : WorkflowStepOrder.Arrange(definition.Nodes, definition.Transitions);
         var current = ordered.Select(entry => entry.Node.NodeKey).ToHashSet(StringComparer.Ordinal);
@@ -38,7 +44,8 @@ public static class WorkflowRunOverviewBuilder
                 isRemoved: false,
                 openByNode.GetValueOrDefault(entry.Node.NodeKey) ?? [],
                 endsByNode.GetValueOrDefault(entry.Node.NodeKey) ?? NoEnds,
-                forms))
+                forms,
+                timingByNode.GetValueOrDefault(entry.Node.NodeKey)))
             .Concat(openByNode
                 .Where(group => !current.Contains(group.Key))
                 .OrderBy(group => group.Key, StringComparer.Ordinal)
@@ -51,7 +58,8 @@ public static class WorkflowRunOverviewBuilder
                     isRemoved: true,
                     group.Value,
                     endsByNode.GetValueOrDefault(group.Key) ?? NoEnds,
-                    forms)))
+                    forms,
+                    timingByNode.GetValueOrDefault(group.Key))))
             .ToList();
 
         return new WorkflowRunOverviewContract(
@@ -105,6 +113,9 @@ public static class WorkflowRunOverviewBuilder
             byState.GetValueOrDefault(WorkflowRunState.Stopped));
     }
 
+    private static WorkflowStepTimingContract TimingOf(IGrouping<string, WorkflowStepSpan> spans) =>
+        new(Math.Round(Statistics.Median(spans.Select(span => (span.LeftAt - span.StartedAt).TotalSeconds))!.Value), spans.Count());
+
     private static WorkflowRunStepContract ToStep(
         string nodeKey,
         Guid formId,
@@ -114,7 +125,8 @@ public static class WorkflowRunOverviewBuilder
         bool isRemoved,
         IReadOnlyCollection<WorkflowOpenStepFact> open,
         WorkflowRunFinishedContract finished,
-        IReadOnlyDictionary<Guid, WorkflowFormHeader> forms)
+        IReadOnlyDictionary<Guid, WorkflowFormHeader> forms,
+        WorkflowStepTimingContract? timing)
     {
         var states = open.Select(step => StateOf(step)).ToList();
 
@@ -131,6 +143,7 @@ public static class WorkflowRunOverviewBuilder
             states.Count(state => state == WorkflowRunState.AwaitingApplicant),
             states.Count(state => state == WorkflowRunState.TimerRunning),
             states.Count(state => state == WorkflowRunState.RevisionRequested),
-            finished);
+            finished,
+            timing);
     }
 }

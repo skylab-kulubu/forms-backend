@@ -17,7 +17,9 @@ public interface IFormRepository
     Task<List<Form>> GetForEditOwnedWithCollaboratorsAsync(IReadOnlyCollection<Guid> ids, Guid ownerId, CancellationToken ct = default);
 
     Task<PagedResult<FormSummaryContract>> GetUserFormsAsync(Guid userId, GetUserFormsRequest request, CancellationToken ct = default);
-    Task<PagedResult<FormAllSummaryProjection>> GetAllFormsAsync(GetAllFormsRequest request, CancellationToken ct = default);
+    Task<PagedResult<FormAllSummaryProjection>> GetAllFormsAsync(GetAllFormsRequest request, IReadOnlyList<Guid>? ownerOrder, CancellationToken ct = default);
+    Task<IReadOnlyList<FormCatalogRow>> GetCatalogRowsAsync(CancellationToken ct = default);
+    Task<Form?> GetDeletedForEditAsync(Guid id, CancellationToken ct = default);
 
     void Add(Form form);
 }

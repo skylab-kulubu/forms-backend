@@ -3,6 +3,7 @@ using Skylab.Forms.Api.Auth;
 using Skylab.Forms.Api.AccountAccess;
 using Skylab.Forms.Api.Endpoints;
 using Skylab.Forms.Api.Extensions;
+using Skylab.Forms.Api.Realtime;
 using Skylab.Forms.Application;
 using Skylab.Forms.Infrastructure;
 using Skylab.Forms.Infrastructure.Integrations.Cloudflare;
@@ -25,6 +26,7 @@ builder.Services.AddOidcIdentity(builder.Configuration);
 builder.Services.AddSkylabCore(builder.Configuration);
 builder.Services.AddSkyMail(builder.Configuration);
 builder.Services.AddTurnstile(builder.Configuration);
+builder.Services.AddFormStudio();
 
 var app = builder.Build();
 
@@ -51,8 +53,10 @@ if (app.Environment.IsDevelopment())
 
 app.MapAccountAccessHealthEndpoints();
 app.MapFormAdminEndpoints();
+app.MapFormStudioEndpoints();
 app.MapWorkflowAdminEndpoints();
 app.MapFormEndpoints();
 app.MapInternalEndpoints();
+app.MapStudioHub();
 
 app.Run();

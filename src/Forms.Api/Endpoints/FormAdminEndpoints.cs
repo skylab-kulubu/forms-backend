@@ -8,6 +8,7 @@ using Skylab.Forms.Application.Contracts.Forms;
 using Skylab.Forms.Application.Contracts.Responses;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Application.Contracts.Draft;
+using Skylab.Forms.Application.Contracts.Metrics;
 using Skylab.Forms.Application.Contracts.ShortLinks;
 using Skylab.Forms.Application.Contracts.Attempts;
 using Skylab.Forms.Application.Contracts.Ownership;
@@ -23,7 +24,7 @@ namespace Skylab.Forms.Api.Endpoints;
 
 public static class FormAdminEndpoints
 {
-    private const string FormRoute = "AdminForm";
+    internal const string FormRoute = "AdminForm";
     private const string ComponentGroupRoute = "AdminComponentGroup";
     internal const string ResponseRoute = "AdminResponse";
 
@@ -132,6 +133,12 @@ public static class FormAdminEndpoints
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
         });
 
+        group.MapPost("/{id:guid}/restore", async (Guid id, IFormAuthoring service, CancellationToken ct) =>
+        {
+            var result = await service.RestoreFormAsync(id, ct);
+            return result.ToApiResult();
+        }).RequireAuthorization(FormsAuthorization.PlatformAdmin);
+
         group.MapPost("/{id:guid}/transfer", async (Guid id, [FromBody] OwnershipTransferRequest request, IOwnershipService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
@@ -184,11 +191,19 @@ public static class FormAdminEndpoints
             return result.ToApiResult();
         });
 
-        group.MapGet("/{id:guid}/analytics", async (Guid id, IFormMetricService service, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/analytics", async (Guid id, [AsParameters] GetFormAnalyticsRequest request, IFormMetricService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();
 
-            var result = await service.GetAnswerAnalyticsAsync(id, userId, ct);
+            var result = await service.GetAnswerAnalyticsAsync(id, userId, request, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapGet("/{id:guid}/analytics/questions/{questionId}/answers", async (Guid id, string questionId, [AsParameters] GetQuestionAnswersRequest request, IFormMetricService service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.GetQuestionAnswersAsync(id, questionId, userId, request, ct);
             return result.ToApiResult();
         });
 

@@ -41,9 +41,16 @@ internal static class FormEditorMapping
             form.UpdatedAt,
             form.Task,
             form.ClosesAt,
-            form.TimeLimitMinutes
+            form.TimeLimitMinutes,
+            form.PublishedVersion
         );
     }
+
+    public static FormAccessContract AccessOf(Form form, Guid userId, bool isPlatformAdmin) =>
+        new(
+            form.Allows(userId, isPlatformAdmin, FormAction.ViewResponses),
+            form.Allows(userId, isPlatformAdmin, FormAction.HandleResponses),
+            form.Allows(userId, isPlatformAdmin, FormAction.EditForm));
 
     public static async Task<WorkflowFormMembership?> MembershipOfAsync(IFormWorkflowRepository workflows, Guid formId, CancellationToken cancellationToken)
     {

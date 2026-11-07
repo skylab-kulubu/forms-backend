@@ -79,6 +79,12 @@ public interface IFormWorkflowService
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<WorkflowSaveContract>> SaveAsync(
+        Guid workflowId,
+        WorkflowSaveRequest request,
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Akışı arşivler ve kalıcı olarak kapatır: devam eden başvurular durur, bekleyen
     /// cevaplar yine incelenebilir.
