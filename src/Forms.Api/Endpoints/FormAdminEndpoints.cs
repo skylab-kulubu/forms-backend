@@ -449,6 +449,30 @@ public static class FormAdminEndpoints
             return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
         });
 
+        group.MapGet("/component-groups/{id:guid}/draft", async (Guid id, IComponentGroupService service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.GetDraftAsync(id, userId, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/component-groups/{id:guid}/draft", async (Guid id, [FromBody] ComponentGroupDraftRequest request, IComponentGroupService service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.SaveDraftAsync(id, request, userId, ct);
+            return result.ToApiResult();
+        });
+
+        group.MapDelete("/component-groups/{id:guid}/draft", async (Guid id, IComponentGroupService service, ICurrentUser user, CancellationToken ct) =>
+        {
+            var userId = user.SignedInId();
+
+            var result = await service.DeleteDraftAsync(id, userId, ct);
+            return result.Status == ServiceStatus.Success ? Results.NoContent() : result.ToApiResult();
+        });
+
         group.MapPost("/component-groups/{id:guid}/transfer", async (Guid id, [FromBody] OwnershipTransferRequest request, IOwnershipService service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();

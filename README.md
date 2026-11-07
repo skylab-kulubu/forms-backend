@@ -129,7 +129,7 @@ Dynamic form creation and response management service.
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
 - Timed forms: one attempt per person with a deadline the team can extend. An answer is accepted until two minutes after the deadline, so the page's own submission at the deadline arrives in time; opening the form, saving a draft, sending the answer and the expiry worker all apply that one rule, and only after it does the attempt close
-- Redis-backed response drafts, and one shared working copy per form that editors change together in real time, see [Form studio](#form-studio)
+- Redis-backed response drafts and component-group editing drafts, and one shared working copy per form that editors change together in real time, see [Form studio](#form-studio)
 - Response and component-group sharing tokens
 - XLSX response export
 - Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
@@ -743,6 +743,9 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `POST` | `/api/admin/forms/component-groups` | Create a component group |
 | `PUT` | `/api/admin/forms/component-groups/{id}` | Update a component group |
 | `DELETE` | `/api/admin/forms/component-groups/{id}` | Delete a component group; the row stays archived and its share token is revoked |
+| `GET` | `/api/admin/forms/component-groups/{id}/draft` | Get the owner's editing draft of a component group; a draft that matches the saved group is deleted and answers 404 |
+| `POST` | `/api/admin/forms/component-groups/{id}/draft` | Save the owner's editing draft for seven days; saving or deleting the group drops it |
+| `DELETE` | `/api/admin/forms/component-groups/{id}/draft` | Delete the owner's editing draft |
 | `POST` | `/api/admin/forms/component-groups/{id}/share` | Create or refresh a share token |
 | `POST` | `/api/admin/forms/component-groups/{id}/clone` | Clone a shared component group |
 | `POST` | `/api/admin/forms/component-groups/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |

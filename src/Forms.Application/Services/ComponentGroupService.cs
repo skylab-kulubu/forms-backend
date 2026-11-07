@@ -4,15 +4,18 @@ using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Application.Abstractions.Storage;
+using Skylab.Forms.Application.Caching;
 using Skylab.Forms.Application.Contracts;
 using Skylab.Forms.Application.Contracts.ComponentGroup;
 using Skylab.Forms.Domain.Entities;
+using Skylab.Forms.Domain.Models;
 
 namespace Skylab.Forms.Application.Services;
 
 public class ComponentGroupService : IComponentGroupService
 {
     private static readonly TimeSpan ShareTokenLifetime = TimeSpan.FromHours(48);
+    private static readonly TimeSpan DraftLifetime = TimeSpan.FromHours(168);
     private const string TokenKeyPrefix = "componentgroup:share:token:";
     private const string GroupKeyPrefix = "componentgroup:share:group:";
 
@@ -69,6 +72,7 @@ public class ComponentGroupService : IComponentGroupService
         existingGroup.Schema = request.Schema ?? new();
 
         await _uow.SaveChangesAsync(cancellationToken);
+        await _cache.RemoveAsync(FormCacheKeys.GroupDraft(id, userId), cancellationToken);
 
         return new ServiceResult<ComponentGroupContract>(ServiceStatus.Success, Data: MapToContract(existingGroup));
     }
@@ -111,8 +115,54 @@ public class ComponentGroupService : IComponentGroupService
         group.ArchivedAt = _time.GetUtcNow().UtcDateTime;
         group.ArchivedBy = userId;
         await _uow.SaveChangesAsync(cancellationToken);
+        await _cache.RemoveAsync(FormCacheKeys.GroupDraft(id, userId), cancellationToken);
 
         return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Şablon silindi.");
+    }
+
+    public async Task<ServiceResult<ComponentGroupDraftContract?>> GetDraftAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var group = await _groups.GetByIdAsync(id, cancellationToken);
+
+        if (group == null || group.OwnedBy != userId)
+            return new ServiceResult<ComponentGroupDraftContract?>(ServiceStatus.NotFound, Message: "Şablon taslağı bulunamadı.");
+
+        var key = FormCacheKeys.GroupDraft(id, userId);
+        var draft = await _cache.GetAsync<ComponentGroupDraftContract>(key, DraftLifetime, cancellationToken);
+
+        if (draft == null)
+            return new ServiceResult<ComponentGroupDraftContract?>(ServiceStatus.NotFound, Message: "Şablon taslağı bulunamadı.");
+
+        if (IsDraftIdenticalToGroup(draft, group))
+        {
+            await _cache.RemoveAsync(key, cancellationToken);
+            return new ServiceResult<ComponentGroupDraftContract?>(ServiceStatus.NotFound, Message: "Şablon taslağı bulunamadı.");
+        }
+
+        return new ServiceResult<ComponentGroupDraftContract?>(ServiceStatus.Success, Data: draft);
+    }
+
+    public async Task<ServiceResult<bool>> SaveDraftAsync(Guid id, ComponentGroupDraftRequest request, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var group = await _groups.GetByIdAsync(id, cancellationToken);
+
+        if (group == null)
+            return new ServiceResult<bool>(ServiceStatus.NotFound, Message: "Şablon bulunamadı.");
+
+        if (group.OwnedBy != userId)
+            return new ServiceResult<bool>(ServiceStatus.NotAuthorized, Message: "Bu şablonu düzenleme yetkiniz yok.");
+
+        var draft = new ComponentGroupDraftContract(request.Title, request.Description, request.Schema ?? new(), _time.GetUtcNow().UtcDateTime);
+        await _cache.SetAsync(FormCacheKeys.GroupDraft(id, userId), draft, DraftLifetime, cancellationToken);
+
+        return new ServiceResult<bool>(ServiceStatus.Success, Data: true);
+    }
+
+    public async Task<ServiceResult<bool>> DeleteDraftAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        await _cache.RemoveAsync(FormCacheKeys.GroupDraft(id, userId), cancellationToken);
+
+        return new ServiceResult<bool>(ServiceStatus.Success, Data: true, Message: "Şablon taslağı silindi.");
     }
 
     public async Task<ServiceResult<ShareTokenContract>> CreateOrRefreshShareTokenAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default)
@@ -198,6 +248,11 @@ public class ComponentGroupService : IComponentGroupService
     }
 
     private static string GenerateToken() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+
+    private static bool IsDraftIdenticalToGroup(ComponentGroupDraftContract draft, ComponentGroup group) =>
+        (draft.Title ?? "") == group.Title
+        && (draft.Description ?? "") == (group.Description ?? "")
+        && FormSchemaChange.IsSame(draft.Schema, group.Schema);
 
     private static ComponentGroupContract MapToContract(ComponentGroup group, UserContract? sharedBy = null) =>
         new(group.Id, group.Title, group.Description, group.Schema, sharedBy);

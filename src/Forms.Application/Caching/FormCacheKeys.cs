@@ -4,6 +4,7 @@ public static class FormCacheKeys
 {
     private const string ResponseDraftRoot = "forms:draft:response:";
     private const string FormDraftRoot = "forms:draft:form:";
+    private const string GroupDraftRoot = "forms:draft:group:";
 
     public const string AnalyticsPrefix = "form:analytics:";
 
@@ -16,7 +17,8 @@ public static class FormCacheKeys
     public static string ResponseDraftPrefix(Guid formId) => $"{ResponseDraftRoot}{formId}:";
     public static string FormDraft(Guid formId, Guid userId) => $"{FormDraftPrefix(formId)}{userId}";
     public static string FormDraftPrefix(Guid formId) => $"{FormDraftRoot}{formId}:";
+    public static string GroupDraft(Guid groupId, Guid userId) => $"{GroupDraftRoot}{groupId}:{userId}";
 
-    /// <summary>Kişinin bütün formlardaki yanıt ve form taslaklarını bulan SCAN kalıpları.</summary>
-    public static string[] UserDraftPatterns(Guid userId) => [$"{ResponseDraftRoot}*:{userId}", $"{FormDraftRoot}*:{userId}"];
+    /// <summary>Kişinin yanıt, form ve şablon taslaklarını bulan SCAN kalıpları.</summary>
+    public static string[] UserDraftPatterns(Guid userId) => [$"{ResponseDraftRoot}*:{userId}", $"{FormDraftRoot}*:{userId}", $"{GroupDraftRoot}*:{userId}"];
 }
