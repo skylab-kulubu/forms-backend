@@ -22,6 +22,8 @@ public sealed class FormCatalog : IFormCatalog
 {
     private static readonly TimeSpan OwnersCacheTtl = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan OwnersMissCacheTtl = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan OwnerLookupLimit = TimeSpan.FromSeconds(3);
+    private const int TrendDays = 7;
 
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
@@ -29,6 +31,7 @@ public sealed class FormCatalog : IFormCatalog
     private readonly ICurrentUser _currentUser;
     private readonly IFormWorkflowRepository _workflows;
     private readonly ICacheService _cache;
+    private readonly TimeProvider _time;
 
     public FormCatalog(
         IFormRepository forms,
@@ -36,7 +39,8 @@ public sealed class FormCatalog : IFormCatalog
         IUserDirectory userService,
         ICurrentUser currentUser,
         IFormWorkflowRepository workflows,
-        ICacheService cache)
+        ICacheService cache,
+        TimeProvider time)
     {
         _forms = forms;
         _responses = responses;
@@ -44,6 +48,7 @@ public sealed class FormCatalog : IFormCatalog
         _currentUser = currentUser;
         _workflows = workflows;
         _cache = cache;
+        _time = time;
     }
 
     public async Task<ServiceResult<FormContract>> GetFormByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
@@ -102,13 +107,17 @@ public sealed class FormCatalog : IFormCatalog
 
         // Akış adımları listeden gizlenmez; hangi formun akışa ait olduğunu istemci
         // bu alandan görüp kendi süzmesini yapar.
-        var memberships = await _workflows.GetFormMembershipsAsync(
-            [.. data.Items.Select(form => form.Id)], cancellationToken);
+        var formIds = data.Items.Select(form => form.Id).ToList();
+        var memberships = await _workflows.GetFormMembershipsAsync(formIds, cancellationToken);
+        var owners = await GetOwnersAsync(data.Items.Select(form => form.CreatedBy?.Id ?? Guid.Empty), cancellationToken);
+        var days = await GetLastWeekAsync(formIds, cancellationToken);
 
         var items = data.Items
             .Select(form => form with
             {
-                Workflow = memberships.TryGetValue(form.Id, out var membership) ? FormEditorMapping.WorkflowRefOf(membership) : null
+                Workflow = memberships.TryGetValue(form.Id, out var membership) ? FormEditorMapping.WorkflowRefOf(membership) : null,
+                CreatedBy = form.CreatedBy is { } owner ? owners.GetValueOrDefault(owner.Id, owner) : null,
+                Last7Days = days.TryGetValue(form.Id, out var counts) ? counts : [.. new int[TrendDays]]
             })
             .ToList();
 
@@ -157,6 +166,63 @@ public sealed class FormCatalog : IFormCatalog
             ServiceStatus.Success,
             Data: new FormAllPageContract(forms, raw.TotalCount, raw.Page, raw.PageSize, SummaryOf(catalog), OwnersOf(catalog, directory))
         );
+    }
+
+    private async Task<Dictionary<Guid, UserContract>> GetOwnersAsync(IEnumerable<Guid> ownerIds, CancellationToken cancellationToken)
+    {
+        var owners = new Dictionary<Guid, UserContract>();
+        var missing = new List<Guid>();
+
+        foreach (var id in ownerIds.Distinct().Where(id => id != Guid.Empty))
+        {
+            if (await _cache.TryGetAsync<UserContract>(FormCacheKeys.Owner(id), cancellationToken) is { } cached) owners[id] = cached;
+            else missing.Add(id);
+        }
+
+        if (missing.Count == 0) return owners;
+
+        using var lookup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lookup.CancelAfter(OwnerLookupLimit);
+
+        List<UserContract> found;
+        try
+        {
+            found = await _userService.GetUsersAsync(missing, lookup.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            found = [];
+        }
+
+        foreach (var user in found)
+        {
+            owners[user.Id] = user;
+            await _cache.TrySetAsync(FormCacheKeys.Owner(user.Id), user, OwnersCacheTtl, cancellationToken);
+        }
+
+        foreach (var id in missing.Where(id => !owners.ContainsKey(id)))
+            await _cache.TrySetAsync(FormCacheKeys.Owner(id), new UserContract(id, null, null, null), OwnersMissCacheTtl, cancellationToken);
+
+        return owners;
+    }
+
+    private async Task<Dictionary<Guid, List<int>>> GetLastWeekAsync(IReadOnlyCollection<Guid> formIds, CancellationToken cancellationToken)
+    {
+        var firstDay = ClubTime.ToLocal(_time.GetUtcNow().UtcDateTime).Date.AddDays(1 - TrendDays);
+        var submissions = await _responses.GetSubmittedSinceAsync(formIds, ClubTime.ToUtc(firstDay), cancellationToken);
+
+        return submissions
+            .GroupBy(submission => submission.FormId)
+            .ToDictionary(group => group.Key, group =>
+            {
+                var counts = new int[TrendDays];
+                foreach (var submission in group)
+                {
+                    var day = (ClubTime.ToLocal(submission.SubmittedAt).Date - firstDay).Days;
+                    if (day is >= 0 and < TrendDays) counts[day]++;
+                }
+                return counts.ToList();
+            });
     }
 
     private async Task<List<UserContract>> GetOwnerDirectoryAsync(IReadOnlyCollection<FormCatalogRow> catalog, CancellationToken cancellationToken)

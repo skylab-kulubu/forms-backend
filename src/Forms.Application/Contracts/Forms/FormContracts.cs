@@ -52,7 +52,12 @@ public record FormSummaryContract(
     FormWorkflowRefContract? Workflow,
     DateTime? UpdatedAt,
     int ResponseCount,
-    int PublishedVersion = 1
+    int PublishedVersion = 1,
+    UserContract? CreatedBy = null,
+    int PendingCount = 0,
+    DateTime? LastResponseAt = null,
+    DateTime? ClosesAt = null,
+    List<int>? Last7Days = null
 );
 
 public record FormAllSummaryContract(

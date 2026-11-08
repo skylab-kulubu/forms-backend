@@ -361,6 +361,16 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .Where(r => r.FormId == formId && !r.IsArchived && !Uncounted.Contains(r.Status))
             .OrderBy(r => r.SubmittedAt);
 
+    public async Task<IReadOnlyList<FormSubmissionProjection>> GetSubmittedSinceAsync(IReadOnlyCollection<Guid> formIds, DateTime since, CancellationToken ct = default)
+    {
+        if (formIds.Count == 0) return [];
+
+        return await _context.Responses.AsNoTracking()
+            .Where(r => formIds.Contains(r.FormId) && r.SubmittedAt >= since && !r.IsArchived && !Uncounted.Contains(r.Status))
+            .Select(r => new FormSubmissionProjection(r.FormId, r.SubmittedAt))
+            .ToListAsync(ct);
+    }
+
     public async Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default)
     {
         var formCounts = await _context.Responses.AsNoTracking()

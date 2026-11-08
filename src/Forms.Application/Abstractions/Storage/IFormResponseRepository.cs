@@ -21,6 +21,7 @@ public interface IFormResponseRepository
     Task<IReadOnlyList<Guid>> GetIdsWhereAsync(Guid formId, Func<IReadOnlyList<FormResponseSchemaItem>, bool> matches, CancellationToken ct = default);
     Task<IReadOnlyList<FormResponse>> GetNonArchivedByFormAsync(Guid formId, CancellationToken ct = default);
     Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default);
+    Task<IReadOnlyList<FormSubmissionProjection>> GetSubmittedSinceAsync(IReadOnlyCollection<Guid> formIds, DateTime since, CancellationToken ct = default);
 
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
     Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default);
@@ -32,6 +33,8 @@ public interface IFormResponseRepository
 public sealed record FormResponseCounts(int Total, int Waiting, double? AverageTimeSpentSeconds);
 
 public sealed record ResponseContactProjection(Guid? UserId, ResponseGuest? Guest);
+
+public sealed record FormSubmissionProjection(Guid FormId, DateTime SubmittedAt);
 
 public sealed record OverduePendingFormProjection(Guid FormId, string FormTitle, int PendingCount, IReadOnlyList<Guid> ReviewerIds);
 
