@@ -737,7 +737,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/admin/forms/component-groups` | List the current user's component groups |
+| `GET` | `/api/admin/forms/component-groups` | List the current user's component groups. Each group, here and in the other responses below, carries `updatedAt`: when it was last saved, or created if never |
 | `GET` | `/api/admin/forms/component-groups/orphaned` | List component groups left to `Silinmiş kullanıcı` by erased accounts, for service administrators |
 | `GET` | `/api/admin/forms/component-groups/{id}` | Get component-group details |
 | `POST` | `/api/admin/forms/component-groups` | Create a component group |
