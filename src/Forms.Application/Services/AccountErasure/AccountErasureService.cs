@@ -49,6 +49,7 @@ public class AccountErasureService : IAccountErasureService
             ["workflow_runs_cancelled"] = await _erasures.CloseWorkflowRunsAsync(userId, _time.GetUtcNow().UtcDateTime, token),
             ["workflow_runs_detached"] = await _erasures.DetachWorkflowRunsAsync(userId, DeletedUser.Id, token),
             ["answer_file_links_deleted"] = await _erasures.DeleteAnswerFileLinksAsync(userId, token),
+            ["comment_reads_deleted"] = await _erasures.DeleteCommentReadsAsync(userId, token),
             ["notifications_cleared"] = await _erasures.ClearNotificationsAsync(userId, emails, token),
             ["drafts_deleted"] = drafts
         }, ct);

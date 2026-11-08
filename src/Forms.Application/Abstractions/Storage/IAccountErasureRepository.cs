@@ -22,6 +22,7 @@ public interface IAccountErasureRepository
     Task<int> CloseWorkflowRunsAsync(Guid userId, DateTime now, CancellationToken ct = default);
     Task<int> DetachWorkflowRunsAsync(Guid userId, Guid replacementUserId, CancellationToken ct = default);
     Task<int> DeleteAnswerFileLinksAsync(Guid userId, CancellationToken ct = default);
+    Task<int> DeleteCommentReadsAsync(Guid userId, CancellationToken ct = default);
 
     /// <summary>Kişinin bekleyen core bildirimlerini siler, misafir bildirimlerinden adreslerini çıkarır.</summary>
     Task<int> ClearNotificationsAsync(Guid userId, IReadOnlyList<string> emails, CancellationToken ct = default);

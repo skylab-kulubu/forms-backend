@@ -82,6 +82,18 @@ public static class FormStudioEndpoints
             return result.ToApiResult();
         });
 
+        group.MapGet("/{id:guid}/comments/reads", async (Guid id, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.ReadsAsync(id, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
+        group.MapPost("/{id:guid}/comments/{threadId:guid}/read", async (Guid id, Guid threadId, [FromBody] StudioReadRequest request, IFormComments comments, ICurrentUser user, CancellationToken ct) =>
+        {
+            var result = await comments.MarkReadAsync(id, threadId, request, CallerOf(user), ct);
+            return result.ToApiResult();
+        });
+
         group.MapPut("/{id:guid}/collaborators", async (Guid id, [FromBody] FormCollaboratorsRequest request, IFormAuthoring service, ICurrentUser user, CancellationToken ct) =>
         {
             var userId = user.SignedInId();

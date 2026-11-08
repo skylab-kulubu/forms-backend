@@ -6,6 +6,10 @@ public sealed record StudioThreadRequest(string FieldId, string Body);
 
 public sealed record StudioCommentRequest(string Body);
 
+public sealed record StudioReadRequest(Guid CommentId);
+
+public sealed record StudioThreadReadContract(Guid ThreadId, DateTime ReadUntil);
+
 public sealed record StudioCommentContract(
     Guid Id,
     UserContract Author,

@@ -44,11 +44,21 @@ public sealed class FormStudioRepository : IFormStudioRepository
     public Task<FormComment?> GetCommentAsync(Guid formId, Guid commentId, CancellationToken ct = default) =>
         _context.FormComments.FirstOrDefaultAsync(c => c.FormId == formId && c.Id == commentId, ct);
 
+    public Task<List<FormCommentRead>> GetCommentReadsAsync(Guid formId, Guid userId, CancellationToken ct = default) =>
+        _context.FormCommentReads.AsNoTracking()
+            .Where(r => r.UserId == userId && r.Thread.FormId == formId)
+            .ToListAsync(ct);
+
+    public Task<FormCommentRead?> GetCommentReadAsync(Guid threadId, Guid userId, CancellationToken ct = default) =>
+        _context.FormCommentReads.FirstOrDefaultAsync(r => r.ThreadId == threadId && r.UserId == userId, ct);
+
     public void Add(FormWorkingCopy copy) => _context.WorkingCopies.Add(copy);
 
     public void Add(FormEdit edit) => _context.FormEdits.Add(edit);
 
     public void Add(FormComment comment) => _context.FormComments.Add(comment);
+
+    public void Add(FormCommentRead read) => _context.FormCommentReads.Add(read);
 
     public void Remove(FormComment comment) => _context.FormComments.Remove(comment);
 }
