@@ -255,7 +255,7 @@ public class ComponentGroupService : IComponentGroupService
         && FormSchemaChange.IsSame(draft.Schema, group.Schema);
 
     private static ComponentGroupContract MapToContract(ComponentGroup group, UserContract? sharedBy = null) =>
-        new(group.Id, group.Title, group.Description, group.Schema, sharedBy);
+        new(group.Id, group.Title, group.Description, group.Schema, sharedBy, group.UpdatedAt ?? group.CreatedAt);
 
     private static string? TitleError(string? title) =>
         string.IsNullOrWhiteSpace(title) ? "Şablon adı boş olamaz."

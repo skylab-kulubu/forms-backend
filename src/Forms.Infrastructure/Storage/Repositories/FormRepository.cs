@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Contracts.Forms;
+using Skylab.Forms.Application.Contracts.Identity;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Application.Common;
@@ -89,7 +90,12 @@ public sealed class FormRepository : IFormRepository
                 null,
                 f.UpdatedAt ?? f.CreatedAt,
                 f.Responses.Count(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)),
-                f.PublishedVersion
+                f.PublishedVersion,
+                new UserContract(f.Collaborators.Where(c => c.Role == CollaboratorRole.Owner).Select(c => c.UserId).FirstOrDefault(), null, null, null, null),
+                f.Responses.Count(r => r.Status == FormResponseStatus.Pending && !r.IsArchived),
+                f.Responses.Where(r => !r.IsArchived && !FormResponseRepository.Uncounted.Contains(r.Status)).Max(r => (DateTime?)r.SubmittedAt),
+                f.ClosesAt,
+                null
             ))
             .ToListAsync(ct);
 
