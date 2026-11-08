@@ -297,6 +297,24 @@ namespace Forms.Infrastructure.Migrations
                     b.ToTable("FormComments", (string)null);
                 });
 
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormCommentRead", b =>
+                {
+                    b.Property<Guid>("ThreadId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ReadUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ThreadId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("FormCommentReads", (string)null);
+                });
+
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormEdit", b =>
                 {
                     b.Property<Guid>("FormId")
@@ -866,6 +884,17 @@ namespace Forms.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormCommentRead", b =>
+                {
+                    b.HasOne("Skylab.Forms.Domain.Entities.FormComment", "Thread")
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Thread");
                 });
 
             modelBuilder.Entity("Skylab.Forms.Domain.Entities.FormEdit", b =>

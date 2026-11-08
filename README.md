@@ -105,7 +105,7 @@ Core sends its account erasure command to `PUT /internal/v1/account-erasures/{re
 What changes, deleted forms and archived templates included:
 
 - The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay. The team's note on an application of theirs that was voided is emptied too.
-- Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts and answer file links are deleted; active workflow runs are terminated.
+- Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts, answer file links and comment read markers are deleted; active workflow runs are terminated.
 - The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending response event in the outbox loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
 - Pending response events of the person's own responses are deleted from the outbox, and the core adapter never reports a response owned by `Silinmiş kullanıcı` again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
@@ -143,6 +143,7 @@ Dynamic form creation and response management service.
 | `FormWorkingCopies` | One shared working copy per form: the JSONB document editors change, its version and who changed it last |
 | `FormEdits` | Each applied studio edit with its version, batch id, editor and operations, kept seven days so clients can catch up |
 | `FormComments` | Editors' comments on a question: thread roots and their replies, with who resolved a thread |
+| `FormCommentReads` | How far each person has read each comment thread: the creation time of the newest comment they have seen |
 | `Responses` | User responses, the name and email a guest typed into the identity fields (only the email when `email` is marked alone), review information, the questions flagged when changes were requested, archive state, and timing |
 | `Collaborators` | Collaborator roles with a composite user/form key |
 | `ComponentGroup` | Reusable form component templates |
@@ -228,6 +229,8 @@ Editors discuss a question in **threads** attached to its id. Comments are not p
 Reading needs access to the editor; writing needs the right to edit the form. Everyone edits and deletes their own comments, and the form's owner may delete any. Deleting the first comment deletes the thread. A resolved thread takes no replies until it is reopened. A comment holds at most 2000 characters.
 
 Every change goes through HTTP and reaches the group through `Comments`, the sender included, so clients merge a thread by its id. A client that was disconnected reads the list again.
+
+Each person has a **read marker** per thread: the creation time of the newest comment they have seen. `POST …/comments/{threadId}/read` with `{ commentId }` moves it to that comment and **never back**, so a late request from an older tab cannot undo a newer one. `GET …/comments/reads` returns the caller's markers as `{ threadId, readUntil }`; the client counts an open thread as unread when its newest comment is someone else's and newer than the marker, or when there is no marker. Markers stay out of the thread contract because `Comments` goes to the whole group. Both calls need access to the editor, like reading. The migration that added markers marked every existing thread read for the form's team at that moment, so old comments did not all appear as new; someone added to the team later sees the open threads as unread.
 
 ### Retention and old drafts
 
@@ -688,6 +691,8 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | `DELETE` | `/api/admin/forms/{id}/comments/{commentId}` | Delete a comment; the first comment takes its thread with it |
 | `POST` | `/api/admin/forms/{id}/comments/{threadId}/resolve` | Mark a thread resolved |
 | `POST` | `/api/admin/forms/{id}/comments/{threadId}/reopen` | Reopen a resolved thread |
+| `GET` | `/api/admin/forms/{id}/comments/reads` | List your read markers on the form's threads as `{ threadId, readUntil }` |
+| `POST` | `/api/admin/forms/{id}/comments/{threadId}/read` | Mark a thread read up to a comment with `{ commentId }` |
 | `DELETE` | `/api/admin/forms/{id}` | Soft-delete a form |
 | `POST` | `/api/admin/forms/{id}/restore` | Bring a soft-deleted form back, closed, for service administrators; `404` for a form that is not deleted. Drafts cleared by the deletion stay gone |
 | `POST` | `/api/admin/forms/{id}/transfer` | Transfer ownership, see [Ownership transfer](#ownership-transfer) |

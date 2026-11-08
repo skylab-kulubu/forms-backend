@@ -18,6 +18,8 @@ public interface IFormComments
     Task<ServiceResult<StudioThreadContract>> EditAsync(Guid formId, Guid commentId, StudioCommentRequest request, StudioCaller caller, CancellationToken ct = default);
     Task<ServiceResult<StudioThreadContract>> DeleteAsync(Guid formId, Guid commentId, StudioCaller caller, CancellationToken ct = default);
     Task<ServiceResult<StudioThreadContract>> ResolveAsync(Guid formId, Guid threadId, bool resolved, StudioCaller caller, CancellationToken ct = default);
+    Task<ServiceResult<List<StudioThreadReadContract>>> ReadsAsync(Guid formId, StudioCaller caller, CancellationToken ct = default);
+    Task<ServiceResult<StudioThreadReadContract>> MarkReadAsync(Guid formId, Guid threadId, StudioReadRequest request, StudioCaller caller, CancellationToken ct = default);
 }
 
 public sealed class FormComments : IFormComments
@@ -48,10 +50,7 @@ public sealed class FormComments : IFormComments
     public async Task<ServiceResult<List<StudioThreadContract>>> ListAsync(Guid formId, StudioCaller caller, CancellationToken ct = default)
     {
         var form = await _forms.GetWithCollaboratorsAsync(formId, ct);
-        if (form is null) return Fail<List<StudioThreadContract>>(ServiceStatus.NotFound, "Form bulunamadı.");
-
-        if (!FormAccess.Allows(form.RoleOf(caller.UserId), caller.IsPlatformAdmin, FormAction.OpenEditor))
-            return Fail<List<StudioThreadContract>>(ServiceStatus.NotAuthorized, "Bu formun yorumlarını görme yetkiniz yok.");
+        if (ReaderRefusalOf<List<StudioThreadContract>>(form, caller) is { } refusal) return refusal;
 
         var comments = await _studio.GetCommentsAsync(formId, ct);
         var users = await UsersOfAsync(comments, ct);
@@ -170,6 +169,51 @@ public sealed class FormComments : IFormComments
         await _uow.SaveChangesAsync(ct);
 
         return await AnnounceAsync(formId, root.Id, ct);
+    }
+
+    public async Task<ServiceResult<List<StudioThreadReadContract>>> ReadsAsync(Guid formId, StudioCaller caller, CancellationToken ct = default)
+    {
+        var form = await _forms.GetWithCollaboratorsAsync(formId, ct);
+        if (ReaderRefusalOf<List<StudioThreadReadContract>>(form, caller) is { } refusal) return refusal;
+
+        var reads = await _studio.GetCommentReadsAsync(formId, caller.UserId, ct);
+
+        return new ServiceResult<List<StudioThreadReadContract>>(ServiceStatus.Success, [.. reads.Select(read => new StudioThreadReadContract(read.ThreadId, read.ReadUntil))]);
+    }
+
+    public async Task<ServiceResult<StudioThreadReadContract>> MarkReadAsync(Guid formId, Guid threadId, StudioReadRequest request, StudioCaller caller, CancellationToken ct = default)
+    {
+        var form = await _forms.GetWithCollaboratorsAsync(formId, ct);
+        if (ReaderRefusalOf<StudioThreadReadContract>(form, caller) is { } refusal) return refusal;
+
+        var thread = await _studio.GetThreadAsync(formId, threadId, ct);
+        var seen = thread.FirstOrDefault(comment => comment.Id == request.CommentId);
+        if (seen is null || !thread.Any(comment => comment.Id == threadId && comment.ThreadId is null))
+            return Fail<StudioThreadReadContract>(ServiceStatus.NotFound, "Yorum bulunamadı.");
+
+        var read = await _studio.GetCommentReadAsync(threadId, caller.UserId, ct);
+        if (read is null)
+        {
+            read = new FormCommentRead { ThreadId = threadId, UserId = caller.UserId, ReadUntil = seen.CreatedAt };
+            _studio.Add(read);
+        }
+        else if (seen.CreatedAt > read.ReadUntil)
+        {
+            read.ReadUntil = seen.CreatedAt;
+        }
+
+        await _uow.SaveChangesAsync(ct);
+
+        return new ServiceResult<StudioThreadReadContract>(ServiceStatus.Success, new StudioThreadReadContract(threadId, read.ReadUntil));
+    }
+
+    private static ServiceResult<T>? ReaderRefusalOf<T>(Form? form, StudioCaller caller)
+    {
+        if (form is null) return Fail<T>(ServiceStatus.NotFound, "Form bulunamadı.");
+
+        return FormAccess.Allows(form.RoleOf(caller.UserId), caller.IsPlatformAdmin, FormAction.OpenEditor)
+            ? null
+            : Fail<T>(ServiceStatus.NotAuthorized, "Bu formun yorumlarını görme yetkiniz yok.");
     }
 
     private static ServiceResult<StudioThreadContract>? RefusalOf(Form? form, StudioCaller caller)

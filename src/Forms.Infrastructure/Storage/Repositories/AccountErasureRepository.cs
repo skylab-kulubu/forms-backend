@@ -92,6 +92,9 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
     public Task<int> DeleteAnswerFileLinksAsync(Guid userId, CancellationToken ct = default) =>
         _context.AnswerFileLinks.IgnoreQueryFilters().Where(link => link.UserId == userId).ExecuteDeleteAsync(ct);
 
+    public Task<int> DeleteCommentReadsAsync(Guid userId, CancellationToken ct = default) =>
+        _context.FormCommentReads.IgnoreQueryFilters().Where(read => read.UserId == userId).ExecuteDeleteAsync(ct);
+
     // Kuyrukta kalan bildirim, core kişiyi anonimleştirdikten sonra kimliğini ona yeniden taşırdı. Misafir
     // bildiriminin kendisi misafirindir; yalnız kişinin adresi çıkarılır.
     public async Task<int> ClearNotificationsAsync(Guid userId, IReadOnlyList<string> emails, CancellationToken ct = default)
