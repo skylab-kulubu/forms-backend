@@ -90,7 +90,8 @@ public sealed class FormAuthoring : IFormAuthoring
             RequiresManualReview = contract.RequiresManualReview,
             Task = task,
             ClosesAt = UtcDate.Normalize(contract.ClosesAt),
-            TimeLimitMinutes = timeLimit
+            TimeLimitMinutes = timeLimit,
+            Brand = contract.Brand
         };
 
         var collaborators = new List<FormCollaborator>

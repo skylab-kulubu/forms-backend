@@ -16,5 +16,6 @@ public record FormUpsertRequest(
     List<CollaboratorUpsertRequest>? Collaborators,
     FormTask? Task = null,
     DateTime? ClosesAt = null,
-    int? TimeLimitMinutes = null
+    int? TimeLimitMinutes = null,
+    string? Brand = null
 );

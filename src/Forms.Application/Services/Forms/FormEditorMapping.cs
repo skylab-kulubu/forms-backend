@@ -42,7 +42,8 @@ internal static class FormEditorMapping
             form.Task,
             form.ClosesAt,
             form.TimeLimitMinutes,
-            form.PublishedVersion
+            form.PublishedVersion,
+            Brand: form.Brand
         );
     }
 

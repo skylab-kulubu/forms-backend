@@ -75,6 +75,10 @@ namespace Forms.Infrastructure.Migrations
                     b.Property<bool>("AllowMultipleResponses")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Brand")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<DateTime?>("ClosesAt")
                         .HasColumnType("timestamp with time zone");
 

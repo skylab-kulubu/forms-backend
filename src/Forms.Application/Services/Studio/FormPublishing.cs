@@ -126,7 +126,8 @@ public sealed class FormPublishing : IFormPublishing
         null,
         document.Task,
         document.ClosesAt,
-        document.TimeLimitMinutes);
+        document.TimeLimitMinutes,
+        document.Brand);
 
     private static (ServiceStatus Status, string Message)? Refusal(Form form, StudioCaller caller, FormWorkingCopy? copy, long workingVersion)
     {

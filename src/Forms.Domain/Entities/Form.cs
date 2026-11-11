@@ -7,6 +7,7 @@ namespace Skylab.Forms.Domain.Entities;
 public class Form : BaseEntity
 {
     public const int TitleMaxLength = 100;
+    public const int BrandMaxLength = 32;
 
     public string Title { get; set; } = "Yeni Form";
     public string? Description { get; set; }
@@ -20,11 +21,15 @@ public class Form : BaseEntity
     public FormTask? Task { get; set; }
     public DateTime? ClosesAt { get; set; }
     public int? TimeLimitMinutes { get; set; }
+    public string? Brand { get; set; }
     public int PublishedVersion { get; set; } = 1;
 
     public bool HasTimeLimit => TimeLimitMinutes is > 0;
 
     public bool HasClosedAt(DateTime now) => ClosesAt is { } closesAt && now >= closesAt;
+
+    public static bool IsBrandKey(string? key) =>
+        key is { Length: > 0 and <= BrandMaxLength } && key.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-');
 
     public FormAvailability AvailabilityAt(DateTime now) =>
         Status != FormStatus.Open ? FormAvailability.Closed

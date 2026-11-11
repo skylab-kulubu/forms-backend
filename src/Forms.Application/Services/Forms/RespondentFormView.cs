@@ -169,11 +169,14 @@ public sealed class RespondentFormView : IRespondentFormView
             return new ServiceResult<FormMetaContract>(ServiceStatus.NotFound);
 
         if (form.AvailabilityAt(_time.GetUtcNow().UtcDateTime) != FormAvailability.Open)
-            return new ServiceResult<FormMetaContract>(ServiceStatus.NotAvailable, Message: "Bu form şu anda yanıt kabul etmiyor.");
+            return new ServiceResult<FormMetaContract>(
+                ServiceStatus.NotAvailable,
+                Data: new FormMetaContract(form.Title, null, form.Brand),
+                Message: "Bu form şu anda yanıt kabul etmiyor.");
 
         return new ServiceResult<FormMetaContract>(
             ServiceStatus.Success,
-            Data: new FormMetaContract(form.Title, form.Description)
+            Data: new FormMetaContract(form.Title, form.Description, form.Brand)
         );
     }
 
