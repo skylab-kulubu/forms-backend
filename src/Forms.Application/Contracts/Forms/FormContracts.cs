@@ -24,7 +24,8 @@ public record FormContract(
     DateTime? ClosesAt = null,
     int? TimeLimitMinutes = null,
     int PublishedVersion = 1,
-    FormAccessContract? Access = null
+    FormAccessContract? Access = null,
+    string? Brand = null
 );
 
 public record FormAccessContract(bool CanViewResponses, bool CanHandleResponses, bool CanEdit);
@@ -108,5 +109,6 @@ public record FormLockedQuestionContract(
 
 public record FormMetaContract(
     string Title,
-    string? Description
+    string? Description,
+    string? Brand = null
 );

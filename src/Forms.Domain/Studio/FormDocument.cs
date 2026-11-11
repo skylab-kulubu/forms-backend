@@ -36,6 +36,8 @@ public sealed class FormDocument
 
     public int? TimeLimitMinutes => (int?)_root["timeLimitMinutes"];
 
+    public string? Brand => (string?)_root["brand"];
+
     public List<FormSchemaItem> Schema => Fields.Deserialize<List<FormSchemaItem>>(CamelCase) ?? [];
 
     public int ByteSize => Encoding.UTF8.GetByteCount(ToJsonString());
@@ -55,7 +57,8 @@ public sealed class FormDocument
             ["requiresManualReview"] = form.RequiresManualReview,
             ["task"] = form.Task is null ? null : JsonSerializer.SerializeToNode(form.Task, CamelCase),
             ["closesAt"] = form.ClosesAt is { } closesAt ? FormDocumentValues.WriteDate(closesAt) : null,
-            ["timeLimitMinutes"] = form.TimeLimitMinutes
+            ["timeLimitMinutes"] = form.TimeLimitMinutes,
+            ["brand"] = form.Brand
         };
 
         return Read(source, strict: false, out var document, out var problem) ? document : throw new InvalidOperationException(problem);

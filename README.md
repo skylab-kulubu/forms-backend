@@ -128,6 +128,7 @@ Dynamic form creation and response management service.
 - Anonymous response support; a form whose fields carry `props.identity` (`firstName`, `lastName`, `email`) makes a guest give a name and email, stored with the response; `email` alone marks the question whose answer gets the guest's response mails
 - Guest file uploads and Cloudflare Turnstile verification for signed-out respondents, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile)
 - Single or multiple response control
+- Brand themes: a form's `brand` names the theme its public pages open in, a key of lowercase letters, digits and dashes (at most 32), or `null` for the platform's own look. The frontend owns the themes and keeps its own look for a key it does not know, so a new theme ships without a backend change
 - Timed forms: one attempt per person with a deadline the team can extend. An answer is accepted until two minutes after the deadline, so the page's own submission at the deadline arrives in time; opening the form, saving a draft, sending the answer and the expiry worker all apply that one rule, and only after it does the attempt close
 - Redis-backed response drafts and component-group editing drafts, and one shared working copy per form that editors change together in real time, see [Form studio](#form-studio)
 - Response and component-group sharing tokens
@@ -139,7 +140,7 @@ Dynamic form creation and response management service.
 
 | Table | Description |
 |-------|-------------|
-| `Forms` | Form definitions, JSONB schema, status, response settings, and the published version |
+| `Forms` | Form definitions, JSONB schema, status, response settings, the brand key, and the published version |
 | `FormWorkingCopies` | One shared working copy per form: the JSONB document editors change, its version and who changed it last |
 | `FormEdits` | Each applied studio edit with its version, batch id, editor and operations, kept seven days so clients can catch up |
 | `FormComments` | Editors' comments on a question: thread roots and their replies, with who resolved a thread |
@@ -167,7 +168,7 @@ editor ── Edit ──> working copy (version 41 -> 42) ── publish ──
 
 ### Edits
 
-An edit is a batch of operations on the working copy's JSON document. The document holds `title`, `description`, `schema`, `status`, `allowAnonymousResponses`, `allowMultipleResponses`, `requiresManualReview`, `task`, `closesAt` and `timeLimitMinutes`. The editing team is not part of it, see [Editing team](#editing-team).
+An edit is a batch of operations on the working copy's JSON document. The document holds `title`, `description`, `schema`, `status`, `allowAnonymousResponses`, `allowMultipleResponses`, `requiresManualReview`, `task`, `closesAt`, `timeLimitMinutes` and `brand`. The editing team is not part of it, see [Editing team](#editing-team).
 
 | Operation | Shape | When its target is gone |
 |---|---|---|
@@ -657,7 +658,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/forms/{id}` | Get a form for display |
-| `GET` | `/api/forms/{id}/meta` | Get public form metadata |
+| `GET` | `/api/forms/{id}/meta` | Get public form metadata: `title`, `description` and `brand`. A form that is not open answers `410` with `title` and `brand` only, so its closed screen keeps the theme |
 | `POST` | `/api/forms/responses` | Submit a response; a guest also sends `turnstileToken` and, with file answers, `guestUploadSession` |
 | `GET` | `/api/forms/guest-uploads` | Guest upload capability: `{ maxBytes, types }` while guest uploads are active, `data: null` otherwise |
 | `GET` | `/api/forms/turnstile` | Whether Turnstile is on and Forms can reach Cloudflare: `{ enabled, reachable }` |

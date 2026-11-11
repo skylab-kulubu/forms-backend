@@ -12,7 +12,7 @@ internal static class FormDocumentValues
 {
     public static readonly string[] SettingKeys =
     [
-        "title", "description", "status", "allowAnonymousResponses", "allowMultipleResponses", "requiresManualReview", "task", "closesAt", "timeLimitMinutes"
+        "title", "description", "status", "allowAnonymousResponses", "allowMultipleResponses", "requiresManualReview", "task", "closesAt", "timeLimitMinutes", "brand"
     ];
 
     private static readonly HashSet<string> ReservedKeys = new(StringComparer.Ordinal) { "__proto__", "constructor", "prototype" };
@@ -38,6 +38,7 @@ internal static class FormDocumentValues
         "task" => TryTask(value, out normalized, out problem),
         "closesAt" => TryDate(value, out normalized, out problem),
         "timeLimitMinutes" => TryMinutes(value, out normalized, out problem),
+        "brand" => TryBrand(value, out normalized, out problem),
         _ => Fail("Bilinmeyen bir form ayarı gönderildi.", out normalized, out problem)
     };
 
@@ -295,6 +296,20 @@ internal static class FormDocumentValues
             return Fail("Kişisel süre tam sayı olmalı.", out problem);
 
         normalized = minutes;
+        return true;
+    }
+
+    private static bool TryBrand(JsonNode? value, out JsonNode? normalized, [NotNullWhen(false)] out string? problem)
+    {
+        normalized = null;
+        problem = null;
+
+        if (value is null) return true;
+
+        if (!TryText(value, out var brand) || !Form.IsBrandKey(brand))
+            return Fail("Tema okunamadı.", out problem);
+
+        normalized = brand;
         return true;
     }
 

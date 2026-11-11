@@ -43,6 +43,7 @@ public class FormConfiguration : IEntityTypeConfiguration<Form>
         builder.Property(f => f.ClosesAt).IsRequired(false);
         builder.Property<uint>("xmin").IsRowVersion();
         builder.Property(f => f.TimeLimitMinutes).IsRequired(false);
+        builder.Property(f => f.Brand).HasMaxLength(Form.BrandMaxLength);
 
         builder.HasQueryFilter(f => f.Status != FormStatus.Deleted);
 

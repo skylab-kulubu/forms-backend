@@ -53,6 +53,7 @@ internal static class FormPublication
         form.Task = task;
         form.ClosesAt = UtcDate.Normalize(contract.ClosesAt);
         form.TimeLimitMinutes = timeLimit;
+        form.Brand = contract.Brand;
 
         return new FormPublicationResult(null, schemaChanged, clearResponseDrafts);
     }
