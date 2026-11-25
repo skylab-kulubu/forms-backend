@@ -9,4 +9,6 @@ internal sealed class ProviderRoleOptions
     public string PlatformAdmin { get; set; } = "";
 
     public string AccountErasure { get; set; } = "";
+
+    public string ResponsesRead { get; set; } = "";
 }

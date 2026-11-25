@@ -7,6 +7,7 @@ public static class FormsPermissions
     public const string ClaimType = "forms:permission";
     public const string PlatformAdmin = "platform-admin";
     public const string AccountErasure = "account-erasure";
+    public const string ResponsesRead = "responses-read";
 
     internal const string Issuer = "forms";
 

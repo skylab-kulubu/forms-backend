@@ -110,6 +110,16 @@ What changes, deleted forms and archived templates included:
 - Pending response events of the person's own responses are deleted from the outbox, and the core adapter never reports a response owned by `Silinmiş kullanıcı` again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
 
+## Response reads for core
+
+Core reads a form and its responses from three `GET` routes under `/internal/v1`, to write event tickets from the questions an organizer maps (name, surname, email). They follow the account erasure rules: a request that came through Traefik gets `404` before the token is read, the token must carry `azp` `core` and the `skyforms:responses:read-service` role in `resource_access.forms.roles` (otherwise `403 read_forbidden`), answers are `no-store`, and the routes are not in Swagger.
+
+- `GET /internal/v1/forms/{formId}` answers the title, every question with its `id`, `type`, `question`, `inputType` and `identity`, and the form's team as `collaborators` (`userId` and `role`: `owner`, `editor` or `viewer`; no names or addresses, `Silinmiş kullanıcı` left out), so core lets only the form's team map its questions to an event. A deleted form gets `404 form_not_found`.
+- `GET /internal/v1/forms/{formId}/responses?status=accepted&changedSince=&after=&limit=&fields=` answers `{items, nextCursor, watermark}`. Items are in the order of their last change (`ReviewedAt`, or `SubmittedAt` when never reviewed, or the time a team member accepted a provisional response, whichever is later) and id; `after` is the previous page's opaque `nextCursor`; `limit` is 1–200, default 100; `changedSince` is an RFC 3339 time. `watermark` is set on the last page only: two minutes before the read started, so a submission whose transaction ended late is not missed; the next `changedSince` asks from it and may see a response again. A malformed query gets `400 invalid_query`.
+- `GET /internal/v1/forms/{formId}/responses/{responseId}?fields=` answers one response, with the guest's name and email when a named guest sent it. A response of another form gets `404 response_not_found`.
+- An item carries `formId`, `responseId`, `status` (`accepted`, `pending` or `declined`, as in the core report), `userId`, `hasGuest`, `submittedAt`, `version` (its last change) and `answers`. `answers` holds only the questions named in `fields` (comma separated, at most 20 ids), so an answer core does not map never leaves Forms; without `fields` it is `null`.
+- Archived and provisional responses and responses owned by `Silinmiş kullanıcı` are never read.
+
 ## Forms Capabilities
 
 Dynamic form creation and response management service.
@@ -759,7 +769,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 ## Authentication & Authorization
 
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
-- **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts, both looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
+- **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts and `Authentication:Roles:ResponsesRead` (`skyforms:responses:read-service`) lets core read responses, all looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
 - **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
 - **Studio hub:** `/hubs/studio` takes the token from the `access_token` query value, because a browser cannot set headers on a WebSocket. The connection closes when the token expires and the client reconnects with a new one; the account gate runs on every hub call instead of once per HTTP request.
 - **External user data:** User details are fetched from core (`Integrations:SkylabCore:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
@@ -822,7 +832,7 @@ The code has no SKY LAB defaults, so a local run needs its settings, in environm
   "Cors": { "AllowedOrigin": "http://localhost:3000" },
   "Authentication": {
     "Issuer": "https://e.yildizskylab.com/realms/e-skylab-sandbox",
-    "Roles": { "Clients": [ "forms", "dotnet" ], "PlatformAdmin": "skyforms:*", "AccountErasure": "skyforms:account:erase" }
+    "Roles": { "Clients": [ "forms", "dotnet" ], "PlatformAdmin": "skyforms:*", "AccountErasure": "skyforms:account:erase", "ResponsesRead": "skyforms:responses:read-service" }
   },
   "AccountAccessGate": { "Mode": "off" }
 }
@@ -869,7 +879,7 @@ A provider whose address is not set is off, and Forms logs at startup what that 
 | `Redis:ConnectionString` | | Redis connection string; Compose uses logical DB 1 on the shared instance | Yes |
 | `Authentication:Issuer` | `AUTH_ISSUER` | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | Yes; Compose defaults to the production realm |
 | `Authentication:Audience` | `AUTH_AUDIENCE` | Incoming-token audience | `appsettings.json` sets `forms` |
-| `Authentication:Roles:Clients`, `:PlatformAdmin`, `:AccountErasure` | | Provider roles that grant Forms permissions, see [Authentication & Authorization](#authentication--authorization) | No, then nobody holds a permission; Compose sets SKY LAB's roles |
+| `Authentication:Roles:Clients`, `:PlatformAdmin`, `:AccountErasure`, `:ResponsesRead` | | Provider roles that grant Forms permissions, see [Authentication & Authorization](#authentication--authorization) | No, then nobody holds a permission; Compose sets SKY LAB's roles |
 | `Authentication:ServiceAccount:TokenUrl`, `:ClientId`, `:ClientSecret` | `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Client-credentials account for calls to core and SkyMail; `:Scope` defaults to `openid` | While core or SkyMail is set |
 | `Cors:AllowedOrigin` | `ALLOWED_ORIGIN` | Origin of the frontend, like `https://forms.example.org`, without a path; empty allows no cross-origin call | No |
 | `ForwardedHeaders:TrustedProxyRanges` | `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; empty trusts none | No; Compose trusts `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |

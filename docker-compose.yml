@@ -18,6 +18,7 @@ services:
       Authentication__Roles__Clients__1: "dotnet"
       Authentication__Roles__PlatformAdmin: "skyforms:*"
       Authentication__Roles__AccountErasure: "skyforms:account:erase"
+      Authentication__Roles__ResponsesRead: "skyforms:responses:read-service"
       Authentication__ServiceAccount__TokenUrl: "${KEYCLOAK_TOKEN_URL}"
       Authentication__ServiceAccount__ClientId: "${KEYCLOAK_CLIENT_ID}"
       Authentication__ServiceAccount__ClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
