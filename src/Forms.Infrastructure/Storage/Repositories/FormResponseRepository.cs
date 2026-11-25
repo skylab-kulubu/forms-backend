@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Responses;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
@@ -368,6 +369,30 @@ public sealed class FormResponseRepository : IFormResponseRepository
         return await _context.Responses.AsNoTracking()
             .Where(r => formIds.Contains(r.FormId) && r.SubmittedAt >= since && !r.IsArchived && !Uncounted.Contains(r.Status))
             .Select(r => new FormSubmissionProjection(r.FormId, r.SubmittedAt))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<FormResponse>> GetChangedPageAsync(Guid formId, bool acceptedOnly, DateTime? changedSince, (DateTime ChangedAt, Guid Id)? after, int take, CancellationToken ct = default)
+    {
+        var responses = _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId && r.Status != FormResponseStatus.Provisional && r.UserId != DeletedUser.Id);
+
+        if (acceptedOnly)
+            responses = responses.Where(r => r.Status == FormResponseStatus.NonRestrict || r.Status == FormResponseStatus.Approved);
+
+        if (changedSince is { } since)
+            responses = responses.Where(r => (r.ReviewedAt ?? r.SubmittedAt) > since);
+
+        if (after is { } cursor)
+        {
+            var (changedAt, id) = cursor;
+            responses = responses.Where(r => (r.ReviewedAt ?? r.SubmittedAt) > changedAt || ((r.ReviewedAt ?? r.SubmittedAt) == changedAt && r.Id.CompareTo(id) > 0));
+        }
+
+        return await responses
+            .OrderBy(r => r.ReviewedAt ?? r.SubmittedAt)
+            .ThenBy(r => r.Id)
+            .Take(take)
             .ToListAsync(ct);
     }
 
