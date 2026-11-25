@@ -8,8 +8,8 @@ public sealed record FormReadContract(Guid FormId, string Title, IReadOnlyList<Q
 public sealed record QuestionReadContract(string Id, string Type, string Question, string? InputType, string? Identity);
 
 /// <summary>
-/// Core'un okuduğu cevap. Status accepted, pending ya da declined; Version son değişim anı (ReviewedAt, yoksa
-/// SubmittedAt). Answers yalnız istenen soruların cevaplarıdır; Guest yalnız tek cevap okumasında gelir.
+/// Core'un okuduğu cevap. Status accepted, pending ya da declined; Version son değişim anı (listede geçici cevabın
+/// kabulü dahil). Answers yalnız istenen soruların cevaplarıdır; Guest yalnız tek cevap okumasında gelir.
 /// </summary>
 public sealed record ResponseReadContract(
     Guid FormId,

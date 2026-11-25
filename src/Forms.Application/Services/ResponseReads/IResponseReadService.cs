@@ -10,6 +10,6 @@ public interface IResponseReadService
     /// <summary>Formun cevaplarından bir sayfa; form yoksa ya da silinmişse null.</summary>
     Task<ResponseReadPage?> ListAsync(Guid formId, ResponseReadQuery query, CancellationToken ct = default);
 
-    /// <summary>Formun tek cevabı, misafirin adı ve adresiyle; bu formun değilse, geçiciyse ya da Silinmiş kullanıcı'nınsa null.</summary>
+    /// <summary>Formun tek cevabı, misafirin adı ve adresiyle; bu formun değilse, arşivliyse, geçiciyse ya da Silinmiş kullanıcı'nınsa null.</summary>
     Task<ResponseReadContract?> GetAsync(Guid formId, Guid responseId, IReadOnlyList<string> fields, CancellationToken ct = default);
 }

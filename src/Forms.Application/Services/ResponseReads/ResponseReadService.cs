@@ -9,6 +9,8 @@ namespace Skylab.Forms.Application.Services.ResponseReads;
 
 public class ResponseReadService : IResponseReadService
 {
+    private static readonly TimeSpan WatermarkLag = TimeSpan.FromMinutes(2);
+
     private readonly IFormRepository _forms;
     private readonly IFormResponseRepository _responses;
     private readonly TimeProvider _time;
@@ -36,31 +38,32 @@ public class ResponseReadService : IResponseReadService
     {
         if (!await _forms.ExistsAsync(formId, ct)) return null;
 
-        // Saat sorgudan önce alınır: sorgu sürerken değişen cevap bir sonraki changedSince'te yine gelir.
-        var now = _time.GetUtcNow().UtcDateTime;
+        // Gönderim SubmittedAt'i kayıttan önce alır: geç biten işlemin cevabı kaçmasın diye watermark iki dakika geridedir.
+        // Tekrar gelen cevabı core eler.
+        var watermark = _time.GetUtcNow().UtcDateTime - WatermarkLag;
         var after = query.After is { } cursor ? (cursor.ChangedAt, cursor.Id) : ((DateTime, Guid)?)null;
         var rows = await _responses.GetChangedPageAsync(formId, query.AcceptedOnly, query.ChangedSince, after, query.Limit + 1, ct);
 
         var page = rows.Take(query.Limit).ToList();
-        var items = page.Select(response => ContractOf(response, query.Fields, withGuest: false)).ToList();
+        var items = page.Select(row => ContractOf(row.Response, row.ChangedAt, query.Fields, withGuest: false)).ToList();
 
         if (rows.Count <= query.Limit)
-            return new ResponseReadPage(items, null, now);
+            return new ResponseReadPage(items, null, watermark);
 
         var last = page[^1];
-        return new ResponseReadPage(items, new ResponseReadCursor(ChangedAt(last), last.Id).ToString(), null);
+        return new ResponseReadPage(items, new ResponseReadCursor(last.ChangedAt, last.Response.Id).ToString(), null);
     }
 
     public async Task<ResponseReadContract?> GetAsync(Guid formId, Guid responseId, IReadOnlyList<string> fields, CancellationToken ct = default)
     {
         var response = await _responses.GetByIdWithFormAndCollaboratorsAsync(responseId, ct);
-        if (response is null || response.FormId != formId || response.Status == FormResponseStatus.Provisional || response.UserId == DeletedUser.Id)
+        if (response is null || response.FormId != formId || response.IsArchived || response.Status == FormResponseStatus.Provisional || response.UserId == DeletedUser.Id)
             return null;
 
-        return ContractOf(response, fields, withGuest: true);
+        return ContractOf(response, response.ReviewedAt ?? response.SubmittedAt, fields, withGuest: true);
     }
 
-    private static ResponseReadContract ContractOf(FormResponse response, IReadOnlyList<string> fields, bool withGuest)
+    private static ResponseReadContract ContractOf(FormResponse response, DateTime changedAt, IReadOnlyList<string> fields, bool withGuest)
     {
         // Adsız misafir gitmez: core misafir biletini ad ve soyadsız yazmaz.
         var guest = response.Guest is { HasName: true } named ? named : null;
@@ -72,7 +75,7 @@ public class ResponseReadService : IResponseReadService
             response.UserId,
             guest is not null,
             response.SubmittedAt,
-            ChangedAt(response),
+            changedAt,
             fields.Count == 0 ? null : AnswersTo(response.Data, fields),
             withGuest && guest is not null ? new GuestReadContract(guest.FirstName, guest.LastName, guest.Email) : null);
     }
@@ -90,8 +93,6 @@ public class ResponseReadService : IResponseReadService
         FormResponseStatus.Pending or FormResponseStatus.Flagged => "pending",
         _ => "declined"
     };
-
-    private static DateTime ChangedAt(FormResponse response) => response.ReviewedAt ?? response.SubmittedAt;
 
     private static string? PropText(FormSchemaItem item, string key) =>
         item.Props.TryGetValue(key, out var value) ? value?.ToString() : null;
