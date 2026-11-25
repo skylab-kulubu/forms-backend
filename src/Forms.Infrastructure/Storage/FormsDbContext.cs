@@ -41,6 +41,7 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options, TimeProvid
         var now = _time.GetUtcNow().UtcDateTime;
         SetTimestamps(now);
         PublishResponseChanges(now);
+        PublishIntegrationEvents(now);
         await QueueAnswerFileLinksAsync(now, cancellationToken);
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
@@ -92,6 +93,61 @@ public class FormsDbContext(DbContextOptions<FormsDbContext> options, TimeProvid
             .Where(change => !pending.Contains(change.Source))
             .Select(change => OutboxMessage.Of(OutboxTypes.ResponseStatusChanged, ResponseStatusChanged.Of(change.Response), now, change.Source))
             .ToList());
+    }
+
+    /// <summary>
+    /// forms.events'e gidecek olaylar değişiklikle aynı işlemde giden kutusuna yazılır. Cevabın ilk teslim sayıldığı an
+    /// (yeni gönderim ya da kabul edilen geçici cevap) created, sonraki durum değişimleri status_changed olur; formun durumu
+    /// ya da kapanış anı değişince form updated. Silinmiş kullanıcı'nın cevabı olay vermez.
+    /// </summary>
+    private void PublishIntegrationEvents(DateTime now)
+    {
+        var pending = ChangeTracker.Entries<OutboxMessage>()
+            .Where(e => e.State == EntityState.Added)
+            .Select(e => e.Entity.Source)
+            .ToHashSet();
+
+        // Geçici cevabın kabulü ReviewedAt basmaz; anı denemenin Accepted kaydındadır.
+        var acceptedAt = ChangeTracker.Entries<FormAttemptEvent>()
+            .Where(e => e.State == EntityState.Added && e.Entity.Type == FormAttemptEventType.Accepted)
+            .Join(ChangeTracker.Entries<FormAttempt>(), e => e.Entity.AttemptId, a => a.Entity.Id, (e, a) => (a.Entity.ResponseId, e.Entity.CreatedAt))
+            .Where(acceptance => acceptance.ResponseId is not null)
+            .GroupBy(acceptance => acceptance.ResponseId!.Value)
+            .ToDictionary(group => group.Key, group => group.Max(acceptance => acceptance.CreatedAt));
+
+        var events = new List<OutboxMessage>();
+
+        foreach (var entry in ChangeTracker.Entries<FormResponse>())
+        {
+            var response = entry.Entity;
+            var status = entry.Property(r => r.Status);
+            var created = entry.State == EntityState.Added || status.IsModified && status.OriginalValue == FormResponseStatus.Provisional;
+
+            if (!created && !(entry.State == EntityState.Modified && status.IsModified)) continue;
+            if (FormsEvents.StatusOf(response.Status) is not { } state || response.UserId == DeletedUser.Id) continue;
+
+            // Cevap okumalarındaki son değişim anı: ReviewedAt, yoksa SubmittedAt; geçici cevabın kabulü daha geçse o an.
+            var version = response.ReviewedAt ?? response.SubmittedAt;
+            if (acceptedAt.TryGetValue(response.Id, out var accepted) && accepted > version) version = accepted;
+
+            var source = $"event:response:{response.Id}:{response.Status}";
+            events.Add(created
+                ? IntegrationEvent.Outbox(FormsEvents.ResponseCreated, ResponseCreatedData.Of(response, state, version), now, source)
+                : IntegrationEvent.Outbox(FormsEvents.ResponseStatusChanged, ResponseStatusChangedData.Of(response, state, version), now, source));
+        }
+
+        foreach (var entry in ChangeTracker.Entries<Form>().Where(e => e.State == EntityState.Modified))
+        {
+            var status = entry.Property(f => f.Status);
+            var closesAt = entry.Property(f => f.ClosesAt);
+            if (status.OriginalValue == status.CurrentValue && closesAt.OriginalValue == closesAt.CurrentValue) continue;
+
+            var form = entry.Entity;
+            events.Add(IntegrationEvent.Outbox(FormsEvents.FormUpdated, FormUpdatedData.Of(form, form.UpdatedAt ?? now), now,
+                $"event:form:{form.Id}:{form.Status}:{form.ClosesAt:O}"));
+        }
+
+        Outbox.AddRange(events.Where(message => !pending.Contains(message.Source)));
     }
 
     private void SetTimestamps(DateTime now)

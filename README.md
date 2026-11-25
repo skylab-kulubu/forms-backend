@@ -58,7 +58,7 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 - **Domain** - Forms entities, enums, domain models, and domain behavior. It has no project or framework dependency.
 - **Application** - Use-case services, repository/external-service abstractions, request and response contracts, validators, result types, and orchestration. It depends only on Domain.
-- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, Excel generation, and background workers. It implements Application ports. Each external provider has its own folder under `Integrations/` (`SkylabCore`, `SkyMail`, `Cloudflare`, `Oidc`) whose adapters are internal; only its `AddXxx` registration is public.
+- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, Excel generation, and background workers. It implements Application ports. Each external provider has its own folder under `Integrations/` (`SkylabCore`, `SkyMail`, `Cloudflare`, `Oidc`, `RabbitMq`) whose adapters are internal; only its `AddXxx` registration is public.
 - **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition: `Program.cs` plugs each provider in with its `AddXxx`.
 
 ### Key Patterns
@@ -107,7 +107,7 @@ What changes, deleted forms and archived templates included:
 - The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay. The team's note on an application of theirs that was voided is emptied too.
 - Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts, answer file links and comment read markers are deleted; active workflow runs are terminated.
 - The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending response event in the outbox loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
-- Pending response events of the person's own responses are deleted from the outbox, and the core adapter never reports a response owned by `Silinmiş kullanıcı` again.
+- Pending response events of the person's own responses are deleted from the outbox, those for RabbitMQ included, and neither the core adapter nor `forms.events` reports a response owned by `Silinmiş kullanıcı` again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
 
 ## Forms Capabilities
@@ -135,6 +135,7 @@ Dynamic form creation and response management service.
 - XLSX response export
 - Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
 - Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days. With core off no adapter takes it; it waits the same seven days, so a setting missing from one deployment loses nothing once it is fixed
+- Events on RabbitMQ: the same changes, and a form's status or `closesAt` changing, are written to the outbox in the change's transaction as CloudEvents 1.0 (structured JSON, `source` `/forms`, `dataschema` `urn:skylab:schema:<type>:1`, `traceparent` when the request has a W3C trace) and published to the `forms.events` topic exchange with the type as routing key, persistent, on a channel with publisher confirms; the row is deleted only on the broker's ack and otherwise retried with backoff for seven days. `forms.response.created` (a new response, or a provisional one the team accepts) carries `formId`, `responseId`, `status`, `userId`, `hasGuest`, `submittedAt`, `hiddenFields` and `version`; `forms.response.status_changed` carries `formId`, `responseId`, `status`, `userId` and `version`; `forms.form.updated` carries `formId`, `status` (`open`, `closed` or `deleted`), `closesAt` and `version`. Statuses are the core adapter's words, `version` of a response is its last change as core's response reads give it (`ReviewedAt`, otherwise `SubmittedAt`, or a later acceptance of a provisional response) and of a form its `UpdatedAt`. No name, email, answer or note goes into an event: a guest shows only as `hasGuest`, and the reader takes the rest from the internal reads. The event `id` is the outbox row's id and stays the same on retry. Forms declares nothing on the broker; ops sets up the exchange and its queues. With RabbitMQ off the events wait in the outbox like the core adapter's
 
 **Database Models:**
 
@@ -154,7 +155,7 @@ Dynamic form creation and response management service.
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
-| `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core, written in the change's own transaction, and mails; a row is deleted once delivered |
+| `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core and for RabbitMQ, written in the change's own transaction, and mails; a row is deleted once delivered |
 
 ## Form studio
 
@@ -861,7 +862,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 
 Forms reads every setting through .NET configuration: `appsettings.json`, then environment variables, where `__` separates the levels of a key (`Authentication__Issuer` sets `Authentication:Issuer`). Each section is bound to an options class and checked when the service starts, before migrations run, so a missing or invalid value stops startup with the key's name. The code holds no SKY LAB address or name: `docker-compose.yml` holds SKY LAB's values and translates the short variables a deployment sets into these keys.
 
-A provider whose address is not set is off, and Forms logs at startup what that turns off. Without core there are no people's names, answer files or short links; without SkyMail there is no mail; without a Turnstile secret guest answers are not checked and guest uploads stay off. Forms, its answers and workflows work either way.
+A provider whose address is not set is off, and Forms logs at startup what that turns off. Without core there are no people's names, answer files or short links; without SkyMail there is no mail; without RabbitMQ no event is published; without a Turnstile secret guest answers are not checked and guest uploads stay off. Forms, its answers and workflows work either way.
 
 | Setting | Compose variable | Description | Required |
 |---|---|---|---|
@@ -887,6 +888,9 @@ A provider whose address is not set is off, and Forms logs at startup what that 
 | `GuestUploads:Mode` | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on`. Active only together with a Turnstile secret, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, `off` |
 | `GuestUploads:IpSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, `300` |
 | `GuestUploads:FormSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, `1000` |
+| `RABBITMQ_HOST` | `RABBITMQ_HOST` | RabbitMQ host that takes the events on `forms.events`. Read under the same root names as the other services' RabbitMQ settings, not as a section. Empty turns publishing off | No |
+| `RABBITMQ_PORT`, `RABBITMQ_VHOST` | `RABBITMQ_PORT`, `RABBITMQ_VHOST` | AMQP port (default `5672`) and virtual host | `RABBITMQ_VHOST` while the host is set; Compose uses `skylab` |
+| `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD` | `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD` | Forms' RabbitMQ login; it may only publish on `forms.events` | While the host is set |
 
 FormMail template keys without a mail provider stop startup, since the mails they name could never be sent.
 
