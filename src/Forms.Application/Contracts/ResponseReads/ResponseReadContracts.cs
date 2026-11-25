@@ -2,8 +2,13 @@ using System.Globalization;
 
 namespace Skylab.Forms.Application.Contracts.ResponseReads;
 
-/// <summary>Core'un okuduğu form: başlık ve sorular; cevap eşlemesi soruların Id'siyle yapılır.</summary>
-public sealed record FormReadContract(Guid FormId, string Title, IReadOnlyList<QuestionReadContract> Questions);
+/// <summary>
+/// Core'un okuduğu form: başlık, sorular ve formun ekibi. Cevap eşlemesi soruların Id'siyle yapılır; core eşlemeyi
+/// yalnız ekipteki birine kaydettirir. Ekip yalnız kullanıcı kimliği ve roldür.
+/// </summary>
+public sealed record FormReadContract(Guid FormId, string Title, IReadOnlyList<QuestionReadContract> Questions, IReadOnlyList<CollaboratorReadContract> Collaborators);
+
+public sealed record CollaboratorReadContract(Guid UserId, string Role);
 
 public sealed record QuestionReadContract(string Id, string Type, string Question, string? InputType, string? Identity);
 

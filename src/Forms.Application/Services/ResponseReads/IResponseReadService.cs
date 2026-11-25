@@ -4,7 +4,7 @@ namespace Skylab.Forms.Application.Services.ResponseReads;
 
 public interface IResponseReadService
 {
-    /// <summary>Formun başlığı ve soruları; form yoksa ya da silinmişse null.</summary>
+    /// <summary>Formun başlığı, soruları ve ekibi; form yoksa ya da silinmişse null.</summary>
     Task<FormReadContract?> GetFormAsync(Guid formId, CancellationToken ct = default);
 
     /// <summary>Formun cevaplarından bir sayfa; form yoksa ya da silinmişse null.</summary>

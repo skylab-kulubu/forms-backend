@@ -24,14 +24,19 @@ public class ResponseReadService : IResponseReadService
 
     public async Task<FormReadContract?> GetFormAsync(Guid formId, CancellationToken ct = default)
     {
-        var form = await _forms.GetByIdAsync(formId, ct);
+        var form = await _forms.GetWithCollaboratorsAsync(formId, ct);
         if (form is null) return null;
 
         var questions = form.Schema
             .Select(item => new QuestionReadContract(item.Id, item.Type, ResponseDataMapper.QuestionOf(item), PropText(item, "inputType"), PropText(item, "identity")))
             .ToList();
 
-        return new FormReadContract(form.Id, form.Title, questions);
+        var collaborators = form.Collaborators
+            .Where(collaborator => collaborator.Role != CollaboratorRole.None && collaborator.UserId != DeletedUser.Id)
+            .Select(collaborator => new CollaboratorReadContract(collaborator.UserId, collaborator.Role.ToString().ToLowerInvariant()))
+            .ToList();
+
+        return new FormReadContract(form.Id, form.Title, questions, collaborators);
     }
 
     public async Task<ResponseReadPage?> ListAsync(Guid formId, ResponseReadQuery query, CancellationToken ct = default)
