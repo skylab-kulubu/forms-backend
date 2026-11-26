@@ -16,6 +16,7 @@ internal sealed class ProviderRoleClaims(IOptions<ProviderRoleOptions> options) 
         {
             Grant(identity, roles, roles.PlatformAdmin, FormsPermissions.PlatformAdmin);
             Grant(identity, roles, roles.AccountErasure, FormsPermissions.AccountErasure);
+            Grant(identity, roles, roles.ResponsesRead, FormsPermissions.ResponsesRead);
         }
 
         return Task.FromResult(principal);

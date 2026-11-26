@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Skylab.Forms.Application.Abstractions.Storage;
 using Skylab.Forms.Application.Common;
 using Skylab.Forms.Application.Contracts.Responses;
+using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Domain.Entities;
 using Skylab.Forms.Domain.Enums;
 using Skylab.Forms.Domain.Models;
@@ -369,6 +370,47 @@ public sealed class FormResponseRepository : IFormResponseRepository
             .Where(r => formIds.Contains(r.FormId) && r.SubmittedAt >= since && !r.IsArchived && !Uncounted.Contains(r.Status))
             .Select(r => new FormSubmissionProjection(r.FormId, r.SubmittedAt))
             .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<FormResponseChange>> GetChangedPageAsync(Guid formId, bool acceptedOnly, DateTime? changedSince, (DateTime ChangedAt, Guid Id)? after, int take, CancellationToken ct = default)
+    {
+        var responses = _context.Responses.AsNoTracking()
+            .Where(r => r.FormId == formId && !r.IsArchived && r.Status != FormResponseStatus.Provisional && r.UserId != DeletedUser.Id);
+
+        if (acceptedOnly)
+            responses = responses.Where(r => r.Status == FormResponseStatus.NonRestrict || r.Status == FormResponseStatus.Approved);
+
+        // Geçici cevabın kabulü durumu değiştirir ama ReviewedAt basmaz; anı denemenin tek Accepted olayındadır.
+        var acceptances = _context.AttemptEvents.IgnoreQueryFilters()
+            .Where(e => e.Type == FormAttemptEventType.Accepted)
+            .Select(e => new { e.Attempt.ResponseId, CreatedAt = (DateTime?)e.CreatedAt });
+
+        var changes =
+            from r in responses
+            join accepted in acceptances on (Guid?)r.Id equals accepted.ResponseId into accepts
+            from accepted in accepts.DefaultIfEmpty()
+            select new
+            {
+                Response = r,
+                ChangedAt = accepted.CreatedAt != null && accepted.CreatedAt > (r.ReviewedAt ?? r.SubmittedAt) ? accepted.CreatedAt.Value : r.ReviewedAt ?? r.SubmittedAt
+            };
+
+        if (changedSince is { } since)
+            changes = changes.Where(x => x.ChangedAt > since);
+
+        if (after is { } cursor)
+        {
+            var (changedAt, id) = cursor;
+            changes = changes.Where(x => x.ChangedAt > changedAt || (x.ChangedAt == changedAt && x.Response.Id.CompareTo(id) > 0));
+        }
+
+        var page = await changes
+            .OrderBy(x => x.ChangedAt)
+            .ThenBy(x => x.Response.Id)
+            .Take(take)
+            .ToListAsync(ct);
+
+        return [.. page.Select(x => new FormResponseChange(x.Response, x.ChangedAt))];
     }
 
     public async Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default)

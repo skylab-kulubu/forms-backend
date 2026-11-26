@@ -7,6 +7,7 @@ using Skylab.Forms.Application.Services.Attempts;
 using Skylab.Forms.Application.Services.GuestUploads;
 using Skylab.Forms.Application.Services.Mail;
 using Skylab.Forms.Application.Services.Ownership;
+using Skylab.Forms.Application.Services.ResponseReads;
 using Skylab.Forms.Application.Services.Responses;
 using Skylab.Forms.Application.Services.ShortLinks;
 using Skylab.Forms.Application.Services.Studio;
@@ -48,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<IAttemptReadModels, AttemptReadModels>();
         services.AddScoped<IGuestUploadService, GuestUploadService>();
         services.AddScoped<IAccountErasureService, AccountErasureService>();
+        services.AddScoped<IResponseReadService, ResponseReadService>();
 
         return services;
     }

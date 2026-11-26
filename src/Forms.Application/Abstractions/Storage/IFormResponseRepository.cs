@@ -23,6 +23,13 @@ public interface IFormResponseRepository
     Task<IReadOnlyList<ResponseContactProjection>> GetNonArchivedContactsAsync(Guid formId, CancellationToken ct = default);
     Task<IReadOnlyList<FormSubmissionProjection>> GetSubmittedSinceAsync(IReadOnlyCollection<Guid> formIds, DateTime since, CancellationToken ct = default);
 
+    /// <summary>
+    /// Formun cevapları, son değişim anına ve Id'ye göre artan; geçici cevaplar ve Silinmiş kullanıcı'nın cevapları
+    /// hariç. Son değişim: ReviewedAt (yoksa SubmittedAt) ile geçici cevabın teslim olarak kabul edildiği andan geç
+    /// olanı. after, önceki sayfanın son cevabının (anı, Id) çiftidir.
+    /// </summary>
+    Task<IReadOnlyList<FormResponseChange>> GetChangedPageAsync(Guid formId, bool acceptedOnly, DateTime? changedSince, (DateTime ChangedAt, Guid Id)? after, int take, CancellationToken ct = default);
+
     Task<IReadOnlyList<OverduePendingFormProjection>> GetOverduePendingByFormAsync(DateTime cutoff, CancellationToken ct = default);
     Task MarkOverduePendingRemindedAsync(DateTime cutoff, DateTime remindedAt, IReadOnlyCollection<Guid> formIds, CancellationToken ct = default);
 
@@ -35,6 +42,8 @@ public sealed record FormResponseCounts(int Total, int Waiting, double? AverageT
 public sealed record ResponseContactProjection(Guid? UserId, ResponseGuest? Guest);
 
 public sealed record FormSubmissionProjection(Guid FormId, DateTime SubmittedAt);
+
+public sealed record FormResponseChange(FormResponse Response, DateTime ChangedAt);
 
 public sealed record OverduePendingFormProjection(Guid FormId, string FormTitle, int PendingCount, IReadOnlyList<Guid> ReviewerIds);
 

@@ -1,8 +1,11 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Skylab.Forms.Application.Abstractions;
 using Skylab.Forms.Application.Contracts.AccountErasure;
+using Skylab.Forms.Application.Contracts.ResponseReads;
 using Skylab.Forms.Application.Services.AccountErasure;
+using Skylab.Forms.Application.Services.ResponseReads;
 using Skylab.Forms.Domain.Common;
 using Skylab.Forms.Infrastructure.Auth;
 using Skylab.Forms.Infrastructure.Storage;
@@ -16,6 +19,10 @@ namespace Skylab.Forms.Api.Endpoints;
 public static class InternalEndpoints
 {
     private const int MaxErasureBodyBytes = 4096;
+    private const int DefaultReadLimit = 100;
+    private const int MaxReadLimit = 200;
+    private const int MaxReadFields = 20;
+    private const int MaxFieldIdLength = 100;
     private static readonly TimeSpan ErasureTimeout = TimeSpan.FromSeconds(90);
 
     private static readonly JsonSerializerOptions StrictJson = new()
@@ -127,6 +134,96 @@ public static class InternalEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, "erasure_store_unavailable");
             }
         });
+
+        // Core'un form okuması: etkinliğe bağlanan formun soruları, cevap eşlemesi için.
+        group.MapGet("/forms/{formId:guid}", async (Guid formId, HttpContext context, IResponseReadService service, CancellationToken ct) =>
+        {
+            if (RefuseRead(context) is { } refused) return refused;
+
+            var form = await service.GetFormAsync(formId, ct);
+            return form is null ? Problem(StatusCodes.Status404NotFound, "form_not_found") : Results.Json(form);
+        });
+
+        // Core'un cevap listesi: geriye dönük bilet ve günlük yakalama. Sıra (değişim anı, Id) artan, imleç opak.
+        group.MapGet("/forms/{formId:guid}/responses", async (Guid formId, HttpContext context, IResponseReadService service, CancellationToken ct) =>
+        {
+            if (RefuseRead(context) is { } refused) return refused;
+
+            var query = ReadListQuery(context.Request);
+            if (query is null)
+                return Problem(StatusCodes.Status400BadRequest, "invalid_query");
+
+            var page = await service.ListAsync(formId, query, ct);
+            return page is null ? Problem(StatusCodes.Status404NotFound, "form_not_found") : Results.Json(page);
+        });
+
+        // Core'un tek cevap okuması: misafirin adı ve adresi ile eşlenen soruların cevapları olayda değil burada gelir.
+        group.MapGet("/forms/{formId:guid}/responses/{responseId:guid}", async (Guid formId, Guid responseId, HttpContext context, IResponseReadService service, CancellationToken ct) =>
+        {
+            if (RefuseRead(context) is { } refused) return refused;
+
+            var fields = ReadFields(context.Request);
+            if (fields is null)
+                return Problem(StatusCodes.Status400BadRequest, "invalid_query");
+
+            var response = await service.GetAsync(formId, responseId, fields, ct);
+            return response is null ? Problem(StatusCodes.Status404NotFound, "response_not_found") : Results.Json(response);
+        });
+    }
+
+    /// <summary>Token JwtBearer zincirinde doğrulandı; okuma yalnız core'un servis hesabına (azp core, skyforms:responses:read-service).</summary>
+    private static IResult? RefuseRead(HttpContext context)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            context.Response.Headers.WWWAuthenticate = "Bearer";
+            return Problem(StatusCodes.Status401Unauthorized, "unauthorized");
+        }
+
+        if (context.User.FindFirst("azp")?.Value != "core" ||
+            !FormsPermissions.Has(context.User, FormsPermissions.ResponsesRead))
+            return Problem(StatusCodes.Status403Forbidden, "read_forbidden");
+
+        return null;
+    }
+
+    /// <summary>status yalnız accepted olabilir; changedSince RFC 3339; limit 1–200; fields virgülle en çok 20 soru Id'si.</summary>
+    private static ResponseReadQuery? ReadListQuery(HttpRequest request)
+    {
+        var status = request.Query["status"].ToString();
+        if (status is not ("" or "accepted")) return null;
+
+        DateTime? changedSince = null;
+        var since = request.Query["changedSince"].ToString();
+        if (since.Length > 0)
+        {
+            if (!DateTimeOffset.TryParse(since, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)) return null;
+            changedSince = parsed.UtcDateTime;
+        }
+
+        ResponseReadCursor? after = null;
+        var cursor = request.Query["after"].ToString();
+        if (cursor.Length > 0 && (after = ResponseReadCursor.Parse(cursor)) is null) return null;
+
+        var limit = DefaultReadLimit;
+        var limitText = request.Query["limit"].ToString();
+        if (limitText.Length > 0 && (!int.TryParse(limitText, NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit is < 1 or > MaxReadLimit))
+            return null;
+
+        var fields = ReadFields(request);
+        return fields is null ? null : new ResponseReadQuery(status == "accepted", changedSince, after, limit, fields);
+    }
+
+    private static IReadOnlyList<string>? ReadFields(HttpRequest request)
+    {
+        var fields = request.Query["fields"].ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct()
+            .ToList();
+
+        return fields.Count > MaxReadFields || fields.Any(field => field.Length > MaxFieldIdLength) ? null : fields;
     }
 
     /// <summary>Gövde: tam olarak request_id (yoldakiyle aynı), subject_id ve 0–3 adres; en çok 4 KB.</summary>

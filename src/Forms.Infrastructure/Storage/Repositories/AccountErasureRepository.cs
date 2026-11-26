@@ -95,13 +95,17 @@ public sealed class AccountErasureRepository : IAccountErasureRepository
     public Task<int> DeleteCommentReadsAsync(Guid userId, CancellationToken ct = default) =>
         _context.FormCommentReads.IgnoreQueryFilters().Where(read => read.UserId == userId).ExecuteDeleteAsync(ct);
 
-    // Kuyrukta kalan bildirim, core kişiyi anonimleştirdikten sonra kimliğini ona yeniden taşırdı. Misafir
+    // Kuyrukta kalan bildirim ve olay, core kişiyi anonimleştirdikten sonra kimliğini ona yeniden taşırdı. Misafir
     // bildiriminin kendisi misafirindir; yalnız kişinin adresi çıkarılır.
     public async Task<int> ClearNotificationsAsync(Guid userId, IReadOnlyList<string> emails, CancellationToken ct = default)
     {
         var deleted = await _context.Database.ExecuteSqlRawAsync(
             """DELETE FROM "OutboxMessages" WHERE "Type" = @type AND "Payload" ->> 'userId' = @userId""",
             [new NpgsqlParameter("type", OutboxTypes.ResponseStatusChanged), new NpgsqlParameter("userId", userId.ToString())], ct);
+
+        deleted += await _context.Database.ExecuteSqlRawAsync(
+            """DELETE FROM "OutboxMessages" WHERE "Type" = @type AND "Payload" -> 'data' ->> 'userId' = @userId""",
+            [new NpgsqlParameter("type", OutboxTypes.Event), new NpgsqlParameter("userId", userId.ToString())], ct);
 
         if (emails.Count == 0) return deleted;
 
