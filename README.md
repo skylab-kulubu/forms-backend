@@ -58,7 +58,7 @@ Forms.Infrastructure -> Forms.Application -> Forms.Domain
 
 - **Domain** - Forms entities, enums, domain models, and domain behavior. It has no project or framework dependency.
 - **Application** - Use-case services, repository/external-service abstractions, request and response contracts, validators, result types, and orchestration. It depends only on Domain.
-- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, Excel generation, and background workers. It implements Application ports. Each external provider has its own folder under `Integrations/` (`SkylabCore`, `SkyMail`, `Cloudflare`, `Oidc`) whose adapters are internal; only its `AddXxx` registration is public.
+- **Infrastructure** - EF Core persistence, PostgreSQL migrations, Redis, Excel generation, and background workers. It implements Application ports. Each external provider has its own folder under `Integrations/` (`SkylabCore`, `SkyMail`, `Cloudflare`, `Oidc`, `RabbitMq`) whose adapters are internal; only its `AddXxx` registration is public.
 - **API** - Minimal API endpoints, middleware, Swagger, CORS, and dependency composition: `Program.cs` plugs each provider in with its `AddXxx`.
 
 ### Key Patterns
@@ -107,8 +107,18 @@ What changes, deleted forms and archived templates included:
 - The person's own responses move to `Silinmiş kullanıcı` (`00000000-0000-4000-8000-000000000000`) with their answers and review note emptied; the response, its status and dates stay. The team's note on an application of theirs that was voided is emptied too.
 - Reviewer, archiver, voider and owner columns move to `Silinmiş kullanıcı`, and each form keeps its single owner row. Other collaborator rows, timed attempts, drafts, answer file links and comment read markers are deleted; active workflow runs are terminated.
 - The addresses core verified for the person are removed wherever they appear: an answer or note that contains one is emptied, a guest response's `GuestEmail` becomes `NULL` and a pending response event in the outbox loses it. A guest response is not tied to the account, since guest addresses are not verified, so nothing else in it changes.
-- Pending response events of the person's own responses are deleted from the outbox, and the core adapter never reports a response owned by `Silinmiş kullanıcı` again.
+- Pending response events of the person's own responses are deleted from the outbox, those for RabbitMQ included, and neither the core adapter nor `forms.events` reports a response owned by `Silinmiş kullanıcı` again.
 - Names are not searched. Response share links expire within an hour and are left to expire.
+
+## Response reads for core
+
+Core reads a form and its responses from three `GET` routes under `/internal/v1`, to write event tickets from the questions an organizer maps (name, surname, email). They follow the account erasure rules: a request that came through Traefik gets `404` before the token is read, the token must carry `azp` `core` and the `skyforms:responses:read-service` role in `resource_access.forms.roles` (otherwise `403 read_forbidden`), answers are `no-store`, and the routes are not in Swagger.
+
+- `GET /internal/v1/forms/{formId}` answers the title, every question with its `id`, `type`, `question`, `inputType` and `identity`, and the form's team as `collaborators` (`userId` and `role`: `owner`, `editor` or `viewer`; no names or addresses, `Silinmiş kullanıcı` left out), so core lets only the form's team map its questions to an event. A deleted form gets `404 form_not_found`.
+- `GET /internal/v1/forms/{formId}/responses?status=accepted&changedSince=&after=&limit=&fields=` answers `{items, nextCursor, watermark}`. Items are in the order of their last change (`ReviewedAt`, or `SubmittedAt` when never reviewed, or the time a team member accepted a provisional response, whichever is later) and id; `after` is the previous page's opaque `nextCursor`; `limit` is 1–200, default 100; `changedSince` is an RFC 3339 time. `watermark` is set on the last page only: two minutes before the read started, so a submission whose transaction ended late is not missed; the next `changedSince` asks from it and may see a response again. A malformed query gets `400 invalid_query`.
+- `GET /internal/v1/forms/{formId}/responses/{responseId}?fields=` answers one response, with the guest's name and email when a named guest sent it. A response of another form gets `404 response_not_found`.
+- An item carries `formId`, `responseId`, `status` (`accepted`, `pending` or `declined`, as in the core report), `userId`, `hasGuest`, `submittedAt`, `version` (its last change) and `answers`. `answers` holds only the questions named in `fields` (comma separated, at most 20 ids), so an answer core does not map never leaves Forms; without `fields` it is `null`.
+- Archived and provisional responses and responses owned by `Silinmiş kullanıcı` are never read.
 
 ## Forms Capabilities
 
@@ -135,6 +145,7 @@ Dynamic form creation and response management service.
 - XLSX response export
 - Mail notifications and pending-response reminders: each mail is written to the outbox and sent through SkyMail. One SkyMail cannot take now is retried with backoff for a day, each try waiting at most ten seconds; one it refuses for good (`400`, `413` or `422`, such as an unknown template) is dropped. A reminder marks its responses only after every reminder mail is queued, so a failed scan reminds again rather than never
 - Response events: each new response and each status change is written to the outbox as a `response.status-changed` event, in Forms' own words, in the same transaction. The SKY LAB core adapter translates it into core's words and posts it to core (`POST /v1/forms/{formId}/responses`), which writes the tickets of Event forms; Forms itself knows nothing about Events. An undelivered event is retried with backoff for seven days. With core off no adapter takes it; it waits the same seven days, so a setting missing from one deployment loses nothing once it is fixed
+- Events on RabbitMQ: the same changes, and a form's status or `closesAt` changing, are written to the outbox in the change's transaction as CloudEvents 1.0 (structured JSON, `source` `/forms`, `dataschema` `urn:skylab:schema:<type>:1`, `traceparent` when the request has a W3C trace) and published to the `forms.events` topic exchange with the type as routing key, persistent, on a channel with publisher confirms; the row is deleted only on the broker's ack and otherwise retried with backoff for seven days. `forms.response.created` (a new response, or a provisional one the team accepts) carries `formId`, `responseId`, `status`, `userId`, `hasGuest`, `submittedAt`, `hiddenFields` and `version`; `forms.response.status_changed` carries `formId`, `responseId`, `status`, `userId` and `version`; `forms.form.updated` carries `formId`, `status` (`open`, `closed` or `deleted`), `closesAt` and `version`. Statuses are the core adapter's words, `version` of a response is its last change as core's response reads give it (`ReviewedAt`, otherwise `SubmittedAt`, or a later acceptance of a provisional response) and of a form its `UpdatedAt`. No name, email, answer or note goes into an event: a guest shows only as `hasGuest`, and the reader takes the rest from the internal reads. The event `id` is the outbox row's id and stays the same on retry. Forms declares nothing on the broker; ops sets up the exchange and its queues. With RabbitMQ off the events wait in the outbox like the core adapter's
 
 **Database Models:**
 
@@ -154,7 +165,7 @@ Dynamic form creation and response management service.
 | `WorkflowTransitions` | Routes between nodes, with trigger, JSONB condition, and priority |
 | `WorkflowInstances` | One user's run of a workflow, bound to the version it started on, and who voided it with which note |
 | `WorkflowSteps` | Each position in a run, with its response, the route chosen out of it, and which submission of the step it is |
-| `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core, written in the change's own transaction, and mails; a row is deleted once delivered |
+| `OutboxMessages` | Messages delivered after the change that caused them by one dispatcher: response events for core and for RabbitMQ, written in the change's own transaction, and mails; a row is deleted once delivered |
 
 ## Form studio
 
@@ -759,7 +770,7 @@ Paged lists clamp `Page` to at least 1 and `PageSize` to 1–100 and report the 
 ## Authentication & Authorization
 
 - **Incoming bearer validation:** JwtBearer validates tokens against the Keycloak issuer and the `forms` audience. A request without an `Authorization` header is anonymous; one whose header does not validate gets `401`, even on anonymous endpoints, instead of being treated as anonymous.
-- **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts, both looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
+- **Current user:** The user ID comes from the token's `sub`. Provider roles are translated once, right after authentication, into Forms permissions by `ProviderRoleClaims`, the only code that knows Keycloak's `resource_access` shape: `Authentication:Roles:PlatformAdmin` (`skyforms:*`) makes a service administrator and `Authentication:Roles:AccountErasure` (`skyforms:account:erase`) lets core erase accounts and `Authentication:Roles:ResponsesRead` (`skyforms:responses:read-service`) lets core read responses, all looked up under the clients in `Authentication:Roles:Clients` (`forms` and the legacy `dotnet`). A role left empty is granted to nobody, and a permission claim carried inside a token is ignored. Services ask `ICurrentUser.IsPlatformAdmin`.
 - **Sign-in:** `/api/admin/*`, starting a timed attempt and response drafts require a validated token whose `sub` is a GUID, enforced once at the route group instead of in each handler. The pipeline answers `401` and `403` in the usual envelope; the service-administrator lists (`forms/all` and the `orphaned` lists) use the `platform-admin` policy.
 - **Studio hub:** `/hubs/studio` takes the token from the `access_token` query value, because a browser cannot set headers on a WebSocket. The connection closes when the token expires and the client reconnects with a new one; the account gate runs on every hub call instead of once per HTTP request.
 - **External user data:** User details are fetched from core (`Integrations:SkylabCore:BaseUrl`, Compose DNS `http://core:8080`) through an Application abstraction and Infrastructure HTTP adapter.
@@ -822,7 +833,7 @@ The code has no SKY LAB defaults, so a local run needs its settings, in environm
   "Cors": { "AllowedOrigin": "http://localhost:3000" },
   "Authentication": {
     "Issuer": "https://e.yildizskylab.com/realms/e-skylab-sandbox",
-    "Roles": { "Clients": [ "forms", "dotnet" ], "PlatformAdmin": "skyforms:*", "AccountErasure": "skyforms:account:erase" }
+    "Roles": { "Clients": [ "forms", "dotnet" ], "PlatformAdmin": "skyforms:*", "AccountErasure": "skyforms:account:erase", "ResponsesRead": "skyforms:responses:read-service" }
   },
   "AccountAccessGate": { "Mode": "off" }
 }
@@ -861,7 +872,7 @@ docker build -f src/Dockerfile -t skylab-forms-api src
 
 Forms reads every setting through .NET configuration: `appsettings.json`, then environment variables, where `__` separates the levels of a key (`Authentication__Issuer` sets `Authentication:Issuer`). Each section is bound to an options class and checked when the service starts, before migrations run, so a missing or invalid value stops startup with the key's name. The code holds no SKY LAB address or name: `docker-compose.yml` holds SKY LAB's values and translates the short variables a deployment sets into these keys.
 
-A provider whose address is not set is off, and Forms logs at startup what that turns off. Without core there are no people's names, answer files or short links; without SkyMail there is no mail; without a Turnstile secret guest answers are not checked and guest uploads stay off. Forms, its answers and workflows work either way.
+A provider whose address is not set is off, and Forms logs at startup what that turns off. Without core there are no people's names, answer files or short links; without SkyMail there is no mail; without RabbitMQ no event is published; without a Turnstile secret guest answers are not checked and guest uploads stay off. Forms, its answers and workflows work either way.
 
 | Setting | Compose variable | Description | Required |
 |---|---|---|---|
@@ -869,7 +880,7 @@ A provider whose address is not set is off, and Forms logs at startup what that 
 | `Redis:ConnectionString` | | Redis connection string; Compose uses logical DB 1 on the shared instance | Yes |
 | `Authentication:Issuer` | `AUTH_ISSUER` | Incoming-token issuer; sandbox uses `https://e.yildizskylab.com/realms/e-skylab-sandbox` | Yes; Compose defaults to the production realm |
 | `Authentication:Audience` | `AUTH_AUDIENCE` | Incoming-token audience | `appsettings.json` sets `forms` |
-| `Authentication:Roles:Clients`, `:PlatformAdmin`, `:AccountErasure` | | Provider roles that grant Forms permissions, see [Authentication & Authorization](#authentication--authorization) | No, then nobody holds a permission; Compose sets SKY LAB's roles |
+| `Authentication:Roles:Clients`, `:PlatformAdmin`, `:AccountErasure`, `:ResponsesRead` | | Provider roles that grant Forms permissions, see [Authentication & Authorization](#authentication--authorization) | No, then nobody holds a permission; Compose sets SKY LAB's roles |
 | `Authentication:ServiceAccount:TokenUrl`, `:ClientId`, `:ClientSecret` | `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Client-credentials account for calls to core and SkyMail; `:Scope` defaults to `openid` | While core or SkyMail is set |
 | `Cors:AllowedOrigin` | `ALLOWED_ORIGIN` | Origin of the frontend, like `https://forms.example.org`, without a path; empty allows no cross-origin call | No |
 | `ForwardedHeaders:TrustedProxyRanges` | `TRUSTED_PROXY_RANGES` | Comma-separated CIDRs or addresses whose `X-Forwarded-For` is trusted; empty trusts none | No; Compose trusts `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7` |
@@ -887,6 +898,9 @@ A provider whose address is not set is off, and Forms logs at startup what that 
 | `GuestUploads:Mode` | `FORMS_GUEST_UPLOADS` | Guest file uploads, exactly `off` or `on`. Active only together with a Turnstile secret, see [Guest uploads and Turnstile](#guest-uploads-and-turnstile) | No, `off` |
 | `GuestUploads:IpSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_IP_PER_MINUTE` | Guest answers one client address may send per minute, all forms together, from 1 to 100000 | No, `300` |
 | `GuestUploads:FormSubmitsPerMinute` | `FORMS_GUEST_SUBMIT_FORM_PER_MINUTE` | Guest answers one form may receive per minute, from 1 to 100000 | No, `1000` |
+| `RABBITMQ_HOST` | `RABBITMQ_HOST` | RabbitMQ host that takes the events on `forms.events`. Read under the same root names as the other services' RabbitMQ settings, not as a section. Empty turns publishing off | No |
+| `RABBITMQ_PORT`, `RABBITMQ_VHOST` | `RABBITMQ_PORT`, `RABBITMQ_VHOST` | AMQP port (default `5672`) and virtual host | `RABBITMQ_VHOST` while the host is set; Compose uses `skylab` |
+| `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD` | `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD` | Forms' RabbitMQ login; it may only publish on `forms.events` | While the host is set |
 
 FormMail template keys without a mail provider stop startup, since the mails they name could never be sent.
 

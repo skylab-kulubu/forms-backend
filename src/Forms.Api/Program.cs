@@ -8,6 +8,7 @@ using Skylab.Forms.Application;
 using Skylab.Forms.Infrastructure;
 using Skylab.Forms.Infrastructure.Integrations.Cloudflare;
 using Skylab.Forms.Infrastructure.Integrations.Oidc;
+using Skylab.Forms.Infrastructure.Integrations.RabbitMq;
 using Skylab.Forms.Infrastructure.Integrations.SkyMail;
 using Skylab.Forms.Infrastructure.Integrations.SkylabCore;
 
@@ -26,6 +27,7 @@ builder.Services.AddOidcIdentity(builder.Configuration);
 builder.Services.AddSkylabCore(builder.Configuration);
 builder.Services.AddSkyMail(builder.Configuration);
 builder.Services.AddTurnstile(builder.Configuration);
+builder.Services.AddRabbitMq(builder.Configuration);
 builder.Services.AddFormStudio();
 
 var app = builder.Build();
